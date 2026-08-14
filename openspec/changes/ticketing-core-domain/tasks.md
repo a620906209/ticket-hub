@@ -1,8 +1,8 @@
 ## 1. 共用基礎
 
-- [x] 1.1 在 `ProjectC.Domain` 定義 `IDateTimeProvider` 介面（僅供 Application 層注入使用，Domain Entity 方法一律直接接收 `DateTime now` 參數，不持有此介面）
-- [x] 1.2 在測試專案建立假時間提供者（`FakeDateTimeProvider`），供 `ProjectC.Application.Tests` 撰寫確定性時間測試；`ProjectC.Domain.Tests` 直接傳固定 `DateTime` 即可，不需假物件
-- [x] 1.3 在 `ProjectC.Application` 定義通用 `Result<T>` 型別（成功值或錯誤碼/訊息），供各 Handler 對外回傳使用
+- [x] 1.1 ~~在 `ProjectC.Domain` 定義 `IDateTimeProvider` 介面~~ **[2026-08-15 改為]** 合併 `master`（`feature/membership-system`）後改用其已存在、被 53 個檔案使用的 `ProjectC.Application.Common.Interfaces.IDateTimeProvider`，不重複定義；Domain Entity 方法仍一律直接接收 `DateTime now` 參數，不持有此介面
+- [x] 1.2 ~~在測試專案建立假時間提供者~~ **[2026-08-15 改為]** 沿用 `master` 既有的 `tests/ProjectC.Application.Tests/TestSupport/FakeDateTimeProvider.cs`（無參數建構、`UtcNow` 屬性可寫），本次三個 Handler 測試改用物件初始設定式 `new FakeDateTimeProvider { UtcNow = now }`
+- [x] 1.3 ~~在 `ProjectC.Application` 定義通用 `Result<T>` 型別~~ **[2026-08-15 改為]** 沿用 `master` 既有、被 53 個檔案使用的 `Result`/`Result<T>`（`Error` + `ErrorType`：Validation/NotFound/Conflict/Unauthorized/Forbidden），三個 Handler 依情境對應 `Error.Validation`／`Error.NotFound`／`Error.Conflict`
 - [x] 1.4 在 `ProjectC.Domain` 定義領域例外（例如 `SeatAlreadyHeldException`、`SeatNotHeldException`、`SeatAlreadySoldException`、`OrderAlreadyConfirmedException`），供 Entity 守衛方法拋出
 
 ## 2. Event Catalog（活動 / 場地 / 票種 / EventSeat）

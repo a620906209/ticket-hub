@@ -24,7 +24,7 @@ public class CreateOrderHandlerTests
     public void Handle_WhenAllSeatsAvailable_CreatesPendingOrderAndHoldsAllSeats()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
-        var handler = new CreateOrderHandler(new FakeDateTimeProvider(now));
+        var handler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var selectionA = CreateSeatSelection();
         var selectionB = CreateSeatSelection();
 
@@ -41,7 +41,7 @@ public class CreateOrderHandlerTests
     public void Handle_WhenOneSeatAlreadyHeld_FailsAndReleasesSeatsHeldDuringThisAttempt()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
-        var handler = new CreateOrderHandler(new FakeDateTimeProvider(now));
+        var handler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var selectionA = CreateSeatSelection();
         var selectionB = CreateSeatSelection();
         selectionB.EventSeat.Hold(Guid.NewGuid(), now.AddMinutes(10), now);
@@ -56,7 +56,7 @@ public class CreateOrderHandlerTests
     public void Handle_SnapshotsTicketTypePriceIntoOrderItemUnitPrice()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
-        var handler = new CreateOrderHandler(new FakeDateTimeProvider(now));
+        var handler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var selection = CreateSeatSelection(price: 750m);
 
         var result = handler.Handle([selection]);
@@ -68,7 +68,7 @@ public class CreateOrderHandlerTests
     public void Handle_AppliesSameExpiryToAllSeatsInOrder()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
-        var handler = new CreateOrderHandler(new FakeDateTimeProvider(now));
+        var handler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var selectionA = CreateSeatSelection();
         var selectionB = CreateSeatSelection();
 
@@ -82,7 +82,7 @@ public class CreateOrderHandlerTests
     [Fact]
     public void Handle_WhenNoSeatsSelected_ReturnsFailure()
     {
-        var handler = new CreateOrderHandler(new FakeDateTimeProvider(DateTime.UtcNow));
+        var handler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = DateTime.UtcNow });
 
         var result = handler.Handle([]);
 

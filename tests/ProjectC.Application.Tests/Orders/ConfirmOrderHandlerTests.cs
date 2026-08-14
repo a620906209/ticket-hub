@@ -18,7 +18,7 @@ public class ConfirmOrderHandlerTests
         var eventSeat = @event.CreateEventSeats(seatMap).Single(s => s.SeatId == seat.Id);
         var ticketType = new TicketType(Guid.NewGuid(), @event.Id, "A", 500m, seatMap);
 
-        var createHandler = new CreateOrderHandler(new FakeDateTimeProvider(now));
+        var createHandler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var result = createHandler.Handle([new SeatSelection(eventSeat, ticketType)]);
 
         return (result.Value!, new Dictionary<Guid, EventSeat> { [eventSeat.Id] = eventSeat });
@@ -29,7 +29,7 @@ public class ConfirmOrderHandlerTests
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var (order, seatsById) = CreatePendingOrder(now);
-        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider(now));
+        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now });
 
         var result = handler.Handle(order, seatsById);
 
@@ -44,7 +44,7 @@ public class ConfirmOrderHandlerTests
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var (order, seatsById) = CreatePendingOrder(now);
         var afterExpiry = order.HeldUntilUtc.AddMinutes(1);
-        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider(afterExpiry));
+        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
 
         var result = handler.Handle(order, seatsById);
 
@@ -62,7 +62,7 @@ public class ConfirmOrderHandlerTests
         seat.ReleaseHold(order.Id);
         seat.Hold(Guid.NewGuid(), now.AddMinutes(30), now);
 
-        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider(now));
+        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var result = handler.Handle(order, seatsById);
 
         result.IsSuccess.Should().BeFalse();
@@ -76,7 +76,7 @@ public class ConfirmOrderHandlerTests
         var (order, seatsById) = CreatePendingOrder(now);
         order.Confirm();
 
-        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider(now));
+        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var result = handler.Handle(order, seatsById);
 
         result.IsSuccess.Should().BeFalse();

@@ -1,5 +1,5 @@
 using ProjectC.Application.Common;
-using ProjectC.Domain.Common;
+using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 
@@ -19,19 +19,19 @@ public sealed class ConfirmOrderHandler
         var now = _dateTimeProvider.UtcNow;
 
         if (order.Status != OrderStatus.Pending)
-            return Result.Failure($"Order '{order.Id}' is not pending.");
+            return Result.Failure(Error.Conflict($"Order '{order.Id}' is not pending."));
 
         if (now >= order.HeldUntilUtc)
-            return Result.Failure($"Order '{order.Id}' has expired.");
+            return Result.Failure(Error.Conflict($"Order '{order.Id}' has expired."));
 
         var seats = new List<EventSeat>();
         foreach (var item in order.Items)
         {
             if (!eventSeatsById.TryGetValue(item.EventSeatId, out var seat))
-                return Result.Failure($"Seat '{item.EventSeatId}' could not be found.");
+                return Result.Failure(Error.NotFound($"Seat '{item.EventSeatId}' could not be found."));
 
             if (!seat.IsHeldBy(order.Id, now))
-                return Result.Failure($"Seat '{item.EventSeatId}' is no longer held by order '{order.Id}'.");
+                return Result.Failure(Error.Conflict($"Seat '{item.EventSeatId}' is no longer held by order '{order.Id}'."));
 
             seats.Add(seat);
         }

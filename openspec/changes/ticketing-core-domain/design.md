@@ -61,8 +61,9 @@
 - 理由：先前版本的 `Release()` 無條件釋放，會讓 `CreateOrderHandler` 的補償邏輯、`CancelOrderHandler` 的釋放邏輯有機會釋放到「已被其他訂單合法搶走」的座位（例如：訂單 A 逾時後座位被訂單 B 重新鎖定，此時 A 才執行取消，若無條件釋放會把 B 的鎖定也清掉）。用 `orderId` 限定持有者、非持有者靜默略過，是唯一能同時滿足「補償正確」與「取消/逾時釋放不誤傷他人」的做法。不拋例外是因為「座位已被別人拿走」對呼叫端（Cancel/Expire 流程）而言是正常、可預期的競態結果，不是呼叫端的錯誤用法，不需要用例外中斷流程
 
 **7. 時間傳遞：Domain 方法直接接收 `DateTime now` 參數，`IDateTimeProvider` 只存在於 Application**
-- `IDateTimeProvider` 介面定義在 `Domain`（符合 CLAUDE.md「跨層介面定義於 Domain」），但 **`EventSeat`／`Order` 等 Entity 的方法一律只接收 `DateTime now` 參數，Entity 內部不持有、不注入 `IDateTimeProvider`**，維持純函式、方便測試
-- Application 層的 Handler 注入 `IDateTimeProvider`，取得目前時間後再傳入 Domain 方法呼叫
+- **[2026-08-15 修正]** 本 change 原本規劃 `IDateTimeProvider` 定義在 `Domain`（符合 CLAUDE.md「跨層介面定義於 Domain」）。實作到一半時把 `master` 上已經因會員系統（`feature/membership-system`）合併進來、且已被 53 個檔案使用的 `ProjectC.Application.Common.Interfaces.IDateTimeProvider` 一併整合，改採「沿用既有介面、不重複定義」的做法——**`IDateTimeProvider` 實際位置是 `Application`，不是 Domain**，這點與 CLAUDE.md 的介面分層建議有落差，但比起讓專案裡同時存在兩個功能相同的 `IDateTimeProvider` 更務實（見 Rule 7「挑更成熟/更多人用的那個，不要兩邊都留」）
+- 不變的部分：**`EventSeat`／`Order` 等 Entity 的方法一律只接收 `DateTime now` 參數，Entity 內部不持有、不注入 `IDateTimeProvider`**，維持純函式、方便測試——這一點跟介面實際放哪個專案無關，仍然成立
+- Application 層的 Handler 注入（`Application.Common.Interfaces.`）`IDateTimeProvider`，取得目前時間後再傳入 Domain 方法呼叫
 
 **8. 訂單只有一個到期時間，不逐座位判斷逾時**
 - `Order` 建立時記錄單一 `HeldUntilUtc`（等於建立當下由 `CreateOrderHandler` 決定的暫扣政策時長，例如 10 分鐘，套用到這筆訂單的所有 `EventSeat`）
@@ -90,7 +91,8 @@
 
 **12. 業務失敗回傳契約：Domain 拋領域例外守衛不變條件；Application 邊界一律轉譯為 `Result<T>`**
 - `EventSeat`／`Order` 的守衛方法（例如「座位已被鎖定」「Sold 座位不可釋放」「已確認的訂單不可取消」）在違反不變條件時拋出具名的領域例外
-- `CreateOrderHandler` / `ConfirmOrderHandler` / `CancelOrderHandler` 對外一律回傳 `Result<T>`（成功值或錯誤碼/訊息），內部攔截 Domain 拋出的領域例外並轉譯為失敗的 `Result`，不讓例外穿透到呼叫端做流程控制
+- `CreateOrderHandler` / `ConfirmOrderHandler` / `CancelOrderHandler` 對外一律回傳 `Result<T>`，內部攔截 Domain 拋出的領域例外並轉譯為失敗的 `Result`，不讓例外穿透到呼叫端做流程控制
+- **[2026-08-15 修正]** `Result`/`Result<T>` 本身沿用 `master` 上會員系統已建立、已被 53 個檔案使用的版本（`Result.Failure(Error error)`，`Error` 帶 `ErrorType`：Validation/NotFound/Conflict/Unauthorized/Forbidden），不是本 change 原本自己定義的「只帶 `string` 訊息」的簡化版；三個 Handler 依失敗情境對應到 `Error.Validation`／`Error.NotFound`／`Error.Conflict`
 - 理由：符合 CLAUDE.md「可預期的業務失敗優先用 Result 型別，而非以例外控制流程」。這條界線純粹是**分層**（Domain 用例外守衛自己的不變條件；Application 是對外的邊界，一律轉成 Result），不是依「這是不是程式錯誤」去分類——「座位已被鎖定」在 Domain 方法的呼叫合約上就是違反前置條件（呼叫前本該檢查），但站在 Application/呼叫端的角度它是完全可預期的業務結果，兩種描述並不衝突，先前版本用「程式錯誤 vs 業務失敗」來解釋兩層的差異是多餘且會讓人誤解的說法，予以移除
 
 **13. Application 協調邏輯使用 `Handler` 命名，不用 `Service`**

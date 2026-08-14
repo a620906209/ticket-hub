@@ -10,7 +10,7 @@ public sealed class CancelOrderHandler
     public Result Handle(Order order, IReadOnlyDictionary<Guid, EventSeat> eventSeatsById)
     {
         if (order.Status == OrderStatus.Confirmed)
-            return Result.Failure($"Order '{order.Id}' is already confirmed and cannot be cancelled.");
+            return Result.Failure(Error.Conflict($"Order '{order.Id}' is already confirmed and cannot be cancelled."));
 
         foreach (var item in order.Items)
         {

@@ -1,4 +1,5 @@
 using ProjectC.Application.Common;
+using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Common;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
@@ -19,7 +20,7 @@ public sealed class CreateOrderHandler
     public Result<Order> Handle(IReadOnlyList<SeatSelection> selections)
     {
         if (selections.Count == 0)
-            return Result<Order>.Failure("At least one seat must be selected.");
+            return Result<Order>.Failure(Error.Validation("At least one seat must be selected."));
 
         var now = _dateTimeProvider.UtcNow;
         var orderId = Guid.NewGuid();
@@ -39,7 +40,7 @@ public sealed class CreateOrderHandler
                 foreach (var heldSeat in heldSeats)
                     heldSeat.ReleaseHold(orderId);
 
-                return Result<Order>.Failure($"Seat '{selection.EventSeat.Id}' is no longer available.");
+                return Result<Order>.Failure(Error.Conflict($"Seat '{selection.EventSeat.Id}' is no longer available."));
             }
         }
 
