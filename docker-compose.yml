@@ -1,0 +1,75 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # api 依賴 db 先通過健康檢查（真正接受連線）才啟動，避免啟動時連線失敗。
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      # 連線字串一律用 compose service name `db`，容器內不可用 localhost/127.0.0.1。
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Jwt__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION_MINUTES}
+      Auth__RefreshTokenExpirationDays: ${AUTH_REFRESH_TOKEN_EXPIRATION_DAYS}
+      Auth__PasswordResetTokenExpirationMinutes: ${AUTH_PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES}
+    ports:
+      - "8080:8080"
+    volumes:
+      # 開發時掛載完整原始碼，支援 dotnet watch hot reload。
+      - .:/src
+      # NuGet 快取與各專案的 build 產出物改用 named volume，避免透過 bind mount 在 Windows 上讀寫，效能才不會很差。
+      - nuget_packages:/root/.nuget/packages
+      - domain_bin:/src/src/ProjectC.Domain/bin
+      - domain_obj:/src/src/ProjectC.Domain/obj
+      - application_bin:/src/src/ProjectC.Application/bin
+      - application_obj:/src/src/ProjectC.Application/obj
+      - infrastructure_bin:/src/src/ProjectC.Infrastructure/bin
+      - infrastructure_obj:/src/src/ProjectC.Infrastructure/obj
+      - webapi_bin:/src/src/ProjectC.WebApi/bin
+      - webapi_obj:/src/src/ProjectC.WebApi/obj
+      - domain_tests_bin:/src/tests/ProjectC.Domain.Tests/bin
+      - domain_tests_obj:/src/tests/ProjectC.Domain.Tests/obj
+      - application_tests_bin:/src/tests/ProjectC.Application.Tests/bin
+      - application_tests_obj:/src/tests/ProjectC.Application.Tests/obj
+      - webapi_tests_bin:/src/tests/ProjectC.WebApi.Tests/bin
+      - webapi_tests_obj:/src/tests/ProjectC.WebApi.Tests/obj
+
+volumes:
+  postgres_data:
+  nuget_packages:
+  domain_bin:
+  domain_obj:
+  application_bin:
+  application_obj:
+  infrastructure_bin:
+  infrastructure_obj:
+  webapi_bin:
+  webapi_obj:
+  domain_tests_bin:
+  domain_tests_obj:
+  application_tests_bin:
+  application_tests_obj:
+  webapi_tests_bin:
+  webapi_tests_obj:

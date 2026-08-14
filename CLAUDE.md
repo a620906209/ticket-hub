@@ -18,6 +18,31 @@
 - **ORM**：Entity Framework Core（主力）；Dapper 僅用於效能敏感場景（須說明理由）
 
 ---
+## 執行環境（強制前提）
+
+> 本專案所有服務跑在 Docker Compose 容器內，本機不安裝 .NET SDK / PostgreSQL。
+
+### 服務組成
+
+- `api`：ASP.NET Core 應用
+- `db`：PostgreSQL
+- 開發時以 bind mount 掛載原始碼；NuGet 快取、build 產出物用 named volume 隔離（Windows 檔案 I/O 效能考量）
+
+### 強制規則
+
+- **禁止假設本機已安裝** dotnet / dotnet-ef / psql
+- 所有指令以容器為執行點：
+  `docker compose exec api dotnet ef database update`
+  而非 `dotnet ef database update`
+- 連線字串一律使用 compose **service name**（`Host=db;`），
+  禁止 `localhost` / `127.0.0.1`（容器內指向容器自身，會靜默失敗）
+- 修改對外 port 映射前，須確認未與現有服務衝突
+- 新增服務時須說明其 `depends_on` 依賴關係
+- 建立新專案（`dotnet new`）一律透過 `docker compose run --rm api`，
+  確保 SDK 版本由容器決定
+
+---
+
 ## 架構骨架
 
 > 專案採 Clean Architecture 分層，依賴方向由外向內單向：
@@ -90,8 +115,9 @@
 
 ### 機敏資訊管理
 
-- 密碼、API Key 等一律放 `appsettings.Development.json`（不進版本控制）或環境變數，不寫死在程式碼中
+- 密碼、API Key 等禁止寫死在程式碼或進版控的設定檔中
 - 正式環境建議使用 Secret Manager / Azure Key Vault 等機制注入
+- 本地開發的環境變數透過 compose 的 env_file 注入，.env 不進版本控制
 
 ---
 
@@ -202,6 +228,7 @@
 - **層級界定**：單元測試不碰 DB / 網路（以 mock 隔離）；整合測試才驗證真實 DB / API 邊界
 - **涵蓋範圍**：每一條 Acceptance Criteria 至少對應一個測試；業務核心邏輯優先確保涵蓋
 - **測試框架**：xUnit（預設）；斷言可搭配 FluentAssertions；mock 用 Moq / NSubstitute
+- 整合測試使用 Testcontainers 啟動獨立 DB 容器，禁止連線至開發用的 db 服務
 
 ---
 

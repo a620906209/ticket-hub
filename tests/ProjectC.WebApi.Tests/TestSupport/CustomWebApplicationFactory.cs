@@ -6,12 +6,37 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ProjectC.Infrastructure.Persistence;
+using Testcontainers.PostgreSql;
 
 namespace ProjectC.WebApi.Tests.TestSupport;
 
-public class CustomWebApplicationFactory : WebApplicationFactory<Program>
+// 依 CLAUDE.md 測試規範：整合測試用 Testcontainers 啟動獨立的 Postgres 容器，
+// 不連線開發用的 `db` compose 服務，確保測試互相隔離、也不會污染開發資料。
+public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly string _databaseName = $"membership-tests-{Guid.NewGuid()}";
+    private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder("postgres:16-alpine")
+        .WithDatabase("projectc_tests")
+        .WithUsername("projectc_tests")
+        .WithPassword("projectc_tests")
+        .Build();
+
+    public async Task InitializeAsync()
+    {
+        await _dbContainer.StartAsync();
+
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseNpgsql(_dbContainer.GetConnectionString())
+            .Options;
+
+        await using var dbContext = new ApplicationDbContext(options);
+        await dbContext.Database.MigrateAsync();
+    }
+
+    async Task IAsyncLifetime.DisposeAsync()
+    {
+        await _dbContainer.DisposeAsync();
+        await base.DisposeAsync();
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -19,7 +44,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
         builder.ConfigureAppConfiguration((_, configBuilder) =>
         {
-            // 沒有可連線的 Postgres，測試環境用固定、通過驗證的 Jwt/Auth 設定覆蓋 appsettings.json 的空白值。
+            // 沒有真正的 JWT 設定來源（appsettings.json 留空），測試環境用固定、通過驗證的值覆蓋。
             configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Jwt:Issuer"] = "ProjectC.Tests",
@@ -33,14 +58,13 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
-            // 移除 Program.cs 原本註冊的 Npgsql 設定（含 DbContextOptions 本身與底層的 IDbContextOptionsConfiguration），
-            // 否則 Npgsql 與 InMemory 兩個 provider 的設定會同時套用到同一個 DbContextOptions，導致 EF Core 拋出例外。
+            // 移除 Program.cs 原本指向 appsettings 連線字串的 Npgsql 設定（含底層的 IDbContextOptionsConfiguration），
+            // 換成指向 Testcontainers 啟動的 Postgres，否則兩份 provider 設定會同時套用而讓 EF Core 拋例外。
             services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<ApplicationDbContext>>();
             services.RemoveAll<ApplicationDbContext>();
 
-            // 無法連線真實 Postgres 時，以 EF Core InMemory 提供者作為整合測試的替代資料庫（見完成通知中的說明）。
-            services.AddDbContext<ApplicationDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+            services.AddDbContext<ApplicationDbContext>(options => options.UseNpgsql(_dbContainer.GetConnectionString()));
         });
     }
 }
