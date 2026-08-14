@@ -110,6 +110,22 @@
 **16. 票價先用 `decimal`，不建立 `Money` Value Object**
 - 理由：目前無多幣別需求，依 CLAUDE.md「VO 非必要不用，出現重複驗證邏輯才導入」原則，先簡化
 
+**17. `Order` 加上 `EventId`，作為訂單與座位跨活動一致性的防線**
+- **[2026-08-15 驗收發現並修正]** `Order` 建立時記錄所選座位共同所屬的 `EventId`；`CreateOrderHandler` 建立訂單前 MUST 驗證所選座位彼此屬於同一活動，且每個座位對應的 `TicketType.EventId` 與座位的 `EventId` 一致，任一不符直接拒絕、不鎖定任何座位；`ConfirmOrderHandler` 額外核對解析出的 `EventSeat.EventId == Order.EventId`
+- 理由：驗收時發現 `CreateOrderHandler` 原本完全沒檢查座位與票種是否屬於同一場活動，理論上能用 B 活動的票種價格買 A 活動的座位；補上 `Order.EventId` 讓這個不變條件同時在建立與確認兩個時間點都能檢查，而不是只在建立當下檢查一次
+
+**18. `TicketType` 建構子改為 `internal`，只能透過 `Event.CreateTicketType()` 建立**
+- **[2026-08-15 驗收發現並修正]** 比照 `EventSeat` 的作法（Decision 1），`TicketType` 不再公開建構子；新增 `Event.CreateTicketType(zoneCode, price, seatMap)`，內部核對 `seatMap.Id == SeatMapId` 才能建立
+- 理由：原本 `TicketType` 的建構子只檢查「分區代碼存在於傳入的座位圖」，沒有核對這張座位圖是不是真的屬於這場活動，呼叫端可以把活動 A 的 `eventId` 配上活動 B 的座位圖，仍能通過檢查。用 `internal` 建構子＋工廠方法把這個不變條件收斂到編譯期就無法繞過，而不是每個呼叫端各自記得檢查
+
+**19. `Order.Confirm()`／`Order.Cancel()` 統一用具名 `OrderNotPendingException`，`Cancel()` 只允許 Pending 狀態**
+- **[2026-08-15 驗收發現並修正]** `Order.Cancel()` 原本只擋 `Confirmed`（`Status == Confirmed` 才拋例外），代表對一筆已經 `Cancelled` 的訂單再呼叫一次 `Cancel()` 會被無聲接受、不會有任何錯誤——這違反「Cancelled 是終態」的設計意圖。改為 `Status != Pending` 才允許操作，`Confirm()` 與 `Cancel()` 共用同一個具名例外 `OrderNotPendingException`（取代原本 `Confirm()` 用的通用 `InvalidOperationException` 與 `Cancel()` 專用的 `OrderAlreadyConfirmedException`），符合 Decision 12「Domain 守衛用具名領域例外」的要求
+- `CancelOrderHandler` 對外的 Application 層守衛（`order.Status != Pending` 才回傳 `Result` 失敗）與 Domain 層的 `OrderNotPendingException` 是兩層防護，行為一致
+
+**20. `CancelOrderHandler` 在釋放座位前，先預檢是否有座位已售出，避免例外穿透與部分釋放**
+- **[2026-08-15 驗收發現並修正]** 原本 `CancelOrderHandler` 直接對每個座位呼叫 `ReleaseHold`，若訂單內某座位已因逾時被其他訂單搶走並完成售出（`SoldByOrderId != null`），`ReleaseHold` 會拋 `SeatAlreadySoldException`；因為呼叫沒有包在 try/catch 裡，這個領域例外會直接穿透 `CancelOrderHandler.Handle`，違反 Decision 12「Application 邊界一律轉譯為 `Result<T>`」；更糟的是，若訂單有多筆座位，前面幾筆已經被釋放、卡在已售出那筆才拋例外，會留下部分釋放、`Order.Cancel()` 也沒機會執行的不一致狀態
+- 修正為：`CancelOrderHandler` 先走一輪唯讀檢查（呼叫 `EventSeat.GetStatus(now)`，不呼叫 `ReleaseHold`），只要有任何座位已是 Sold，直接回傳失敗的 `Result`、不釋放任何座位、不呼叫 `Order.Cancel()`；只有全部座位都不是 Sold，才進入第二輪真正執行 `ReleaseHold` 的迴圈。這需要 `CancelOrderHandler` 也注入 `IDateTimeProvider`（先前版本不需要時間，因為沒有這個預檢邏輯）
+
 ## Risks / Trade-offs
 
 - **[風險]** 「讀取時判讀」代表沒有主動流程觸發釋放或清除欄位，`EventSeat`／`Order` 在沒有人呼叫 `GetStatus` 的情況下，原始欄位會一直停留在逾時前的狀態 → **緩解**：所有判斷可售性/訂單狀態的程式碼一律走 `GetStatus(now)` / `IsAvailableForHold(now)`，不得直接讀欄位；`Hold()` 這類明確寫入操作可以覆寫過期資料（Decision 5），但這不等於系統會主動清除；正式的主動釋放/清除機制在後續 Infrastructure change 補上

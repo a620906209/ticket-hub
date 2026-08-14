@@ -9,7 +9,7 @@ public sealed class TicketType
     public string ZoneCode { get; }
     public decimal Price { get; }
 
-    public TicketType(Guid id, Guid eventId, string zoneCode, decimal price, SeatMap seatMap)
+    internal TicketType(Guid id, Guid eventId, string zoneCode, decimal price, SeatMap seatMap)
     {
         if (string.IsNullOrWhiteSpace(zoneCode))
             throw new ArgumentException("Zone code is required.", nameof(zoneCode));

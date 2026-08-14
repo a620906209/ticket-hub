@@ -66,6 +66,17 @@ public class EventSeatTests
     }
 
     [Fact]
+    public void GetStatus_WhenNowEqualsHeldUntilUtc_ReturnsAvailable()
+    {
+        var eventSeat = CreateEventSeat();
+        var now = DateTime.UtcNow;
+        var heldUntilUtc = now.AddMinutes(10);
+        eventSeat.Hold(Guid.NewGuid(), heldUntilUtc, now);
+
+        eventSeat.GetStatus(heldUntilUtc).Should().Be(EventSeatStatus.Available);
+    }
+
+    [Fact]
     public void IsAvailableForHold_MatchesGetStatusAvailable()
     {
         var eventSeat = CreateEventSeat();

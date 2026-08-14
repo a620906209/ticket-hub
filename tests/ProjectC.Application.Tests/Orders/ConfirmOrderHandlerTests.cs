@@ -3,7 +3,6 @@ using ProjectC.Application.Orders;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
-using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
 namespace ProjectC.Application.Tests.Orders;
@@ -16,7 +15,7 @@ public class ConfirmOrderHandlerTests
         var seat = seatMap.AddSeat("A", "1");
         var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
         var eventSeat = @event.CreateEventSeats(seatMap).Single(s => s.SeatId == seat.Id);
-        var ticketType = new TicketType(Guid.NewGuid(), @event.Id, "A", 500m, seatMap);
+        var ticketType = @event.CreateTicketType("A", 500m, seatMap);
 
         var createHandler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var result = createHandler.Handle([new SeatSelection(eventSeat, ticketType)]);
@@ -80,5 +79,19 @@ public class ConfirmOrderHandlerTests
         var result = handler.Handle(order, seatsById);
 
         result.IsSuccess.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Handle_WhenSeatCannotBeResolved_ReturnsFailureAndDoesNotChangeOrder()
+    {
+        var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+        var (order, _) = CreatePendingOrder(now);
+        var emptySeatsById = new Dictionary<Guid, EventSeat>();
+
+        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now });
+        var result = handler.Handle(order, emptySeatsById);
+
+        result.IsSuccess.Should().BeFalse();
+        order.Status.Should().Be(OrderStatus.Pending);
     }
 }

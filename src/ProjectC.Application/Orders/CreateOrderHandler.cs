@@ -22,6 +22,17 @@ public sealed class CreateOrderHandler
         if (selections.Count == 0)
             return Result<Order>.Failure(Error.Validation("At least one seat must be selected."));
 
+        var distinctEventIds = selections.Select(s => s.EventSeat.EventId).Distinct().ToList();
+        if (distinctEventIds.Count > 1)
+            return Result<Order>.Failure(Error.Validation("All selected seats must belong to the same event."));
+
+        if (selections.Select(s => s.EventSeat.Id).Distinct().Count() != selections.Count)
+            return Result<Order>.Failure(Error.Validation("The same seat cannot be selected more than once."));
+
+        if (selections.Any(s => s.EventSeat.EventId != s.TicketType.EventId))
+            return Result<Order>.Failure(Error.Validation("Ticket type does not belong to the same event as the selected seat."));
+
+        var eventId = distinctEventIds[0];
         var now = _dateTimeProvider.UtcNow;
         var orderId = Guid.NewGuid();
         var heldUntilUtc = now.Add(HoldDuration);
@@ -48,7 +59,7 @@ public sealed class CreateOrderHandler
             .Select(selection => new OrderItem(Guid.NewGuid(), selection.EventSeat.Id, selection.TicketType.Price))
             .ToList();
 
-        var order = new Order(orderId, heldUntilUtc, items);
+        var order = new Order(orderId, eventId, heldUntilUtc, items);
         return Result<Order>.Success(order);
     }
 }

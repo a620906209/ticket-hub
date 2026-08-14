@@ -6,7 +6,7 @@ namespace ProjectC.Domain.Tests.Orders;
 public class OrderTests
 {
     private static Order CreateOrder(DateTime heldUntilUtc)
-        => new(Guid.NewGuid(), heldUntilUtc, [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), 500m)]);
+        => new(Guid.NewGuid(), Guid.NewGuid(), heldUntilUtc, [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), 500m)]);
 
     [Fact]
     public void GetStatus_WhenPendingAndNotExpired_ReturnsPending()
@@ -29,6 +29,16 @@ public class OrderTests
     }
 
     [Fact]
+    public void GetStatus_WhenNowEqualsHeldUntilUtc_ReturnsExpired()
+    {
+        var now = DateTime.UtcNow;
+        var heldUntilUtc = now.AddMinutes(10);
+        var order = CreateOrder(heldUntilUtc);
+
+        order.GetStatus(heldUntilUtc).Should().Be(OrderStatus.Expired);
+    }
+
+    [Fact]
     public void Confirm_WhenPending_TransitionsToConfirmed()
     {
         var now = DateTime.UtcNow;
@@ -37,6 +47,19 @@ public class OrderTests
         order.Confirm();
 
         order.Status.Should().Be(OrderStatus.Confirmed);
+    }
+
+    [Fact]
+    public void Confirm_WhenNotPending_ThrowsOrderNotPendingException()
+    {
+        var now = DateTime.UtcNow;
+        var order = CreateOrder(now.AddMinutes(10));
+        order.Cancel();
+
+        var act = order.Confirm;
+
+        act.Should().Throw<OrderNotPendingException>();
+        order.Status.Should().Be(OrderStatus.Cancelled);
     }
 
     [Fact]
@@ -64,7 +87,7 @@ public class OrderTests
     }
 
     [Fact]
-    public void Cancel_WhenConfirmed_ThrowsOrderAlreadyConfirmedException()
+    public void Cancel_WhenConfirmed_ThrowsOrderNotPendingException()
     {
         var now = DateTime.UtcNow;
         var order = CreateOrder(now.AddMinutes(10));
@@ -72,14 +95,27 @@ public class OrderTests
 
         var act = order.Cancel;
 
-        act.Should().Throw<OrderAlreadyConfirmedException>();
+        act.Should().Throw<OrderNotPendingException>();
         order.Status.Should().Be(OrderStatus.Confirmed);
+    }
+
+    [Fact]
+    public void Cancel_WhenAlreadyCancelled_ThrowsOrderNotPendingException()
+    {
+        var now = DateTime.UtcNow;
+        var order = CreateOrder(now.AddMinutes(10));
+        order.Cancel();
+
+        var act = order.Cancel;
+
+        act.Should().Throw<OrderNotPendingException>();
+        order.Status.Should().Be(OrderStatus.Cancelled);
     }
 
     [Fact]
     public void Constructor_WhenNoItemsProvided_ThrowsArgumentException()
     {
-        var act = () => new Order(Guid.NewGuid(), DateTime.UtcNow.AddMinutes(10), []);
+        var act = () => new Order(Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow.AddMinutes(10), []);
 
         act.Should().Throw<ArgumentException>();
     }

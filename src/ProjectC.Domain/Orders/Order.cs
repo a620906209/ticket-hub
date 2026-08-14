@@ -5,17 +5,19 @@ public sealed class Order
     private readonly List<OrderItem> _items = [];
 
     public Guid Id { get; }
+    public Guid EventId { get; }
     public DateTime HeldUntilUtc { get; }
     public OrderStatus Status { get; private set; }
     public IReadOnlyList<OrderItem> Items => _items;
 
-    public Order(Guid id, DateTime heldUntilUtc, IEnumerable<OrderItem> items)
+    public Order(Guid id, Guid eventId, DateTime heldUntilUtc, IEnumerable<OrderItem> items)
     {
         var itemList = items.ToList();
         if (itemList.Count == 0)
             throw new ArgumentException("Order must contain at least one item.", nameof(items));
 
         Id = id;
+        EventId = eventId;
         HeldUntilUtc = heldUntilUtc;
         Status = OrderStatus.Pending;
         _items.AddRange(itemList);
@@ -32,15 +34,15 @@ public sealed class Order
     public void Confirm()
     {
         if (Status != OrderStatus.Pending)
-            throw new InvalidOperationException($"Order '{Id}' cannot be confirmed because its status is '{Status}'.");
+            throw new OrderNotPendingException(Id, Status);
 
         Status = OrderStatus.Confirmed;
     }
 
     public void Cancel()
     {
-        if (Status == OrderStatus.Confirmed)
-            throw new OrderAlreadyConfirmedException(Id);
+        if (Status != OrderStatus.Pending)
+            throw new OrderNotPendingException(Id, Status);
 
         Status = OrderStatus.Cancelled;
     }

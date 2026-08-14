@@ -1,3 +1,4 @@
+using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
 namespace ProjectC.Domain.Events;
@@ -37,5 +38,14 @@ public sealed class Event
         return seatMap.Seats
             .Select(seat => new EventSeat(Guid.NewGuid(), Id, seat.Id))
             .ToList();
+    }
+
+    /// <summary>建立票種前核對 seatMap 確實是此活動使用的座位圖，避免用別的活動的座位圖建立票種。</summary>
+    public TicketType CreateTicketType(string zoneCode, decimal price, SeatMap seatMap)
+    {
+        if (seatMap.Id != SeatMapId)
+            throw new ArgumentException("Seat map does not belong to this event.", nameof(seatMap));
+
+        return new TicketType(Guid.NewGuid(), Id, zoneCode, price, seatMap);
     }
 }

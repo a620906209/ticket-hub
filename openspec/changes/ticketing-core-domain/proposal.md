@@ -1,6 +1,8 @@
 ## Why
 
-專案目前只有空的 Clean Architecture 骨架（Domain/Application/Infrastructure/WebApi），尚未有任何業務邏輯。售票平台最容易出錯、也最需要先想清楚的部分是「選位到付款完成前的座位鎖定」——這條規則沒設計好，之後接 API、接付款都會建立在錯誤的基礎上。因此第一階段先只做核心 Domain / Application 邏輯，把活動、票種、座位、訂單的不變條件與座位鎖定機制用單元測試釘死，之後接 Infrastructure（EF Core）與 WebApi 只是機械性的串接工作。
+售票平台最容易出錯、也最需要先想清楚的部分是「選位到付款完成前的座位鎖定」——這條規則沒設計好，之後接 API、接付款都會建立在錯誤的基礎上。因此第一階段先只做核心 Domain / Application 邏輯，把活動、票種、座位、訂單的不變條件與座位鎖定機制用單元測試釘死，之後接 Infrastructure（EF Core）與 WebApi 只是機械性的串接工作。
+
+**[2026-08-15 更新]** 本 change 開始時，專案的確只有空的 Clean Architecture 骨架；但實作過程中，另一條已完成的 `feature/membership-system`（會員/JWT 系統，含完整 Infrastructure/WebApi 實作與 Docker 環境）被合併回 `master`，所以此時 `master` 已不再是空骨架。這不影響本 change 的範圍——售票平台的 Domain/Application 仍是全新增量，與會員系統是不同的業務領域——但下方「Impact」一節原本「Infrastructure/WebApi 不受影響、維持空殼」的敘述已經過時，予以更正。
 
 ## What Changes
 
@@ -20,10 +22,10 @@
 - `ticket-ordering`：訂單建立與狀態機，依賴 `seat-reservation` 完成 `EventSeat` 鎖定後才能建立/確認訂單
 
 ### Modified Capabilities
-（無，專案目前無既有 spec）
+（無，`event-catalog`／`seat-reservation`／`ticket-ordering` 皆為全新 capability，不修改既有的 `authentication`／`member-management` spec）
 
 ## Impact
 
 - **受影響專案**：`src/ProjectC.Domain`（新增 Entity 與狀態機）、`src/ProjectC.Application`（新增座位鎖定/訂單協調邏輯）、`tests/ProjectC.Domain.Tests`、`tests/ProjectC.Application.Tests`（新增對應單元測試）
-- **不受影響**：`src/ProjectC.Infrastructure`、`src/ProjectC.WebApi`（此階段不變更，維持空殼）
-- **依賴**：無新增套件，沿用既有 Domain.csproj / Application.csproj 骨架
+- **不受影響**：`src/ProjectC.WebApi`（此 change 不新增 Controller/端點）；`src/ProjectC.Infrastructure` 就本 change 新增的售票網域而言不受影響（沒有新增 EF Core 設定/Migration），但該專案本身已因合併 `feature/membership-system` 而含有會員系統的持久化實作，不再是空殼
+- **依賴**：`ProjectC.Domain`／`ProjectC.Application` 未新增套件；`Result`/`Error`/`IDateTimeProvider` 沿用 `feature/membership-system` 已建立、被 53 個檔案使用的既有型別，不重複定義（見 design.md Decision 7、12）

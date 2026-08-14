@@ -30,6 +30,9 @@ public sealed class ConfirmOrderHandler
             if (!eventSeatsById.TryGetValue(item.EventSeatId, out var seat))
                 return Result.Failure(Error.NotFound($"Seat '{item.EventSeatId}' could not be found."));
 
+            if (seat.EventId != order.EventId)
+                return Result.Failure(Error.Conflict($"Seat '{item.EventSeatId}' does not belong to event '{order.EventId}'."));
+
             if (!seat.IsHeldBy(order.Id, now))
                 return Result.Failure(Error.Conflict($"Seat '{item.EventSeatId}' is no longer held by order '{order.Id}'."));
 
