@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# 本機專用的 docker compose override，不進版控（docker compose 會自動合併這個檔案，不用加 -f）
+docker-compose.override.yml
+
 # User-specific files
 *.rsuser
 *.suo
