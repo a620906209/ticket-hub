@@ -1,6 +1,83 @@
-@ProjectC.WebApi_HostAddress = http://localhost:5062
+@ProjectC.WebApi_HostAddress = http://localhost:8080
+@email = test-{{$guid}}@example.com
+@password = Password123
 
-GET {{ProjectC.WebApi_HostAddress}}/weatherforecast/
-Accept: application/json
+### 1. 註冊
+# @name register
+POST {{ProjectC.WebApi_HostAddress}}/api/auth/register
+Content-Type: application/json
 
-###
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "displayName": "Test User"
+}
+
+### 2. 登入（拿 accessToken / refreshToken）
+# @name login
+POST {{ProjectC.WebApi_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 3. 查詢自己的會員資料（要帶 accessToken）
+GET {{ProjectC.WebApi_HostAddress}}/api/members/me
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+### 4. 更新自己的顯示名稱
+PUT {{ProjectC.WebApi_HostAddress}}/api/members/me
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+{
+  "displayName": "Updated Name"
+}
+
+### 5. 用 refreshToken 換發新的 accessToken（Rotation：換過一次後，原本的 refreshToken 就失效了）
+POST {{ProjectC.WebApi_HostAddress}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{login.response.body.$.refreshToken}}"
+}
+
+### 6. 登出（撤銷 refreshToken）
+POST {{ProjectC.WebApi_HostAddress}}/api/auth/logout
+Content-Type: application/json
+Authorization: Bearer {{login.response.body.$.accessToken}}
+
+{
+  "refreshToken": "{{login.response.body.$.refreshToken}}"
+}
+
+### 7. 申請密碼重設（本次範圍不寄信，回應不會有 Token，僅內部產生）
+POST {{ProjectC.WebApi_HostAddress}}/api/auth/password-reset/request
+Content-Type: application/json
+
+{
+  "email": "{{email}}"
+}
+
+### --- 以下需要 Admin 角色，目前系統沒有任何 API 能把一般會員升級成 Admin ---
+### --- 要測這兩個端點，得先手動改 DB 的 Members.Role 欄位（見下方 SQL），改完要用 8. 重新登入拿新 Token ---
+
+### 8. 用 Admin 帳號登入（角色是在登入當下才寫進 JWT，改完 DB 角色要重新登入）
+# @name adminLogin
+POST {{ProjectC.WebApi_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### 9. 停用會員帳號（Admin only）
+POST {{ProjectC.WebApi_HostAddress}}/api/admin/members/{{register.response.body.$.id}}/deactivate
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+
+### 10. 啟用會員帳號（Admin only）
+POST {{ProjectC.WebApi_HostAddress}}/api/admin/members/{{register.response.body.$.id}}/activate
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}

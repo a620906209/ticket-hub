@@ -1,33 +1,32 @@
 namespace ProjectC.Application.Common;
 
-public sealed class Result
+public class Result
 {
     public bool IsSuccess { get; }
-    public string? Error { get; }
+    public Error? Error { get; }
 
-    private Result(bool isSuccess, string? error)
+    protected Result(bool isSuccess, Error? error)
     {
         IsSuccess = isSuccess;
         Error = error;
     }
 
     public static Result Success() => new(true, null);
-    public static Result Failure(string error) => new(false, error);
+
+    public static Result Failure(Error error) => new(false, error);
 }
 
-public sealed class Result<T>
+public sealed class Result<T> : Result
 {
-    public bool IsSuccess { get; }
     public T? Value { get; }
-    public string? Error { get; }
 
-    private Result(bool isSuccess, T? value, string? error)
+    private Result(bool isSuccess, T? value, Error? error)
+        : base(isSuccess, error)
     {
-        IsSuccess = isSuccess;
         Value = value;
-        Error = error;
     }
 
     public static Result<T> Success(T value) => new(true, value, null);
-    public static Result<T> Failure(string error) => new(false, default, error);
+
+    public static new Result<T> Failure(Error error) => new(false, default, error);
 }
