@@ -94,4 +94,27 @@ public class ConfirmOrderHandlerTests
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Pending);
     }
+
+    [Fact]
+    public void Handle_WhenResolvedSeatBelongsToDifferentEvent_ReturnsFailureAndDoesNotChangeAnything()
+    {
+        // 模擬呼叫端組出來的 seatsById 字典裡，某個 EventSeatId 對應到錯誤活動的座位物件
+        // （例如 Repository 查詢寫錯條件），不是 CreateOrderHandler 正常流程會產生的狀態。
+        var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+        var (order, seatsById) = CreatePendingOrder(now);
+        var seatId = seatsById.Keys.Single();
+
+        var otherSeatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
+        var otherSeat = otherSeatMap.AddSeat("A", "1");
+        var otherEvent = new Event(Guid.NewGuid(), "Other Show", DateTime.UtcNow.AddDays(2), Guid.NewGuid(), otherSeatMap.Id);
+        var otherEventSeat = otherEvent.CreateEventSeats(otherSeatMap).Single(s => s.SeatId == otherSeat.Id);
+        var mismatchedSeatsById = new Dictionary<Guid, EventSeat> { [seatId] = otherEventSeat };
+
+        var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now });
+        var result = handler.Handle(order, mismatchedSeatsById);
+
+        result.IsSuccess.Should().BeFalse();
+        order.Status.Should().Be(OrderStatus.Pending);
+        otherEventSeat.GetStatus(now).Should().Be(EventSeatStatus.Available);
+    }
 }

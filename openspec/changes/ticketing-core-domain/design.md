@@ -47,7 +47,7 @@
   | Sold | `SoldByOrderId != null` |
   | Held | `SoldByOrderId == null && HeldByOrderId != null && now < HeldUntilUtc` |
   | Available | 其餘情況（含 `HeldByOrderId != null` 但 `now >= HeldUntilUtc` 的逾時情況） |
-- 對外只暴露三個計算方法：`EventSeat.GetStatus(DateTime now)`、`EventSeat.IsAvailableForHold(DateTime now)`、`EventSeat.IsHeldBy(Guid orderId, DateTime now)`（判斷「未售出 且 `HeldByOrderId == orderId` 且 `now < HeldUntilUtc`」）；不暴露 `HeldByOrderId`／`HeldUntilUtc`／`SoldByOrderId` 等可直接讀取判斷的原始欄位存取捷徑。任何呼叫端（包含 Application 層的 Handler）需要判斷「這個座位現在是不是由某筆訂單合法持有」，一律呼叫 `IsHeldBy`，不得自行比較欄位
+- 對外只暴露四個計算方法：`EventSeat.GetStatus(DateTime now)`、`EventSeat.IsAvailableForHold(DateTime now)`、`EventSeat.IsHeldBy(Guid orderId, DateTime now)`（判斷「未售出 且 `HeldByOrderId == orderId` 且 `now < HeldUntilUtc`」）、`EventSeat.IsSoldBy(Guid orderId)`（判斷「`SoldByOrderId == orderId`」，不需要 `now`，因為 Sold 不受時間影響；見 Decision 20）；不暴露 `HeldByOrderId`／`HeldUntilUtc`／`SoldByOrderId` 等可直接讀取判斷的原始欄位存取捷徑。任何呼叫端（包含 Application 層的 Handler）需要判斷「這個座位現在是不是由某筆訂單合法持有」，一律呼叫 `IsHeldBy`；需要判斷「這個座位是不是由某筆訂單售出」，一律呼叫 `IsSoldBy`，不得自行比較欄位
 
 **5. `Hold()` 對逾時暫扣採「覆寫」，這是明確寫入而非讀取時寫回**
 - `EventSeat.Hold(orderId, heldUntilUtc, now)` 呼叫時，若目前狀態依 `GetStatus(now)` 判斷為 Available（含「有 `HeldByOrderId` 但已逾時」的情況），MUST 直接以新的 `orderId`／`heldUntilUtc` 覆寫原本的 `HeldByOrderId`／`HeldUntilUtc`，無論原本是否為別的訂單留下的過期資料

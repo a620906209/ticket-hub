@@ -9,7 +9,7 @@
 - 新增 `Event`、`Venue`、`SeatMap`、`Seat`（座位樣板）、`TicketType` 等 Domain Entity，描述一場需要選位的表演活動與其座位圖
 - 新增 `EventSeat`：**每場活動專屬的可售座位庫存**，建立活動時依場地座位圖為每個座位產生一筆 `EventSeat`；座位鎖定/售出狀態掛在 `EventSeat` 上，不掛在共用的 `Seat` 樣板上，避免同一場地兩場活動誤共用庫存
 - 新增座位狀態機（於 `EventSeat`）：可售（Available）→ 暫扣（Held）→ 已售出（Sold），Sold 為明確標記（不可被時間推導覆蓋），Held 由 `HeldByOrderId` + `HeldUntilUtc` 搭配目前時間推導，對外一律透過 `GetStatus(now)` 存取
-- 新增 `Order`、`OrderItem` Entity，代表買家選定座位後建立的訂單，狀態機：建立中（Pending）→ 已確認（Confirmed）/ 已取消（Cancelled）/ 已逾時（Expired）；**整筆訂單只有一個到期時間**（`Order.HeldUntilUtc`），不逐座位判斷逾時；`OrderItem` 建立時快照 `TicketType` 當下票價
+- 新增 `Order`、`OrderItem` Entity，代表買家選定座位後建立的訂單；持久化狀態機只有三個值：建立中（Pending）→ 已確認（Confirmed）／已取消（Cancelled），Cancelled 亦用於承接逾時清理。Expired **不是**持久化狀態，只是查詢時依到期時間推導出的顯示結果（`Order.GetStatus(now)`），要讓一筆已逾時的 Pending 訂單進入終態一律透過取消操作，落地結果是 Cancelled；**整筆訂單只有一個到期時間**（`Order.HeldUntilUtc`），不逐座位判斷逾時；`OrderItem` 建立時快照 `TicketType` 當下票價
 - 新增 Application 層的訂單協調邏輯（`CreateOrderHandler` / `ConfirmOrderHandler` / `CancelOrderHandler`）：先產生 `OrderId` 再逐一鎖定所選 `EventSeat`，任一鎖定失敗則復原本次已鎖定的座位、不建立訂單；此邏輯需要查詢多個 Entity，故放在 Application 而非 Domain。本階段的「原子性」僅為記憶體內操作順序保證，非資料庫交易
 - 業務失敗回傳契約：Domain 的守衛方法（不變條件違反，如「座位已被鎖定」）拋領域例外；Application 的 Handler 對外一律攔截並轉譯為 `Result<T>`，不讓例外做流程控制
 - 不包含：EF Core 實作（Infrastructure）、Controller/API（WebApi）、付款串接、主辦方後台 UI／權限、買家身分（`Order` 暫不含 `BuyerId`）、暫扣續命（Extend）。這些留待後續 change

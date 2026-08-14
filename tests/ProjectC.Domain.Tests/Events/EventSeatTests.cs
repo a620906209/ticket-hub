@@ -203,4 +203,25 @@ public class EventSeatTests
         expiredHold.Hold(expiredOrderId, now.AddMinutes(10), now);
         expiredHold.IsHeldBy(expiredOrderId, now.AddMinutes(11)).Should().BeFalse();
     }
+
+    [Fact]
+    public void IsSoldBy_WhenSoldByGivenOrder_ReturnsTrueOnlyForThatOrder()
+    {
+        var eventSeat = CreateEventSeat();
+        var now = DateTime.UtcNow;
+        var soldOrderId = Guid.NewGuid();
+        eventSeat.Hold(soldOrderId, now.AddMinutes(10), now);
+        eventSeat.ConfirmSold(soldOrderId, now);
+
+        eventSeat.IsSoldBy(soldOrderId).Should().BeTrue();
+        eventSeat.IsSoldBy(Guid.NewGuid()).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsSoldBy_WhenNotSold_ReturnsFalseForAnyOrder()
+    {
+        var eventSeat = CreateEventSeat();
+
+        eventSeat.IsSoldBy(Guid.NewGuid()).Should().BeFalse();
+    }
 }
