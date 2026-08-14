@@ -122,9 +122,16 @@
 - **[2026-08-15 驗收發現並修正]** `Order.Cancel()` 原本只擋 `Confirmed`（`Status == Confirmed` 才拋例外），代表對一筆已經 `Cancelled` 的訂單再呼叫一次 `Cancel()` 會被無聲接受、不會有任何錯誤——這違反「Cancelled 是終態」的設計意圖。改為 `Status != Pending` 才允許操作，`Confirm()` 與 `Cancel()` 共用同一個具名例外 `OrderNotPendingException`（取代原本 `Confirm()` 用的通用 `InvalidOperationException` 與 `Cancel()` 專用的 `OrderAlreadyConfirmedException`），符合 Decision 12「Domain 守衛用具名領域例外」的要求
 - `CancelOrderHandler` 對外的 Application 層守衛（`order.Status != Pending` 才回傳 `Result` 失敗）與 Domain 層的 `OrderNotPendingException` 是兩層防護，行為一致
 
-**20. `CancelOrderHandler` 在釋放座位前，先預檢是否有座位已售出，避免例外穿透與部分釋放**
-- **[2026-08-15 驗收發現並修正]** 原本 `CancelOrderHandler` 直接對每個座位呼叫 `ReleaseHold`，若訂單內某座位已因逾時被其他訂單搶走並完成售出（`SoldByOrderId != null`），`ReleaseHold` 會拋 `SeatAlreadySoldException`；因為呼叫沒有包在 try/catch 裡，這個領域例外會直接穿透 `CancelOrderHandler.Handle`，違反 Decision 12「Application 邊界一律轉譯為 `Result<T>`」；更糟的是，若訂單有多筆座位，前面幾筆已經被釋放、卡在已售出那筆才拋例外，會留下部分釋放、`Order.Cancel()` 也沒機會執行的不一致狀態
-- 修正為：`CancelOrderHandler` 先走一輪唯讀檢查（呼叫 `EventSeat.GetStatus(now)`，不呼叫 `ReleaseHold`），只要有任何座位已是 Sold，直接回傳失敗的 `Result`、不釋放任何座位、不呼叫 `Order.Cancel()`；只有全部座位都不是 Sold，才進入第二輪真正執行 `ReleaseHold` 的迴圈。這需要 `CancelOrderHandler` 也注入 `IDateTimeProvider`（先前版本不需要時間，因為沒有這個預檢邏輯）
+**20. `CancelOrderHandler` 對「座位已被別人合法售出」略過處理，只對「座位已由自己售出」這種不一致狀態拒絕**
+- **[2026-08-15 驗收發現並修正，第一版]** 第一版修正把「任何座位已標記 Sold」都當成整單失敗：先走一輪唯讀檢查（`EventSeat.GetStatus(now)`），只要有座位已 Sold 就直接回傳失敗的 `Result`，不釋放任何座位、不呼叫 `Order.Cancel()`，用意是避免 `ReleaseHold` 對已售出座位拋出的 `SeatAlreadySoldException` 穿透 `CancelOrderHandler.Handle`（違反 Decision 12），也避免多座位訂單裡前面幾筆已釋放、卡在售出那筆才失敗的部分釋放問題
+- **[2026-08-15 驗收再次發現並修正，第二版]** 第一版與 Decision 10 的本意矛盾：Decision 10 說 `CancelOrderHandler` 要能清理任何內部仍是 Pending 的訂單（不論主動取消或逾時後的善後），Decision 6 讓 `ReleaseHold` 對「座位已被別人拿走」no-op 而不是失敗，正是為了不讓舊訂單的清理卡住。若舊訂單 A 逾時後，座位被訂單 B 合法搶走並售出，A 要做的事只是把自己標記成 Cancelled——這跟 B 有沒有把座位賣掉無關。第一版卻讓 A 永遠卡在「內部 Pending、查詢時卻是 Expired」的中間態，實質上又把「別人已合法拿走」當成失敗，跟 Decision 6 的 no-op 精神不一致
+- 修正為區分「誰把座位賣掉的」：新增 `EventSeat.IsSoldBy(orderId)`（不需要 `now`，因為 Sold 不受時間影響）。`CancelOrderHandler` 先做一輪唯讀檢查，只有「座位已標記 Sold 且售出訂單編號正是本訂單」（`IsSoldBy(order.Id)`）才視為不應發生的不一致狀態、直接拒絕整單取消；「座位已標記 Sold 但售出訂單編號是別人」則在第二輪釋放迴圈中單純略過該座位（不呼叫 `ReleaseHold`，因為它對任何 Sold 座位都會拋例外，無論售出者是誰），其餘座位正常釋放，最終仍呼叫 `Order.Cancel()` 把訂單狀態收斂成 Cancelled
+- 這個修正同時保留了第一版要解決的問題（`ReleaseHold` 不會被呼叫在已售出的座位上，不會有例外穿透或部分釋放），又不會誤傷「舊訂單清理」這個 Decision 10 的核心用途
+
+**21. `ConfirmOrderHandler` 的 `ConfirmSold` 迴圈刻意不包 try/catch，即使 Decision 12 說 Application 邊界要轉譯例外**
+- **[2026-08-15 驗收確認，維持現狀]** 驗收時有人提出：`ConfirmOrderHandler` 在完整驗證通過後執行 `foreach (var seat in seats) seat.ConfirmSold(order.Id, now);`，這段沒有 catch `DomainException`，形式上與 Decision 12「Application 邊界一律轉譯為 `Result<T>`」不完全一致
+- 決定維持現狀、不加 try/catch，理由：(1) 進入這個迴圈前，每筆座位都已經用同一個 `now` 通過 `IsHeldBy` 檢查，本階段沒有並行（Non-Goal），所以在單執行緒的執行順序下 `ConfirmSold` 內部的守衛條件必然成立，不會真的拋出例外；(2) 更重要的是，`Sold` 依 Decision 4 是永久狀態、EventSeat 沒有「取消售出」的操作，如果硬要包 try/catch，遇到「第 2 筆座位 `ConfirmSold` 成功、第 3 筆才失敗」的假設情境時，沒有任何 Domain 方法可以把第 2 筆已經 Sold 的座位復原——這種補償在目前的模型下做不到。與其用 try/catch 製造一個「看似安全、實際上會留下無法復原的部分售出」的假象，不如讓這種理論上不該發生的情況直接以未攔截例外的方式明顯失敗，逼呼叫端正視這是程式錯誤而非可預期的業務結果
+- 這與 `CreateOrderHandler`（`Hold` 失敗可以用 `ReleaseHold` 補償，包 try/catch 有意義）、`CancelOrderHandler`（`ReleaseHold` 對別人持有的座位是安全的 no-op，但對已售出座位必須避免呼叫，用預檢而非 try/catch）的處理方式不同，是刻意的差異，不是遺漏
 
 ## Risks / Trade-offs
 

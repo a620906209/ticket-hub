@@ -16,7 +16,7 @@
 - **THEN** 系統 MUST 拒絕此次鎖定並拋出座位不可鎖定的領域例外
 
 ### Requirement: 座位狀態存取限制
-系統 SHALL 只透過 `GetStatus(now)`、`IsAvailableForHold(now)`、`IsHeldBy(orderId, now)` 三個方法對外暴露 `EventSeat` 的狀態判斷；`Sold` 由明確標記欄位（一旦設定即永久生效）判斷，`Held`／`Available` 才由暫扣欄位搭配傳入的 `now` 推導。呼叫端（包含 Application 層需要確認「座位是否仍由某筆訂單合法持有」的邏輯）MUST NOT 直接讀取內部欄位（例如 `HeldByOrderId`、`HeldUntilUtc`）自行判斷，一律改呼叫上述方法。
+系統 SHALL 只透過 `GetStatus(now)`、`IsAvailableForHold(now)`、`IsHeldBy(orderId, now)`、`IsSoldBy(orderId)` 四個方法對外暴露 `EventSeat` 的狀態判斷；`Sold` 由明確標記欄位（一旦設定即永久生效）判斷，`Held`／`Available` 才由暫扣欄位搭配傳入的 `now` 推導。`IsSoldBy(orderId)` 不需要 `now`，因為 Sold 不受時間影響。呼叫端（包含 Application 層需要確認「座位是否仍由某筆訂單合法持有」或「座位是否已由某筆訂單售出」的邏輯）MUST NOT 直接讀取內部欄位（例如 `HeldByOrderId`、`HeldUntilUtc`、`SoldByOrderId`）自行判斷，一律改呼叫上述方法。
 
 #### Scenario: 已售出座位不受時間影響
 - **WHEN** 對已標記 Sold 的 `EventSeat`，以任意時間點呼叫 `GetStatus(now)`
@@ -29,6 +29,10 @@
 #### Scenario: 透過 IsHeldBy 確認座位仍由指定訂單合法持有
 - **WHEN** 座位處於 Held 狀態、暫扣尚未逾時、且鎖定訂單編號為訂單 A，呼叫 `IsHeldBy(訂單 A 編號, now)`
 - **THEN** 系統回傳 true
+
+#### Scenario: 透過 IsSoldBy 確認座位是否由指定訂單售出
+- **WHEN** 座位已標記 Sold 且售出訂單編號為訂單 A，分別呼叫 `IsSoldBy(訂單 A 編號)` 與 `IsSoldBy(訂單 B 編號)`
+- **THEN** 前者回傳 true，後者回傳 false；座位未售出時，對任何訂單編號呼叫 `IsSoldBy` 皆回傳 false
 
 #### Scenario: IsHeldBy 對不符合的情況一律回傳 false
 - **WHEN** 座位已售出、或暫扣已逾時、或鎖定訂單編號並非傳入的訂單編號，呼叫 `IsHeldBy(該訂單編號, now)`

@@ -20,18 +20,23 @@ public sealed class CancelOrderHandler
         if (order.Status != OrderStatus.Pending)
             return Result.Failure(Error.Conflict($"Order '{order.Id}' cannot be cancelled because its status is '{order.Status}'."));
 
-        var now = _dateTimeProvider.UtcNow;
-
         foreach (var item in order.Items)
         {
-            if (eventSeatsById.TryGetValue(item.EventSeatId, out var seat) && seat.GetStatus(now) == EventSeatStatus.Sold)
-                return Result.Failure(Error.Conflict($"Seat '{item.EventSeatId}' has already been sold and cannot be released."));
+            if (eventSeatsById.TryGetValue(item.EventSeatId, out var seat) && seat.IsSoldBy(order.Id))
+                return Result.Failure(Error.Conflict(
+                    $"Order '{order.Id}' is inconsistent: seat '{item.EventSeatId}' is already sold by this same order while the order is still Pending."));
         }
 
+        var now = _dateTimeProvider.UtcNow;
         foreach (var item in order.Items)
         {
-            if (eventSeatsById.TryGetValue(item.EventSeatId, out var seat))
-                seat.ReleaseHold(order.Id);
+            if (!eventSeatsById.TryGetValue(item.EventSeatId, out var seat))
+                continue;
+
+            if (seat.GetStatus(now) == EventSeatStatus.Sold)
+                continue;
+
+            seat.ReleaseHold(order.Id);
         }
 
         order.Cancel();

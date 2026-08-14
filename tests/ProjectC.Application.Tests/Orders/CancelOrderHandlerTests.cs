@@ -87,7 +87,7 @@ public class CancelOrderHandlerTests
     }
 
     [Fact]
-    public void Handle_WhenSeatWasSoldToAnotherOrderAfterExpiry_ReturnsFailureInsteadOfThrowing()
+    public void Handle_WhenSeatWasSoldToAnotherOrderAfterExpiry_StillCancelsWithoutThrowingOrTouchingTheSoldSeat()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var (orderA, seatsById, @event, seatMap) = CreatePendingOrder(now);
@@ -98,15 +98,34 @@ public class CancelOrderHandlerTests
         var createHandlerB = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
         var resultB = createHandlerB.Handle([new SeatSelection(seat, ticketType)]);
         resultB.IsSuccess.Should().BeTrue();
+        var orderB = resultB.Value!;
 
         var confirmHandlerB = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
-        confirmHandlerB.Handle(resultB.Value!, seatsById).IsSuccess.Should().BeTrue();
+        confirmHandlerB.Handle(orderB, seatsById).IsSuccess.Should().BeTrue();
 
         var cancelHandlerA = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
-        var act = () => cancelHandlerA.Handle(orderA, seatsById);
 
-        act.Should().NotThrow();
-        act().IsSuccess.Should().BeFalse();
-        orderA.Status.Should().Be(OrderStatus.Pending);
+        var result = cancelHandlerA.Handle(orderA, seatsById);
+
+        result.IsSuccess.Should().BeTrue();
+        orderA.Status.Should().Be(OrderStatus.Cancelled);
+        seat.IsSoldBy(orderB.Id).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Handle_WhenSeatWasSoldByThisSameOrder_ReturnsFailureAsInconsistentState()
+    {
+        var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+        var (order, seatsById, _, _) = CreatePendingOrder(now);
+        var seat = seatsById.Values.Single();
+        // 模擬「座位已由本訂單售出，但訂單自己仍是 Pending」這種不該發生的不一致狀態
+        // （正常流程下 ConfirmOrderHandler 會讓 ConfirmSold 與 Order.Confirm() 一起發生）。
+        seat.ConfirmSold(order.Id, now);
+
+        var handler = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = now });
+        var result = handler.Handle(order, seatsById);
+
+        result.IsSuccess.Should().BeFalse();
+        order.Status.Should().Be(OrderStatus.Pending);
     }
 }

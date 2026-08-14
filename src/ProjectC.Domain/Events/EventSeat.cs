@@ -35,6 +35,8 @@ public sealed class EventSeat
     public bool IsHeldBy(Guid orderId, DateTime now)
         => _soldByOrderId is null && _heldByOrderId == orderId && now < _heldUntilUtc;
 
+    public bool IsSoldBy(Guid orderId) => _soldByOrderId == orderId;
+
     public void Hold(Guid orderId, DateTime heldUntilUtc, DateTime now)
     {
         var status = GetStatus(now);
