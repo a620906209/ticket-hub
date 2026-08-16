@@ -35,12 +35,22 @@ services:
       Jwt__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION_MINUTES}
       Auth__RefreshTokenExpirationDays: ${AUTH_REFRESH_TOKEN_EXPIRATION_DAYS}
       Auth__PasswordResetTokenExpirationMinutes: ${AUTH_PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES}
+      # 讓容器內的 Testcontainers 整合測試知道要把臨時容器加進哪個 compose 網路，
+      # 才能跟 api 自己互連；固定寫死是因為下面 networks.default.name 也固定為同一個值。
+      Testcontainers__ComposeNetworkName: projectc_default
+      # Ryuk（Testcontainers 自動回收孤兒容器的機制）是獨立容器，不受上面的網路設定影響，
+      # 在 DooD（容器內操作 host Docker）情境下一樣連不到，官方對此情境的建議做法是停用；
+      # 測試程式碼本身已在 DisposeAsync() 正確清理容器，只有測試行程被強制中斷才會留下孤兒容器。
+      TESTCONTAINERS_RYUK_DISABLED: "true"
     ports:
       # 對外 port 衝突時，在你自己的 .env 設 API_HOST_PORT 就好，不用改這個共用檔案。
       - "${API_HOST_PORT:-8080}:8080"
     volumes:
       # 開發時掛載完整原始碼，支援 dotnet watch hot reload。
       - .:/src
+      # 掛 host 的 docker.sock，讓容器內的 Testcontainers 整合測試能操作 host 的 Docker daemon（Docker-out-of-Docker）。
+      # 注意：這等同把 host 的完整 Docker 控制權交給容器，僅限本機開發環境使用。
+      - /var/run/docker.sock:/var/run/docker.sock
       # NuGet 快取與各專案的 build 產出物改用 named volume，避免透過 bind mount 在 Windows 上讀寫，效能才不會很差。
       - nuget_packages:/root/.nuget/packages
       - domain_bin:/src/src/ProjectC.Domain/bin
@@ -57,6 +67,12 @@ services:
       - application_tests_obj:/src/tests/ProjectC.Application.Tests/obj
       - webapi_tests_bin:/src/tests/ProjectC.WebApi.Tests/bin
       - webapi_tests_obj:/src/tests/ProjectC.WebApi.Tests/obj
+
+networks:
+  default:
+    # 固定命名，不讓 checkout 目錄名稱影響網路名稱——api 容器內的 Testcontainers 整合測試
+    # 需要用固定的網路名稱把臨時容器掛進來這裡，才能跟 api 互連。
+    name: projectc_default
 
 volumes:
   postgres_data:
