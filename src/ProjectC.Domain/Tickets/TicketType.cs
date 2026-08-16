@@ -23,4 +23,14 @@ public sealed class TicketType
         ZoneCode = zoneCode;
         Price = price;
     }
+
+    // 僅供 EF Core 物化使用：不吃 SeatMap（物化時沒有這個物件可傳），
+    // 略過建構時的 zone 驗證——從資料庫讀回來的資料已經通過當初寫入時的驗證。
+    private TicketType(Guid id, Guid eventId, string zoneCode, decimal price)
+    {
+        Id = id;
+        EventId = eventId;
+        ZoneCode = zoneCode;
+        Price = price;
+    }
 }

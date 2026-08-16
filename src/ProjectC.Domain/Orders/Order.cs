@@ -23,6 +23,17 @@ public sealed class Order
         _items.AddRange(itemList);
     }
 
+    // 僅供 EF Core 物化使用：只吃純量參數，刻意不接受 items 集合，
+    // 避免跟上面吃 IEnumerable&lt;OrderItem&gt; 的公開建構子在 constructor binding 時產生歧義。
+    // _items 完全透過 backing field mapping 處理。
+    private Order(Guid id, Guid eventId, DateTime heldUntilUtc, OrderStatus status)
+    {
+        Id = id;
+        EventId = eventId;
+        HeldUntilUtc = heldUntilUtc;
+        Status = status;
+    }
+
     public OrderStatus GetStatus(DateTime now)
     {
         if (Status == OrderStatus.Pending && now >= HeldUntilUtc)

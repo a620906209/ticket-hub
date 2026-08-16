@@ -15,7 +15,12 @@ using ProjectC.Application.Members.Deactivate;
 using ProjectC.Application.Members.GetMyProfile;
 using ProjectC.Application.Members.Register;
 using ProjectC.Application.Members.UpdateMyProfile;
+using ProjectC.Domain.Events;
+using ProjectC.Domain.Orders;
+using ProjectC.Domain.Tickets;
+using ProjectC.Domain.Venues;
 using ProjectC.Infrastructure.Persistence;
+using ProjectC.Infrastructure.Persistence.Repositories;
 using ProjectC.Infrastructure.Security;
 using ProjectC.WebApi.Common;
 using ProjectC.WebApi.ExceptionHandling;
@@ -35,6 +40,15 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
+
+// Scoped：都綁定同一個 DbContext 的生命週期（一次 HTTP request／一個測試範圍一個 instance）。
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<IVenueRepository, VenueRepository>();
+builder.Services.AddScoped<ISeatMapRepository, SeatMapRepository>();
+builder.Services.AddScoped<IEventRepository, EventRepository>();
+builder.Services.AddScoped<IEventSeatRepository, EventSeatRepository>();
+builder.Services.AddScoped<ITicketTypeRepository, TicketTypeRepository>();
+builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 
 // JwtOptions：啟動時驗證，SigningKey 等缺失直接讓應用程式啟動失敗（Fail Fast，見 design.md 決策 9）。
 builder.Services
