@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,5 +47,18 @@ public static class AuthTestHelper
         var member = await dbContext.Members.SingleAsync(m => m.Email == email);
         dbContext.Entry(member).Property(m => m.Role).CurrentValue = MemberRole.Admin;
         await dbContext.SaveChangesAsync();
+    }
+
+    /// <summary>註冊一個新會員、升為 Admin，回傳已帶好 Bearer Token 的 HttpClient。</summary>
+    public static async Task<HttpClient> CreateAuthenticatedAdminClientAsync(CustomWebApplicationFactory factory, string? email = null)
+    {
+        email ??= NewEmail();
+        await RegisterAsync(factory.CreateClient(), email);
+        await PromoteToAdminAsync(factory.Services, email);
+
+        var adminClient = factory.CreateClient();
+        var tokens = await LoginAsync(adminClient, email);
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        return adminClient;
     }
 }

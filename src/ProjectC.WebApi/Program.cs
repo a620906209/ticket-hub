@@ -10,11 +10,15 @@ using ProjectC.Application.Authentication.PasswordReset;
 using ProjectC.Application.Authentication.Refresh;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
+using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Members.Activate;
 using ProjectC.Application.Members.Deactivate;
 using ProjectC.Application.Members.GetMyProfile;
 using ProjectC.Application.Members.Register;
 using ProjectC.Application.Members.UpdateMyProfile;
+using ProjectC.Application.Tickets.CreateTicketType;
+using ProjectC.Application.Venues.CreateSeatMap;
+using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Tickets;
@@ -65,6 +69,11 @@ builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddTransient<ITokenService, JwtTokenService>();
 
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterMemberRequestValidator>();
+
+builder.Services.AddScoped<CreateVenueHandler>();
+builder.Services.AddScoped<CreateSeatMapHandler>();
+builder.Services.AddScoped<CreateEventHandler>();
+builder.Services.AddScoped<CreateTicketTypeHandler>();
 
 builder.Services.AddScoped<RegisterMemberHandler>();
 builder.Services.AddScoped<GetMyProfileHandler>();
