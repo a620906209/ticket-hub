@@ -34,6 +34,7 @@ public class OrderServiceConcurrencyTests
             new OrderRepository(dbContext),
             new UnitOfWork(dbContext),
             new PlaceOrderRequestValidator(),
+            dateTimeProvider,
             new CreateOrderHandler(dateTimeProvider),
             new ConfirmOrderHandler(dateTimeProvider),
             new CancelOrderHandler(dateTimeProvider));

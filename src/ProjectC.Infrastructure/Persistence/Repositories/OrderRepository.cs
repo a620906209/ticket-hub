@@ -15,6 +15,15 @@ public class OrderRepository : IOrderRepository
     public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => _dbContext.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken)
+        => await _dbContext.Orders.Include(o => o.Items).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Guid>> GetExpiredPendingOrderIdsAsync(DateTime now, CancellationToken cancellationToken)
+        => await _dbContext.Orders
+            .Where(o => o.Status == OrderStatus.Pending && o.HeldUntilUtc <= now)
+            .Select(o => o.Id)
+            .ToListAsync(cancellationToken);
+
     public Task ReloadAsync(Order order, CancellationToken cancellationToken)
         => _dbContext.Entry(order).ReloadAsync(cancellationToken);
 
