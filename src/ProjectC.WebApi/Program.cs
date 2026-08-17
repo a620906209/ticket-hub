@@ -19,6 +19,8 @@ using ProjectC.Application.Members.GetMyProfile;
 using ProjectC.Application.Members.Register;
 using ProjectC.Application.Members.UpdateMyProfile;
 using ProjectC.Application.Orders;
+using ProjectC.Application.Orders.GetOrderById;
+using ProjectC.Application.Orders.GetOrders;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Application.Venues.CreateSeatMap;
@@ -30,6 +32,7 @@ using ProjectC.Domain.Venues;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.Infrastructure.Persistence.Repositories;
 using ProjectC.Infrastructure.Security;
+using ProjectC.WebApi.BackgroundServices;
 using ProjectC.WebApi.Common;
 using ProjectC.WebApi.ExceptionHandling;
 using ProjectC.WebApi.OpenApi;
@@ -68,6 +71,10 @@ builder.Services
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<AuthOptions>>().Value);
 
+// OrderCleanupOptions 有安全的預設值，不像 JwtOptions 缺值就無法運作，不需要 ValidateOnStart（見 design.md 決策 2）。
+builder.Services.Configure<OrderCleanupOptions>(builder.Configuration.GetSection("OrderCleanup"));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<OrderCleanupOptions>>().Value);
+
 builder.Services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
 builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddTransient<ITokenService, JwtTokenService>();
@@ -86,6 +93,16 @@ builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<GetEventsHandler>();
 builder.Services.AddScoped<GetEventSeatsHandler>();
 builder.Services.AddScoped<GetTicketTypesHandler>();
+builder.Services.AddScoped<GetOrdersHandler>();
+builder.Services.AddScoped<GetOrderByIdHandler>();
+
+// Testing 環境（見 CustomWebApplicationFactory.UseEnvironment("Testing")）不啟動真實背景服務，
+// 否則所有既有 WebApi 整合測試都會連帶啟動一個對著自己 Testcontainers 資料庫跑的清理服務
+// （見 ticketing-order-management design.md 決策 5）。
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddHostedService<ExpiredOrderCleanupService>();
+}
 
 builder.Services.AddScoped<RegisterMemberHandler>();
 builder.Services.AddScoped<GetMyProfileHandler>();

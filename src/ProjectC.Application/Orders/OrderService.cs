@@ -18,6 +18,7 @@ public sealed class OrderService
     private readonly IOrderRepository _orderRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IValidator<PlaceOrderRequest> _validator;
+    private readonly IDateTimeProvider _dateTimeProvider;
     private readonly CreateOrderHandler _createOrderHandler;
     private readonly ConfirmOrderHandler _confirmOrderHandler;
     private readonly CancelOrderHandler _cancelOrderHandler;
@@ -30,6 +31,7 @@ public sealed class OrderService
         IOrderRepository orderRepository,
         IUnitOfWork unitOfWork,
         IValidator<PlaceOrderRequest> validator,
+        IDateTimeProvider dateTimeProvider,
         CreateOrderHandler createOrderHandler,
         ConfirmOrderHandler confirmOrderHandler,
         CancelOrderHandler cancelOrderHandler)
@@ -41,6 +43,7 @@ public sealed class OrderService
         _orderRepository = orderRepository;
         _unitOfWork = unitOfWork;
         _validator = validator;
+        _dateTimeProvider = dateTimeProvider;
         _createOrderHandler = createOrderHandler;
         _confirmOrderHandler = confirmOrderHandler;
         _cancelOrderHandler = cancelOrderHandler;
@@ -143,9 +146,16 @@ public sealed class OrderService
     public Task<Result> CancelOrderAsync(Guid orderId, Guid requestingBuyerId, CancellationToken cancellationToken)
         => ChangeOrderStatusAsync(orderId, requestingBuyerId, _cancelOrderHandler.Handle, cancellationToken);
 
+    /// <summary>
+    /// 背景清理呼叫，沒有買家身份可驗證，改以「訂單確實已逾時」作為授權依據，取代本人驗證
+    /// （見 ticketing-order-management design.md 決策 1）。
+    /// </summary>
+    public Task<Result> CancelExpiredOrderAsync(Guid orderId, CancellationToken cancellationToken)
+        => ChangeOrderStatusAsync(orderId, requestingBuyerId: null, _cancelOrderHandler.Handle, cancellationToken);
+
     private async Task<Result> ChangeOrderStatusAsync(
         Guid orderId,
-        Guid requestingBuyerId,
+        Guid? requestingBuyerId,
         Func<Order, IReadOnlyDictionary<Guid, EventSeat>, Result> handle,
         CancellationToken cancellationToken)
     {
@@ -155,9 +165,19 @@ public sealed class OrderService
             return Result.Failure(Error.NotFound($"Order '{orderId}' was not found."));
         }
 
-        if (order.BuyerId != requestingBuyerId)
+        if (requestingBuyerId is not null)
         {
-            return Result.Failure(Error.Forbidden("You are not the buyer of this order."));
+            if (order.BuyerId != requestingBuyerId)
+            {
+                return Result.Failure(Error.Forbidden("You are not the buyer of this order."));
+            }
+        }
+        else if (_dateTimeProvider.UtcNow < order.HeldUntilUtc)
+        {
+            // 系統呼叫（背景清理），沒有買家身份可驗證；用「訂單確實已逾時」取代本人驗證作為授權依據，
+            // 避免這個方法被誤用成可以繞過買家授權、取消任何 Pending 訂單的工具
+            // （見 ticketing-order-management design.md 決策 1）。
+            return Result.Failure(Error.Conflict($"Order '{orderId}' is not yet expired."));
         }
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);

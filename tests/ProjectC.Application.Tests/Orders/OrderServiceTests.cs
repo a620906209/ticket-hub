@@ -32,6 +32,7 @@ public class OrderServiceTests
             OrderRepository,
             UnitOfWork,
             new PlaceOrderRequestValidator(),
+            DateTimeProvider,
             new CreateOrderHandler(DateTimeProvider),
             new ConfirmOrderHandler(DateTimeProvider),
             new CancelOrderHandler(DateTimeProvider));
@@ -206,5 +207,57 @@ public class OrderServiceTests
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.NotFound);
         order.Status.Should().Be(OrderStatus.Pending);
+    }
+
+    // ---- CancelExpiredOrderAsync ----
+
+    [Fact]
+    public async Task CancelExpiredOrderAsync_WhenOrderIsExpired_SucceedsWithoutAnyBuyerIdentity()
+    {
+        var (fixture, order, _) = await PlaceOrderAsync(new Fixture());
+        fixture.DateTimeProvider.UtcNow = order.HeldUntilUtc.AddSeconds(1);
+
+        var result = await fixture.CreateOrderService().CancelExpiredOrderAsync(order.Id, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        order.Status.Should().Be(OrderStatus.Cancelled);
+    }
+
+    [Fact]
+    public async Task CancelExpiredOrderAsync_WhenOrderIsNotYetExpired_ReturnsConflictAndDoesNotChangeOrder()
+    {
+        var (fixture, order, _) = await PlaceOrderAsync(new Fixture());
+        fixture.DateTimeProvider.UtcNow = order.HeldUntilUtc.AddSeconds(-1);
+
+        var result = await fixture.CreateOrderService().CancelExpiredOrderAsync(order.Id, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Conflict);
+        order.Status.Should().Be(OrderStatus.Pending);
+    }
+
+    [Fact]
+    public async Task CancelExpiredOrderAsync_WhenNowEqualsHeldUntilUtc_TreatsAsExpiredAndSucceeds()
+    {
+        // 邊界案例：跟 Order.GetStatus 的 now >= HeldUntilUtc 判斷邊界一致
+        // （見 ticketing-order-management tasks.md 4.1）。
+        var (fixture, order, _) = await PlaceOrderAsync(new Fixture());
+        fixture.DateTimeProvider.UtcNow = order.HeldUntilUtc;
+
+        var result = await fixture.CreateOrderService().CancelExpiredOrderAsync(order.Id, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        order.Status.Should().Be(OrderStatus.Cancelled);
+    }
+
+    [Fact]
+    public async Task CancelExpiredOrderAsync_WhenOrderDoesNotExist_ReturnsNotFound()
+    {
+        var fixture = new Fixture();
+
+        var result = await fixture.CreateOrderService().CancelExpiredOrderAsync(Guid.NewGuid(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
     }
 }
