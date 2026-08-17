@@ -15,5 +15,8 @@ public class TicketTypeRepository : ITicketTypeRepository
     public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => _dbContext.TicketTypes.FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
+        => await _dbContext.TicketTypes.Where(t => t.EventId == eventId).ToListAsync(cancellationToken);
+
     public void Add(TicketType ticketType) => _dbContext.TicketTypes.Add(ticketType);
 }

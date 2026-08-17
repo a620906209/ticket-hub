@@ -15,5 +15,8 @@ public class OrderRepository : IOrderRepository
     public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => _dbContext.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
 
+    public Task ReloadAsync(Order order, CancellationToken cancellationToken)
+        => _dbContext.Entry(order).ReloadAsync(cancellationToken);
+
     public void Add(Order order) => _dbContext.Orders.Add(order);
 }

@@ -6,7 +6,7 @@ namespace ProjectC.Domain.Tests.Orders;
 public class OrderTests
 {
     private static Order CreateOrder(DateTime heldUntilUtc)
-        => new(Guid.NewGuid(), Guid.NewGuid(), heldUntilUtc, [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), 500m)]);
+        => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), heldUntilUtc, [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), 500m)]);
 
     [Fact]
     public void GetStatus_WhenPendingAndNotExpired_ReturnsPending()
@@ -115,7 +115,17 @@ public class OrderTests
     [Fact]
     public void Constructor_WhenNoItemsProvided_ThrowsArgumentException()
     {
-        var act = () => new Order(Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow.AddMinutes(10), []);
+        var act = () => new Order(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow.AddMinutes(10), []);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Constructor_WhenBuyerIdIsEmpty_ThrowsArgumentException()
+    {
+        var act = () => new Order(
+            Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, DateTime.UtcNow.AddMinutes(10),
+            [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), 500m)]);
 
         act.Should().Throw<ArgumentException>();
     }

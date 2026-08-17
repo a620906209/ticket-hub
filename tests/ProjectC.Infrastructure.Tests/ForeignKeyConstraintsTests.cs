@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using ProjectC.Domain.Members;
 using ProjectC.Infrastructure.Tests.TestSupport;
 
 namespace ProjectC.Infrastructure.Tests;
@@ -12,6 +13,16 @@ public class ForeignKeyConstraintsTests
     public ForeignKeyConstraintsTests(PostgresFixture fixture)
     {
         _fixture = fixture;
+    }
+
+    /// <summary>種一個合法的 Member，回傳其 Id，供 Orders.BuyerId 的 raw SQL insert 使用（Orders.BuyerId 現在是 NOT NULL + FK）。</summary>
+    private async Task<Guid> SeedMemberAsync()
+    {
+        await using var dbContext = _fixture.CreateDbContext();
+        var member = Member.Register($"fk-test-{Guid.NewGuid():N}@example.com", "FK Test Member", "hash");
+        dbContext.Members.Add(member);
+        await dbContext.SaveChangesAsync();
+        return member.Id;
     }
 
     [Fact]
@@ -100,12 +111,26 @@ public class ForeignKeyConstraintsTests
     [Fact]
     public async Task InsertOrder_WithNonExistentEventId_ViolatesForeignKey()
     {
+        var buyerId = await SeedMemberAsync();
         await using var dbContext = _fixture.CreateDbContext();
 
         var act = () => dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""INSERT INTO "Orders" ("Id", "EventId", "HeldUntilUtc", "Status") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
+            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "HeldUntilUtc", "Status") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {buyerId}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
 
         await act.Should().ThrowAsync<Exception>("Orders.EventId 應該有 FK 約束，不存在的 EventId 不該插入成功");
+    }
+
+    [Fact]
+    public async Task InsertOrder_WithNonExistentBuyerId_ViolatesForeignKey()
+    {
+        await using var seedDbContext = _fixture.CreateDbContext();
+        var (eventId, _) = await TicketingTestData.SeedEventWithSeatsAsync(seedDbContext, seatCount: 1);
+
+        await using var dbContext = _fixture.CreateDbContext();
+        var act = () => dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "HeldUntilUtc", "Status") VALUES ({Guid.NewGuid()}, {eventId}, {Guid.NewGuid()}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
+
+        await act.Should().ThrowAsync<Exception>("Orders.BuyerId 應該有 FK 約束，不存在的 BuyerId 不該插入成功");
     }
 
     [Fact]
@@ -113,11 +138,12 @@ public class ForeignKeyConstraintsTests
     {
         await using var seedDbContext = _fixture.CreateDbContext();
         var (eventId, _) = await TicketingTestData.SeedEventWithSeatsAsync(seedDbContext, seatCount: 1);
+        var buyerId = await SeedMemberAsync();
 
         var orderId = Guid.NewGuid();
         await using var orderDbContext = _fixture.CreateDbContext();
         await orderDbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""INSERT INTO "Orders" ("Id", "EventId", "HeldUntilUtc", "Status") VALUES ({orderId}, {eventId}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
+            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "HeldUntilUtc", "Status") VALUES ({orderId}, {eventId}, {buyerId}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
 
         await using var dbContext = _fixture.CreateDbContext();
         var act = () => dbContext.Database.ExecuteSqlInterpolatedAsync(

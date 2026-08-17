@@ -18,7 +18,7 @@ public class ConfirmOrderHandlerTests
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
 
         var createHandler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
-        var result = createHandler.Handle([new SeatSelection(eventSeat, ticketType)]);
+        var result = createHandler.Handle(Guid.NewGuid(), [new SeatSelection(eventSeat, ticketType)]);
 
         return (result.Value!, new Dictionary<Guid, EventSeat> { [eventSeat.Id] = eventSeat });
     }
