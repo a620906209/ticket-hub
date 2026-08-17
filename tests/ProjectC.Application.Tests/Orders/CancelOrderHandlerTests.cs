@@ -18,7 +18,7 @@ public class CancelOrderHandlerTests
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
 
         var createHandler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
-        var result = createHandler.Handle([new SeatSelection(eventSeat, ticketType)]);
+        var result = createHandler.Handle(Guid.NewGuid(), [new SeatSelection(eventSeat, ticketType)]);
 
         return (result.Value!, new Dictionary<Guid, EventSeat> { [eventSeat.Id] = eventSeat }, @event, seatMap);
     }
@@ -96,7 +96,7 @@ public class CancelOrderHandlerTests
         var afterExpiry = orderA.HeldUntilUtc.AddMinutes(1);
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
         var createHandlerB = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
-        var resultB = createHandlerB.Handle([new SeatSelection(seat, ticketType)]);
+        var resultB = createHandlerB.Handle(Guid.NewGuid(), [new SeatSelection(seat, ticketType)]);
         resultB.IsSuccess.Should().BeTrue();
         var orderB = resultB.Value!;
 

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
 
 namespace ProjectC.Infrastructure.Persistence.Configurations;
@@ -14,12 +15,19 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.HasKey(o => o.Id);
 
         builder.Property(o => o.EventId).IsRequired();
+        builder.Property(o => o.BuyerId).IsRequired();
         builder.Property(o => o.HeldUntilUtc).IsRequired();
 
         // Order 只用 EventId 這個純量欄位參照 Event，沒有 navigation，一樣用 HasOne<T>().WithMany() 建立 FK 約束。
         builder.HasOne<Event>()
             .WithMany()
             .HasForeignKey(o => o.EventId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // BuyerId 同理參照 Member，沒有 navigation（見 ticketing-purchase design.md 決策 1）。
+        builder.HasOne<Member>()
+            .WithMany()
+            .HasForeignKey(o => o.BuyerId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // Status 只會被賦值 Pending/Confirmed/Cancelled；Expired 是 GetStatus(now) 查詢時推導出來的值，

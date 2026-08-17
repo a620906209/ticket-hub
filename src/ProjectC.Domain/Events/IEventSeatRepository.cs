@@ -4,6 +4,9 @@ public interface IEventSeatRepository
 {
     Task<EventSeat?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
+    /// <summary>唯讀查詢，不鎖定，供瀏覽端點使用；跟 <see cref="GetForUpdateAsync"/> 是兩個不同用途的方法，不要混用。</summary>
+    Task<IReadOnlyList<EventSeat>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken);
+
     void AddRange(IEnumerable<EventSeat> eventSeats);
 
     /// <summary>

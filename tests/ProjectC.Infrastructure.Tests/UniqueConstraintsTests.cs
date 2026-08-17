@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Venues;
 using ProjectC.Infrastructure.Tests.TestSupport;
@@ -56,10 +57,13 @@ public class UniqueConstraintsTests
     {
         await using var dbContext = _fixture.CreateDbContext();
         var (eventId, eventSeatIds) = await TicketingTestData.SeedEventWithSeatsAsync(dbContext, seatCount: 1);
+        var buyer = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Test Buyer", "hash");
+        dbContext.Members.Add(buyer);
+        await dbContext.SaveChangesAsync();
 
         // 已經逾期的 Pending 訂單：查詢時 GetStatus(now) 會推導成 Expired，但持久化的 Status 欄位本身不能是 Expired。
         var pastHeldUntilUtc = DateTime.UtcNow.AddMinutes(-10);
-        var order = new Order(Guid.NewGuid(), eventId, pastHeldUntilUtc,
+        var order = new Order(Guid.NewGuid(), eventId, buyer.Id, pastHeldUntilUtc,
             [new OrderItem(Guid.NewGuid(), eventSeatIds[0], 100m)]);
 
         dbContext.Orders.Add(order);

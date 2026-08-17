@@ -17,7 +17,7 @@ public sealed class CreateOrderHandler
         _dateTimeProvider = dateTimeProvider;
     }
 
-    public Result<Order> Handle(IReadOnlyList<SeatSelection> selections)
+    public Result<Order> Handle(Guid buyerId, IReadOnlyList<SeatSelection> selections)
     {
         if (selections.Count == 0)
             return Result<Order>.Failure(Error.Validation("At least one seat must be selected."));
@@ -59,7 +59,7 @@ public sealed class CreateOrderHandler
             .Select(selection => new OrderItem(Guid.NewGuid(), selection.EventSeat.Id, selection.TicketType.Price))
             .ToList();
 
-        var order = new Order(orderId, eventId, heldUntilUtc, items);
+        var order = new Order(orderId, eventId, buyerId, heldUntilUtc, items);
         return Result<Order>.Success(order);
     }
 }

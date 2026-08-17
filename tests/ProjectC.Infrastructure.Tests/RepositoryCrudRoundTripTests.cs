@@ -1,5 +1,6 @@
 using FluentAssertions;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Venues;
 using ProjectC.Infrastructure.Persistence;
@@ -59,7 +60,10 @@ public class RepositoryCrudRoundTripTests
             ticketTypeRepo.Add(ticketType);
             ticketTypeId = ticketType.Id;
 
-            var order = new Order(orderId, eventId, DateTime.UtcNow.AddMinutes(10),
+            var buyer = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Test Buyer", "hash");
+            dbContext.Members.Add(buyer);
+
+            var order = new Order(orderId, eventId, buyer.Id, DateTime.UtcNow.AddMinutes(10),
                 [new OrderItem(Guid.NewGuid(), eventSeatId, ticketType.Price)]);
             orderRepo.Add(order);
 
