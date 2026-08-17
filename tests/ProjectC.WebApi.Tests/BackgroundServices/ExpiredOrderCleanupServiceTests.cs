@@ -44,7 +44,7 @@ public class ExpiredOrderCleanupServiceTests : IClassFixture<CustomWebApplicatio
 
     /// <summary>透過既有 Admin/買家 API 建立一筆真的 Pending 訂單，再直接把 HeldUntilUtc 改到過去，模擬逾時
     /// （比照 AuthTestHelper.PromoteToAdminAsync 直接改寫私有欄位的既有手法）。</summary>
-    private async Task<Guid> SeedExpiredPendingOrderAsync()
+    private async Task<(Guid OrderId, Guid EventId, Guid EventSeatId)> SeedExpiredPendingOrderWithSeatAsync()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Cleanup Test Venue"));
@@ -78,8 +78,11 @@ public class ExpiredOrderCleanupServiceTests : IClassFixture<CustomWebApplicatio
         dbContext.Entry(order).Property(o => o.HeldUntilUtc).CurrentValue = DateTime.UtcNow.AddMinutes(-1);
         await dbContext.SaveChangesAsync();
 
-        return orderId;
+        return (orderId, eventId, eventSeatId);
     }
+
+    private async Task<Guid> SeedExpiredPendingOrderAsync()
+        => (await SeedExpiredPendingOrderWithSeatAsync()).OrderId;
 
     private async Task<OrderStatus> ReadOrderStatusFromDbAsync(Guid orderId)
     {
@@ -92,13 +95,20 @@ public class ExpiredOrderCleanupServiceTests : IClassFixture<CustomWebApplicatio
     [Fact]
     public async Task CleanupOnceAsync_CancelsExpiredPendingOrdersAndReleasesSeats()
     {
-        var orderIdA = await SeedExpiredPendingOrderAsync();
+        var (orderIdA, eventIdA, eventSeatIdA) = await SeedExpiredPendingOrderWithSeatAsync();
         var orderIdB = await SeedExpiredPendingOrderAsync();
 
         await CreateService().CleanupOnceAsync(CancellationToken.None);
 
         (await ReadOrderStatusFromDbAsync(orderIdA)).Should().Be(OrderStatus.Cancelled);
         (await ReadOrderStatusFromDbAsync(orderIdB)).Should().Be(OrderStatus.Cancelled);
+
+        // 不只驗證訂單狀態，也要驗證座位真的釋放回 Available（對應 spec「逾時的 Pending 訂單被背景清理」
+        // Scenario 的完整結果，比照 OrdersControllerTests 透過既有公開查詢端點驗證座位狀態的既有手法）。
+        var publicClient = _factory.CreateClient();
+        var seatsResponse = await publicClient.GetAsync($"/api/events/{eventIdA}/seats");
+        var seats = await seatsResponse.Content.ReadFromJsonAsync<List<EventSeatDto>>();
+        seats!.Single(s => s.EventSeatId == eventSeatIdA).Status.Should().Be("Available");
     }
 
     [Fact]

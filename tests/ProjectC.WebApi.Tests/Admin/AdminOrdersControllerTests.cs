@@ -100,6 +100,28 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task GetOrderById_AsNonAdminMember_Returns403()
+    {
+        var orderId = await SeedPendingOrderAsync();
+        var memberClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await memberClient.GetAsync($"/api/admin/orders/{orderId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task GetOrderById_WithoutAuthentication_Returns401()
+    {
+        var orderId = await SeedPendingOrderAsync();
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/admin/orders/{orderId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     // ---- 查詢所有訂單列表 ----
 
     [Fact]

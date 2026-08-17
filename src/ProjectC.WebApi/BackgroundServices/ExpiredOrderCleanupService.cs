@@ -64,11 +64,11 @@ public sealed class ExpiredOrderCleanupService : BackgroundService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            using var orderScope = _scopeFactory.CreateScope();
-            var orderService = orderScope.ServiceProvider.GetRequiredService<OrderService>();
-
             try
             {
+                using var orderScope = _scopeFactory.CreateScope();
+                var orderService = orderScope.ServiceProvider.GetRequiredService<OrderService>();
+
                 var result = await orderService.CancelExpiredOrderAsync(orderId, cancellationToken);
                 if (!result.IsSuccess)
                 {
