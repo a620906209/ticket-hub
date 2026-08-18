@@ -51,7 +51,15 @@ public sealed class CreateEventHandler
             return Result<Guid>.Failure(Error.NotFound($"Seat map '{request.SeatMapId}' was not found."));
         }
 
-        var @event = new Event(Guid.NewGuid(), request.Title, request.StartAtUtc, request.VenueId, request.SeatMapId);
+        var @event = new Event(
+            Guid.NewGuid(),
+            request.Title,
+            request.StartAtUtc,
+            request.VenueId,
+            request.SeatMapId,
+            request.Description,
+            request.PosterUrl,
+            request.MaxTicketsPerOrder);
         var eventSeats = @event.CreateEventSeats(seatMap);
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
