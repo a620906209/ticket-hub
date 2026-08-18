@@ -56,6 +56,24 @@ public class OrderServiceTests
 
             return (@event, seatMap, eventSeat, ticketType);
         }
+
+        public (Event Event, TicketType TicketType, List<EventSeat> EventSeats) SeedEventWithMultipleSeats(
+            int seatCount, int? maxTicketsPerOrder, string zoneCode = "A")
+        {
+            var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
+            var seatTemplates = Enumerable.Range(1, seatCount).Select(n => seatMap.AddSeat(zoneCode, n.ToString())).ToList();
+            var @event = new Event(
+                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, maxTicketsPerOrder: maxTicketsPerOrder);
+            var eventSeats = @event.CreateEventSeats(seatMap).ToList();
+            var ticketType = @event.CreateTicketType(zoneCode, 500m, seatMap);
+
+            EventRepository.Data.Add(@event);
+            SeatMapRepository.Data.Add(seatMap);
+            EventSeatRepository.Data.AddRange(eventSeats);
+            TicketTypeRepository.Data.Add(ticketType);
+
+            return (@event, ticketType, eventSeats);
+        }
     }
 
     // ---- PlaceOrderAsync ----
@@ -113,6 +131,52 @@ public class OrderServiceTests
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
         fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSelectionsExceedEventMaxTicketsPerOrder_ReturnsValidationErrorAndDoesNotCreateOrder()
+    {
+        var fixture = new Fixture();
+        var (_, ticketType, eventSeats) = fixture.SeedEventWithMultipleSeats(seatCount: 3, maxTicketsPerOrder: 2);
+        var request = new PlaceOrderRequest(eventSeats
+            .Select(seat => new PlaceOrderSelectionRequest(seat.Id, ticketType.Id))
+            .ToList());
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSelectionsAtEventMaxTicketsPerOrder_Succeeds()
+    {
+        var fixture = new Fixture();
+        var (_, ticketType, eventSeats) = fixture.SeedEventWithMultipleSeats(seatCount: 3, maxTicketsPerOrder: 2);
+        var request = new PlaceOrderRequest(eventSeats
+            .Take(2)
+            .Select(seat => new PlaceOrderSelectionRequest(seat.Id, ticketType.Id))
+            .ToList());
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.OrderRepository.Data.Should().ContainSingle(o => o.Id == result.Value);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenEventHasNoMaxTicketsPerOrder_AllowsAnySelectionCount()
+    {
+        var fixture = new Fixture();
+        var (_, ticketType, eventSeats) = fixture.SeedEventWithMultipleSeats(seatCount: 3, maxTicketsPerOrder: null);
+        var request = new PlaceOrderRequest(eventSeats
+            .Select(seat => new PlaceOrderSelectionRequest(seat.Id, ticketType.Id))
+            .ToList());
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
     }
 
     // ---- ConfirmOrderAsync / CancelOrderAsync ----

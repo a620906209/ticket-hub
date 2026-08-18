@@ -77,6 +77,31 @@ public class CreateEventHandlerTests
     }
 
     [Fact]
+    public async Task HandleAsync_WithZeroMaxTicketsPerOrder_ReturnsValidationError()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId, MaxTicketsPerOrder: 0);
+
+        var result = await _handler.HandleAsync(request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        _eventRepository.Data.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithPositiveMaxTicketsPerOrder_CreatesEventWithLimit()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId, MaxTicketsPerOrder: 2);
+
+        var result = await _handler.HandleAsync(request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _eventRepository.Data.Single(e => e.Id == result.Value).MaxTicketsPerOrder.Should().Be(2);
+    }
+
+    [Fact]
     public async Task HandleAsync_WithNonExistentVenue_ReturnsNotFound()
     {
         var (_, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);

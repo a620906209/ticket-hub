@@ -68,6 +68,21 @@ services:
       - webapi_tests_bin:/src/tests/ProjectC.WebApi.Tests/bin
       - webapi_tests_obj:/src/tests/ProjectC.WebApi.Tests/obj
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+    ports:
+      # 對外 port 衝突時，在你自己的 .env 設 WEB_HOST_PORT 就好，不用改這個共用檔案。
+      - "${WEB_HOST_PORT:-5173}:5173"
+    volumes:
+      # 開發時掛載完整原始碼，支援 Vite HMR。
+      - ./web:/app
+      # node_modules 用 named volume，避免透過 bind mount 在 Windows 上讀寫大量小檔案，效能才不會很差。
+      - web_node_modules:/app/node_modules
+
 networks:
   default:
     # 固定命名，不讓 checkout 目錄名稱影響網路名稱——api 容器內的 Testcontainers 整合測試
@@ -91,3 +106,4 @@ volumes:
   application_tests_obj:
   webapi_tests_bin:
   webapi_tests_obj:
+  web_node_modules:

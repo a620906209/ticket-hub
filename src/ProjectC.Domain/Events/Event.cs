@@ -10,8 +10,19 @@ public sealed class Event
     public DateTime StartAtUtc { get; }
     public Guid VenueId { get; }
     public Guid SeatMapId { get; }
+    public string? Description { get; }
+    public string? PosterUrl { get; }
+    public int? MaxTicketsPerOrder { get; }
 
-    public Event(Guid id, string title, DateTime startAtUtc, Guid venueId, Guid seatMapId)
+    public Event(
+        Guid id,
+        string title,
+        DateTime startAtUtc,
+        Guid venueId,
+        Guid seatMapId,
+        string? description = null,
+        string? posterUrl = null,
+        int? maxTicketsPerOrder = null)
     {
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("Event title is required.", nameof(title));
@@ -21,12 +32,17 @@ public sealed class Event
             throw new ArgumentException("Venue is required.", nameof(venueId));
         if (seatMapId == Guid.Empty)
             throw new ArgumentException("Seat map is required.", nameof(seatMapId));
+        if (maxTicketsPerOrder is <= 0)
+            throw new ArgumentException("Max tickets per order must be positive when set.", nameof(maxTicketsPerOrder));
 
         Id = id;
         Title = title;
         StartAtUtc = startAtUtc;
         VenueId = venueId;
         SeatMapId = seatMapId;
+        Description = description;
+        PosterUrl = posterUrl;
+        MaxTicketsPerOrder = maxTicketsPerOrder;
     }
 
     /// <summary>為此活動的座位圖建立專屬 EventSeat 庫存；不會被儲存在 Event 上，呼叫端自行保存回傳結果。</summary>

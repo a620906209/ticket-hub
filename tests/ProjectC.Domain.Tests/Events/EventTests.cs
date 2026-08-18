@@ -43,6 +43,28 @@ public class EventTests
         act.Should().Throw<ArgumentException>();
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Constructor_WhenMaxTicketsPerOrderIsNotPositive_ThrowsArgumentException(int maxTicketsPerOrder)
+    {
+        var act = () => new Event(
+            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(),
+            maxTicketsPerOrder: maxTicketsPerOrder);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Constructor_WhenMaxTicketsPerOrderIsNull_AllowsUnlimitedTicketsPerOrder()
+    {
+        var @event = new Event(
+            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(),
+            maxTicketsPerOrder: null);
+
+        @event.MaxTicketsPerOrder.Should().BeNull();
+    }
+
     [Fact]
     public void CreateEventSeats_WhenSeatMapHasNSeats_CreatesNAvailableEventSeats()
     {

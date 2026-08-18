@@ -80,6 +80,16 @@ public sealed class OrderService
 
         var eventSeatsById = eventSeats.ToDictionary(es => es.Id);
 
+        // 每筆訂單限購張數：只用第一個座位所屬的活動去查限制，若選位橫跨多場活動（本來就是不合法的
+        // 輸入），交給下面 CreateOrderHandler.Handle 的「所有座位須屬於同一場活動」檢查去擋，這裡的
+        // 提早檢查頂多用錯活動的限制值、不會誤放行不合法的輸入。
+        var firstEventId = eventSeats[0].EventId;
+        var orderEvent = await _eventRepository.GetByIdAsync(firstEventId, cancellationToken);
+        if (orderEvent is { MaxTicketsPerOrder: { } maxTicketsPerOrder } && request.Selections.Count > maxTicketsPerOrder)
+        {
+            return Result<Guid>.Failure(Error.Validation($"This event allows at most {maxTicketsPerOrder} ticket(s) per order."));
+        }
+
         // 分區比對：座位實際所屬分區 MUST 與所選票種的分區一致，防止用低價分區的票種配高價分區的座位
         // （見 ticketing-purchase design.md 決策 2 第 4 點）。座位圖依 EventId 快取，正常情況下所有
         // 項目屬於同一場活動只查一次；跨活動的狀況交給下面 CreateOrderHandler.Handle 再擋一次。
