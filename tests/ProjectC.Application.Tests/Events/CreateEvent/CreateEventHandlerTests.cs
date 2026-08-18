@@ -126,4 +126,19 @@ public class CreateEventHandlerTests
         result.Error!.Type.Should().Be(ErrorType.NotFound);
         _eventRepository.Data.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task HandleAsync_WithSeatMapBelongingToAnotherVenue_ReturnsNotFound()
+    {
+        var (_, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var (otherVenueId, _) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), otherVenueId, seatMapId);
+
+        var result = await _handler.HandleAsync(request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        _eventRepository.Data.Should().BeEmpty();
+        _eventSeatRepository.Data.Should().BeEmpty();
+    }
 }

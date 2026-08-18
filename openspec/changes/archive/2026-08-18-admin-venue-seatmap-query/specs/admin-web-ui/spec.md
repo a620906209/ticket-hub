@@ -1,24 +1,4 @@
-# admin-web-ui Specification
-
-## Purpose
-TBD - created by archiving change ticketing-web-ui. Update Purpose after archive.
-
-## Requirements
-
-### Requirement: Admin 後台路由僅限 Admin 角色進入
-系統 SHALL 在使用者導覽至任何 `/admin/*` 路由時檢查目前登入角色；非 Admin（含未登入）SHALL 被導向登入頁或買家端首頁，不得進入後台頁面內容。
-
-#### Scenario: 未登入使用者直接進入後台路由
-- **WHEN** 未登入的使用者直接開啟任一 `/admin/*` 網址
-- **THEN** 系統導向登入頁，不顯示後台頁面內容
-
-#### Scenario: 一般會員嘗試進入後台路由
-- **WHEN** 已登入但角色為一般會員的使用者開啟任一 `/admin/*` 網址
-- **THEN** 系統導向買家端首頁，不顯示後台頁面內容
-
-#### Scenario: Admin 登入後可進入後台
-- **WHEN** 角色為 Admin 的使用者登入成功
-- **THEN** 系統導向 Admin 後台首頁
+## MODIFIED Requirements
 
 ### Requirement: Admin 可透過介面管理場館與座位圖
 系統 SHALL 提供場館列表頁與建立場館／座位圖的表單，呼叫既有 `event-management` API 完成建立。場館列表 SHALL 透過場地查詢 API 取得目前資料庫中所有場館的真實資料，重新整理頁面後清單 SHALL 保留（不再是僅存於瀏覽器分頁 session 的暫存清單）；建立場館或座位圖成功後，系統 SHALL 重新呼叫查詢 API 刷新列表，不依賴任何前端快取層。Admin 點選場館列表中的某一列時，SHALL 顯示該場館底下的座位圖摘要（Id、座位數）；快速連續點選不同場館時，只有對應目前選定場館的查詢回應可以套用，較晚抵達但對應較舊選擇的回應 MUST 被捨棄（比照建立活動表單場館下拉選單的過期回應防護）。座位圖摘要清單中，Admin SHALL 可以展開任一座位圖查看其完整座位清單（分區代碼＋座位號碼）。建立座位圖表單 SHALL 同時支援「手動新增單一座位」與「批次產生」兩種輸入方式——批次產生以分區代碼＋起始號碼＋結束號碼一次展開成整批座位，供大量連號座位使用；兩種方式產生的座位在同一次建立座位圖時 SHALL 可以合併送出。
@@ -81,14 +61,3 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 #### Scenario: 為活動建立票種
 - **WHEN** Admin 在某活動下建立票種並設定票價送出
 - **THEN** 系統呼叫建立票種 API 成功
-
-### Requirement: Admin 可查看所有訂單列表與明細
-系統 SHALL 提供訂單列表頁與訂單詳情頁，呼叫既有 `order-administration` API 顯示所有訂單狀態與單筆訂單內的座位項目明細。此狀態為頁面載入或手動重新整理當下查詢 API 取得的結果，非伺服器推播的即時更新。
-
-#### Scenario: 查看所有訂單列表
-- **WHEN** Admin 開啟後台訂單列表頁
-- **THEN** 系統顯示目前所有訂單與其狀態
-
-#### Scenario: 查看訂單明細
-- **WHEN** Admin 點選某筆訂單進入詳情頁
-- **THEN** 系統顯示該訂單內的每一筆座位項目明細

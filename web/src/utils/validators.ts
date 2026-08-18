@@ -1,8 +1,6 @@
 // 集中管理的表單驗證規則（Element Plus rules 格式），對應後端 FluentValidation 規則，
 // 提前給使用者清楚的錯誤訊息；後端仍是最終驗證邊界，這裡的規則不取代後端驗證（見設計文件 Security 段落）。
 
-export const guidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 export const emailRules = [
   { required: true, message: '請輸入 Email', trigger: 'blur' },
   { type: 'email' as const, message: 'Email 格式不正確', trigger: 'blur' },
@@ -22,10 +20,6 @@ export function requiredRule(message: string) {
 
 export function maxLengthRule(max: number, message: string) {
   return { max, message, trigger: 'blur' as const }
-}
-
-export function guidRule(message = '請輸入正確格式的 Id（GUID）') {
-  return { pattern: guidPattern, message, trigger: 'blur' as const }
 }
 
 export function positiveNumberRule(message: string) {

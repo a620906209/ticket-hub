@@ -37,7 +37,7 @@ docker compose exec web npm run generate:api-types
 docker compose exec web npm run test
 ```
 
-目前只有 Vitest 單元測試（`src/api/`、`src/stores/`、`src/router/`），涵蓋 API client、auth store、路由守衛的邏輯正確性；沒有元件測試、沒有 E2E，畫面呈現與導頁行為要手動在瀏覽器驗證。
+主要是 Vitest 單元測試（`src/api/`、`src/stores/`、`src/router/`），涵蓋 API client、auth store、路由守衛的邏輯正確性；另外 `src/pages/admin/EventListPage.test.ts` 是目前唯一一個元件測試（`@vue/test-utils` 掛載，`ElSelect`／`ElDatePicker` 用 stub 取代，因為 popper + teleport 在 jsdom 下不好模擬），涵蓋建立活動表單場館/座位圖下拉選單的連動與過期回應防護邏輯。沒有 E2E，其餘畫面呈現與導頁行為仍要手動在瀏覽器驗證。
 
 ## 其他指令
 
@@ -48,7 +48,6 @@ docker compose exec web npm run build   # production build 健檢（vue-tsc + vi
 
 ## 已知限制（本輪範圍）
 
-- Admin 場館／座位圖沒有查詢 API：場館/座位圖列表只顯示當前瀏覽器分頁 session 內建立過的紀錄；建立活動時的場館 Id／座位圖 Id 要手動輸入（從場館管理頁複製）。
-- 買家「我的訂單」列表/明細只有空狀態畫面，尚未串接查詢 API（後端還沒有買家專屬的訂單查詢端點）。
+- 買家「我的訂單」列表/明細只有空狀態畫面，尚未串接查詢 API（後端還沒有買家專屬的訂單查詢端點），完整脈絡見 `openspec/changes/archive/2026-08-18-ticketing-web-ui/design.md`。
 
-這兩項的完整脈絡見 `openspec/changes/ticketing-web-ui/design.md`。
+（Admin 場館／座位圖查詢 API 缺失的限制已在 `admin-venue-seatmap-query` 這個 change 補齊，場館/座位圖列表改為串接真實查詢、建立活動表單改用下拉選單，不再需要手動輸入 GUID。）

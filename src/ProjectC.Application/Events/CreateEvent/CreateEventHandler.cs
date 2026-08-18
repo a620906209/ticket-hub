@@ -46,7 +46,7 @@ public sealed class CreateEventHandler
         }
 
         var seatMap = await _seatMapRepository.GetByIdAsync(request.SeatMapId, cancellationToken);
-        if (seatMap is null)
+        if (seatMap is null || seatMap.VenueId != request.VenueId)
         {
             return Result<Guid>.Failure(Error.NotFound($"Seat map '{request.SeatMapId}' was not found."));
         }
