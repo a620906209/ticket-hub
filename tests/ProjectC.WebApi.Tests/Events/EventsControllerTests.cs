@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Events.GetEvents;
@@ -109,5 +110,37 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         var response = await client.GetAsync($"/api/events/{Guid.NewGuid()}/ticket-types");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    // ---- 安全回歸測試：公開端點不得洩漏 Admin 專用的稽核/售票統計欄位（見 admin-event-audit-and-
+    // sales-status design.md 決策 8）----
+
+    [Fact]
+    public async Task GetEvents_AsAnonymous_DoesNotExposeAdminOnlyFields()
+    {
+        await SeedEventWithSeatAndTicketTypeAsync();
+        await SeedEventWithSeatAndTicketTypeAsync();
+        var anonymousClient = _factory.CreateClient();
+
+        var response = await anonymousClient.GetAsync("/api/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var events = document.RootElement.EnumerateArray().ToList();
+        events.Should().HaveCountGreaterThanOrEqualTo(2);
+
+        string[] adminOnlyFields =
+        [
+            "createdByMemberId", "createdByDisplayName", "createdAtUtc",
+            "availableSeatCount", "heldSeatCount", "soldSeatCount",
+        ];
+        foreach (var eventElement in events)
+        {
+            foreach (var field in adminOnlyFields)
+            {
+                eventElement.TryGetProperty(field, out _).Should().BeFalse(
+                    $"公開的 GET /api/events 不應該回傳 Admin 專用欄位 '{field}'");
+            }
+        }
     }
 }

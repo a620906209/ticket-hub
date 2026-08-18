@@ -71,6 +71,24 @@ public class ForeignKeyConstraintsTests
     }
 
     [Fact]
+    public async Task InsertEvent_WithNonExistentCreatedByMemberId_ViolatesForeignKey()
+    {
+        var venueId = Guid.NewGuid();
+        var seatMapId = Guid.NewGuid();
+        await using var seedDbContext = _fixture.CreateDbContext();
+        await seedDbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""INSERT INTO "Venues" ("Id", "Name") VALUES ({venueId}, 'Audit FK Test Venue')""");
+        await seedDbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""INSERT INTO "SeatMaps" ("Id", "VenueId") VALUES ({seatMapId}, {venueId})""");
+
+        await using var dbContext = _fixture.CreateDbContext();
+        var act = () => dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""INSERT INTO "Events" ("Id", "Title", "StartAtUtc", "VenueId", "SeatMapId", "CreatedByMemberId") VALUES ({Guid.NewGuid()}, 'Audit FK Test Event', {DateTime.UtcNow.AddDays(1)}, {venueId}, {seatMapId}, {Guid.NewGuid()})""");
+
+        await act.Should().ThrowAsync<Exception>("Events.CreatedByMemberId 應該有 FK 約束，不存在的 CreatedByMemberId 不該插入成功");
+    }
+
+    [Fact]
     public async Task InsertEventSeat_WithNonExistentEventId_ViolatesForeignKey()
     {
         await using var seedDbContext = _fixture.CreateDbContext();

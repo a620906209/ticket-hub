@@ -1,7 +1,10 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
 using ProjectC.Application.Events.CreateEvent;
+using ProjectC.Application.Events.GetAdminEvents;
+using ProjectC.Application.Members;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
@@ -136,5 +139,57 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
             new CreateTicketTypeRequest("A", 500m));
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    // ---- 建立活動記錄建立者（透過 GET /api/admin/events 查詢驗證，POST 的成功回應只有 { id }） ----
+
+    [Fact]
+    public async Task CreateEvent_ThenGetAdminEvents_RecordsCreatedByMemberId()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var myProfileResponse = await adminClient.GetAsync("/api/members/me");
+        var adminMemberId = (await myProfileResponse.Content.ReadFromJsonAsync<MemberProfileDto>())!.Id;
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+
+        var response = await adminClient.GetAsync("/api/admin/events");
+
+        var events = await response.Content.ReadFromJsonAsync<List<AdminEventSummaryDto>>();
+        events.Should().ContainSingle(e => e.Id == eventId && e.CreatedByMemberId == adminMemberId);
+    }
+
+    // ---- 查詢活動列表（Admin 專用端點）需要 Admin 角色 ----
+
+    [Fact]
+    public async Task GetEvents_AsAdmin_Returns200()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+
+        var response = await adminClient.GetAsync("/api/admin/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task GetEvents_AsNonAdminMember_Returns403()
+    {
+        var email = AuthTestHelper.NewEmail();
+        var client = _factory.CreateClient();
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(client, email);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+
+        var response = await client.GetAsync("/api/admin/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task GetEvents_WithoutToken_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/api/admin/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 }

@@ -7,6 +7,15 @@ public interface IEventSeatRepository
     /// <summary>唯讀查詢，不鎖定，供瀏覽端點使用；跟 <see cref="GetForUpdateAsync"/> 是兩個不同用途的方法，不要混用。</summary>
     Task<IReadOnlyList<EventSeat>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// 一次查詢多個活動底下的所有座位，供 Admin 活動列表的售票狀況統計使用；唯讀不鎖定，跟
+    /// <see cref="GetForUpdateAsync"/> 是不同用途的方法，不要混用。
+    /// 實作 MUST 一併載入計算 <see cref="EventSeat.GetStatus"/> 所需的完整持久化欄位，不可用只包含
+    /// 公開欄位的投影查詢（比照 <see cref="GetByIdAsync"/> 的既有約定）。<paramref name="eventIds"/>
+    /// 為空清單時 MUST 直接回傳空清單，不得執行任何資料庫查詢。
+    /// </summary>
+    Task<IReadOnlyList<EventSeat>> GetByEventIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken);
+
     void AddRange(IEnumerable<EventSeat> eventSeats);
 
     /// <summary>

@@ -18,6 +18,14 @@ public class EventSeatRepository : IEventSeatRepository
     public async Task<IReadOnlyList<EventSeat>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
         => await _dbContext.EventSeats.Where(es => es.EventId == eventId).ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<EventSeat>> GetByEventIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken)
+    {
+        if (eventIds.Count == 0)
+            return [];
+
+        return await _dbContext.EventSeats.Where(es => eventIds.Contains(es.EventId)).ToListAsync(cancellationToken);
+    }
+
     public void AddRange(IEnumerable<EventSeat> eventSeats) => _dbContext.EventSeats.AddRange(eventSeats);
 
     public async Task<IReadOnlyList<EventSeat>> GetForUpdateAsync(IReadOnlyList<Guid> eventSeatIds, CancellationToken cancellationToken)
