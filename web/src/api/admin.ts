@@ -1,5 +1,5 @@
 import { authorizedRequest } from './httpClient'
-import type { OrderDetail, OrderSummary } from '../types/apiResponses'
+import type { OrderDetail, OrderSummary, SeatMapDetail, VenueDetail, VenueSummary } from '../types/apiResponses'
 
 export interface SeatInput {
   zoneCode: string
@@ -42,4 +42,16 @@ export function getAdminOrders(): Promise<OrderSummary[]> {
 
 export function getAdminOrderById(orderId: string): Promise<OrderDetail> {
   return authorizedRequest(`/admin/orders/${orderId}`)
+}
+
+export function getVenues(): Promise<VenueSummary[]> {
+  return authorizedRequest('/admin/venues')
+}
+
+export function getVenueById(venueId: string): Promise<VenueDetail> {
+  return authorizedRequest(`/admin/venues/${venueId}`)
+}
+
+export function getSeatMapById(venueId: string, seatMapId: string): Promise<SeatMapDetail> {
+  return authorizedRequest(`/admin/venues/${venueId}/seat-maps/${seatMapId}`)
 }

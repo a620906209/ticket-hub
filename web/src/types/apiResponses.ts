@@ -60,3 +60,31 @@ export interface OrderDetail {
   heldUntilUtc: string
   items: OrderItem[]
 }
+
+export interface VenueSummary {
+  id: string
+  name: string
+}
+
+export interface SeatMapSummary {
+  id: string
+  seatCount: number
+}
+
+export interface VenueDetail {
+  id: string
+  name: string
+  seatMaps: SeatMapSummary[]
+}
+
+export interface SeatDetail {
+  id: string
+  zoneCode: string
+  seatNumber: string
+}
+
+export interface SeatMapDetail {
+  id: string
+  venueId: string
+  seats: SeatDetail[]
+}
