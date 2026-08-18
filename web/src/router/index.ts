@@ -13,6 +13,7 @@ import OrderDetailPage from '../pages/buyer/OrderDetailPage.vue'
 import AdminLayout from '../layouts/AdminLayout.vue'
 import AdminVenueListPage from '../pages/admin/VenueListPage.vue'
 import AdminEventListPage from '../pages/admin/EventListPage.vue'
+import AdminEventCreatePage from '../pages/admin/EventCreatePage.vue'
 import AdminOrderListPage from '../pages/admin/AdminOrderListPage.vue'
 import AdminOrderDetailPage from '../pages/admin/AdminOrderDetailPage.vue'
 
@@ -45,6 +46,7 @@ const router = createRouter({
         { path: '', redirect: { name: 'admin-venues' } },
         { path: 'venues', name: 'admin-venues', component: AdminVenueListPage },
         { path: 'events', name: 'admin-events', component: AdminEventListPage },
+        { path: 'events/new', name: 'admin-event-create', component: AdminEventCreatePage },
         { path: 'orders', name: 'admin-orders', component: AdminOrderListPage },
         { path: 'orders/:id', name: 'admin-order-detail', component: AdminOrderDetailPage },
       ],

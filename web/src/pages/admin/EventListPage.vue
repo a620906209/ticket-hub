@@ -2,13 +2,12 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance } from 'element-plus'
-import { getEvents } from '../../api/events'
-import { createEvent, createTicketType, getVenueById, getVenues } from '../../api/admin'
-import type { EventSummary, SeatMapSummary, VenueSummary } from '../../types/apiResponses'
-import { maxLengthRule, optionalPositiveIntegerRule, positiveNumberRule, requiredRule } from '../../utils/validators'
+import { createTicketType, getAdminEvents } from '../../api/admin'
+import type { AdminEventSummary } from '../../types/apiResponses'
+import { maxLengthRule, positiveNumberRule, requiredRule } from '../../utils/validators'
 import { toErrorMessage } from '../../utils/errors'
 
-const events = ref<EventSummary[]>([])
+const events = ref<AdminEventSummary[]>([])
 const loading = ref(false)
 const listError = ref('')
 
@@ -16,7 +15,7 @@ async function loadEvents(): Promise<void> {
   loading.value = true
   listError.value = ''
   try {
-    events.value = await getEvents()
+    events.value = await getAdminEvents()
   } catch (error) {
     listError.value = toErrorMessage(error, '載入活動列表失敗')
   } finally {
@@ -26,109 +25,9 @@ async function loadEvents(): Promise<void> {
 
 onMounted(loadEvents)
 
-const venues = ref<VenueSummary[]>([])
-const venuesLoading = ref(false)
-const venuesError = ref('')
-
-async function loadVenues(): Promise<void> {
-  venuesLoading.value = true
-  venuesError.value = ''
-  try {
-    venues.value = await getVenues()
-  } catch (error) {
-    venuesError.value = toErrorMessage(error, '載入場館列表失敗')
-  } finally {
-    venuesLoading.value = false
-  }
-}
-
-onMounted(loadVenues)
-
-const seatMapOptions = ref<SeatMapSummary[]>([])
-const seatMapOptionsLoading = ref(false)
-const seatMapOptionsError = ref('')
-// 記錄目前這次 getVenueById 呼叫對應的場館，回應抵達時如果選定的場館已經變了（快速切換場館），
-// 就捨棄這次回應、不套用結果，避免較晚抵達的舊回應覆蓋掉使用者較新的選擇。
-let seatMapOptionsRequestVenueId = ''
-
-async function handleVenueChange(venueId: string): Promise<void> {
-  eventForm.seatMapId = ''
-  seatMapOptions.value = []
-  seatMapOptionsError.value = ''
-  if (!venueId) return
-
-  seatMapOptionsRequestVenueId = venueId
-  seatMapOptionsLoading.value = true
-  try {
-    const detail = await getVenueById(venueId)
-    if (seatMapOptionsRequestVenueId !== venueId) return
-    seatMapOptions.value = detail.seatMaps
-  } catch (error) {
-    if (seatMapOptionsRequestVenueId !== venueId) return
-    seatMapOptionsError.value = toErrorMessage(error, '載入座位圖列表失敗')
-  } finally {
-    if (seatMapOptionsRequestVenueId === venueId) {
-      seatMapOptionsLoading.value = false
-    }
-  }
-}
-
-const eventFormRef = ref<FormInstance>()
-const eventForm = reactive<{
-  title: string
-  startAt: string
-  venueId: string
-  seatMapId: string
-  description: string
-  posterUrl: string
-  maxTicketsPerOrder: number | undefined
-}>({
-  title: '',
-  startAt: '',
-  venueId: '',
-  seatMapId: '',
-  description: '',
-  posterUrl: '',
-  maxTicketsPerOrder: undefined,
-})
-const eventRules = {
-  title: [requiredRule('請輸入活動名稱'), maxLengthRule(200, '活動名稱長度不可超過 200 字')],
-  startAt: [requiredRule('請選擇開始時間')],
-  venueId: [requiredRule('請選擇場館')],
-  seatMapId: [requiredRule('請選擇座位圖')],
-  description: [maxLengthRule(2000, '活動說明長度不可超過 2000 字')],
-  posterUrl: [maxLengthRule(500, '海報網址長度不可超過 500 字')],
-  maxTicketsPerOrder: [optionalPositiveIntegerRule('每筆訂單限購張數須為正整數')],
-}
-const eventSubmitting = ref(false)
-const eventError = ref('')
-
-async function handleCreateEvent(): Promise<void> {
-  eventError.value = ''
-  const valid = await eventFormRef.value?.validate().catch(() => false)
-  if (!valid) return
-
-  eventSubmitting.value = true
-  try {
-    await createEvent(
-      eventForm.title,
-      new Date(eventForm.startAt).toISOString(),
-      eventForm.venueId,
-      eventForm.seatMapId,
-      eventForm.description || undefined,
-      eventForm.posterUrl || undefined,
-      eventForm.maxTicketsPerOrder,
-    )
-    ElMessage.success('活動建立成功')
-    eventFormRef.value?.resetFields()
-    seatMapOptions.value = []
-    seatMapOptionsRequestVenueId = ''
-    await loadEvents()
-  } catch (error) {
-    eventError.value = toErrorMessage(error, '建立活動失敗，請確認場館/座位圖是否存在')
-  } finally {
-    eventSubmitting.value = false
-  }
+// 活動還沒有座位理論上不會發生（建立活動當下就會依座位圖產生 EventSeat），仍防呆處理（見設計文件決策 6）。
+function totalSeatCount(row: AdminEventSummary): number {
+  return row.availableSeatCount + row.heldSeatCount + row.soldSeatCount
 }
 
 const ticketTypeFormRef = ref<FormInstance>()
@@ -161,7 +60,12 @@ async function handleCreateTicketType(): Promise<void> {
 
 <template>
   <div class="admin-event-list-page">
-    <h1>活動管理</h1>
+    <div class="header">
+      <h1>活動管理</h1>
+      <router-link :to="{ name: 'admin-event-create' }">
+        <el-button type="primary">建立活動</el-button>
+      </router-link>
+    </div>
     <p class="hint">活動列表的場館／座位圖欄位顯示原始 Id，無法顯示名稱。</p>
 
     <el-alert v-if="listError" :title="listError" type="error" show-icon style="margin-bottom: 16px" />
@@ -172,60 +76,38 @@ async function handleCreateTicketType(): Promise<void> {
       </el-table-column>
       <el-table-column prop="venueId" label="場館 Id" />
       <el-table-column prop="seatMapId" label="座位圖 Id" />
+      <el-table-column label="建立者">
+        <template #default="{ row }">{{ row.createdByDisplayName ?? '—' }}</template>
+      </el-table-column>
+      <el-table-column label="建立時間">
+        <template #default="{ row }">{{ row.createdAtUtc ? new Date(row.createdAtUtc).toLocaleString() : '—' }}</template>
+      </el-table-column>
+      <el-table-column label="售票狀況" width="180">
+        <template #default="{ row }">
+          <div v-if="totalSeatCount(row) === 0" class="seat-status-empty">尚無座位資料</div>
+          <div v-else class="seat-status-bar">
+            <div
+              v-if="row.availableSeatCount > 0"
+              class="seat-status-segment available"
+              :style="{ flex: row.availableSeatCount }"
+              :title="`可售 ${row.availableSeatCount}`"
+            />
+            <div
+              v-if="row.heldSeatCount > 0"
+              class="seat-status-segment held"
+              :style="{ flex: row.heldSeatCount }"
+              :title="`保留中 ${row.heldSeatCount}`"
+            />
+            <div
+              v-if="row.soldSeatCount > 0"
+              class="seat-status-segment sold"
+              :style="{ flex: row.soldSeatCount }"
+              :title="`已售出 ${row.soldSeatCount}`"
+            />
+          </div>
+        </template>
+      </el-table-column>
     </el-table>
-
-    <h2>建立活動</h2>
-    <el-alert v-if="eventError" :title="eventError" type="error" show-icon style="margin-bottom: 16px" />
-    <el-form ref="eventFormRef" :model="eventForm" :rules="eventRules" label-width="100px" @submit.prevent="handleCreateEvent">
-      <el-form-item label="活動名稱" prop="title">
-        <el-input v-model="eventForm.title" maxlength="200" />
-      </el-form-item>
-      <el-form-item label="開始時間" prop="startAt">
-        <el-date-picker v-model="eventForm.startAt" type="datetime" placeholder="選擇日期時間" />
-      </el-form-item>
-      <el-form-item label="場館" prop="venueId">
-        <el-alert v-if="venuesError" :title="venuesError" type="error" show-icon style="margin-bottom: 8px" />
-        <el-select
-          v-model="eventForm.venueId"
-          placeholder="請選擇場館"
-          :loading="venuesLoading"
-          no-data-text="尚無可選項目"
-          @change="handleVenueChange"
-        >
-          <el-option v-for="venue in venues" :key="venue.id" :label="venue.name" :value="venue.id" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="座位圖" prop="seatMapId">
-        <el-alert v-if="seatMapOptionsError" :title="seatMapOptionsError" type="error" show-icon style="margin-bottom: 8px" />
-        <el-select
-          v-model="eventForm.seatMapId"
-          placeholder="請先選擇場館"
-          :disabled="!eventForm.venueId"
-          :loading="seatMapOptionsLoading"
-          no-data-text="尚無可選項目"
-        >
-          <el-option
-            v-for="seatMap in seatMapOptions"
-            :key="seatMap.id"
-            :label="`${seatMap.id.slice(0, 8)}…（${seatMap.seatCount} 個座位）`"
-            :value="seatMap.id"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="活動說明" prop="description">
-        <el-input v-model="eventForm.description" type="textarea" :rows="3" maxlength="2000" placeholder="選填" />
-      </el-form-item>
-      <el-form-item label="海報網址" prop="posterUrl">
-        <el-input v-model="eventForm.posterUrl" maxlength="500" placeholder="選填，貼圖片網址" />
-      </el-form-item>
-      <el-form-item label="每筆訂單限購" prop="maxTicketsPerOrder">
-        <el-input-number v-model="eventForm.maxTicketsPerOrder" :min="1" :step="1" :precision="0" />
-        <span class="field-hint">選填，留空代表不限制</span>
-      </el-form-item>
-      <el-form-item>
-        <el-button type="primary" :loading="eventSubmitting" native-type="submit">建立</el-button>
-      </el-form-item>
-    </el-form>
 
     <h2>建立票種</h2>
     <el-alert v-if="ticketTypeError" :title="ticketTypeError" type="error" show-icon style="margin-bottom: 16px" />
@@ -245,6 +127,7 @@ async function handleCreateTicketType(): Promise<void> {
         <el-input v-model="ticketTypeForm.zoneCode" maxlength="50" />
       </el-form-item>
       <el-form-item label="票價" prop="price">
+        <span class="currency-prefix">NT$</span>
         <el-input-number v-model="ticketTypeForm.price" :min="0.01" :step="0.01" :precision="2" />
       </el-form-item>
       <el-form-item>
@@ -255,11 +138,36 @@ async function handleCreateTicketType(): Promise<void> {
 </template>
 
 <style scoped>
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 .hint {
   color: var(--el-text-color-secondary);
 }
-.field-hint {
-  margin-left: 8px;
+.currency-prefix {
+  margin-right: 8px;
+  color: var(--el-text-color-secondary);
+}
+.seat-status-bar {
+  display: flex;
+  height: 16px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 4px;
+  background-color: var(--el-fill-color-light);
+}
+.seat-status-segment.available {
+  background-color: var(--el-color-success);
+}
+.seat-status-segment.held {
+  background-color: var(--el-color-warning);
+}
+.seat-status-segment.sold {
+  background-color: var(--el-color-danger);
+}
+.seat-status-empty {
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }

@@ -88,3 +88,24 @@ export interface SeatMapDetail {
   venueId: string
   seats: SeatDetail[]
 }
+
+// 對應 Admin 專用的 GET /api/admin/events（不是公開的 GET /api/events）。刻意跟 EventSummary
+// 分開定義，不是共用一個型別加選填欄位——這兩個端點的資料來源、授權要求都不同（見
+// admin-event-audit-and-sales-status design.md 決策 8），型別分開才不會讓人誤以為公開端點
+// 也拿得到這些 Admin 專用欄位。
+export interface AdminEventSummary {
+  id: string
+  title: string
+  startAtUtc: string
+  venueId: string
+  seatMapId: string
+  description: string | null
+  posterUrl: string | null
+  maxTicketsPerOrder: number | null
+  createdByMemberId: string | null
+  createdByDisplayName: string | null
+  createdAtUtc: string | null
+  availableSeatCount: number
+  heldSeatCount: number
+  soldSeatCount: number
+}
