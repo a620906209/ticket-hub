@@ -25,6 +25,9 @@ using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
+using ProjectC.Application.Venues.GetSeatMapById;
+using ProjectC.Application.Venues.GetVenueById;
+using ProjectC.Application.Venues.GetVenues;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Tickets;
@@ -83,6 +86,9 @@ builder.Services.AddValidatorsFromAssemblyContaining<RegisterMemberRequestValida
 
 builder.Services.AddScoped<CreateVenueHandler>();
 builder.Services.AddScoped<CreateSeatMapHandler>();
+builder.Services.AddScoped<GetVenuesHandler>();
+builder.Services.AddScoped<GetVenueByIdHandler>();
+builder.Services.AddScoped<GetSeatMapByIdHandler>();
 builder.Services.AddScoped<CreateEventHandler>();
 builder.Services.AddScoped<CreateTicketTypeHandler>();
 

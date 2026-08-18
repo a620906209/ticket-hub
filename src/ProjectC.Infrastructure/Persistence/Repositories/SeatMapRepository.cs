@@ -15,5 +15,8 @@ public class SeatMapRepository : ISeatMapRepository
     public Task<SeatMap?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => _dbContext.SeatMaps.Include(m => m.Seats).FirstOrDefaultAsync(m => m.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<SeatMap>> GetByVenueIdAsync(Guid venueId, CancellationToken cancellationToken)
+        => await _dbContext.SeatMaps.Include(m => m.Seats).Where(m => m.VenueId == venueId).ToListAsync(cancellationToken);
+
     public void Add(SeatMap seatMap) => _dbContext.SeatMaps.Add(seatMap);
 }
