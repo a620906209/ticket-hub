@@ -1,0 +1,76 @@
+/* 莫蘭迪色系（低飽和、灰調）。覆蓋 Element Plus 的 CSS variables，同時提供給自訂元件用的 token。
+   這個檔案要在 element-plus/dist/index.css 之後 import，才會覆蓋掉 Element Plus 自己的預設值。 */
+
+:root {
+  /* 自訂 token，給非 Element Plus 的手刻樣式用 */
+  --color-bg: #f3f0ea;
+  --color-bg-elevated: #ffffff;
+  --color-text: #4a4643;
+  --color-text-secondary: #8b8378;
+  --color-border: #dcd5c9;
+  --color-primary: #8c9a9e;
+
+  /* Element Plus：primary（塵霧藍灰） */
+  --el-color-primary: #8c9a9e;
+  --el-color-primary-light-3: #a9b4b7;
+  --el-color-primary-light-5: #c0c8ca;
+  --el-color-primary-light-7: #d7dcdd;
+  --el-color-primary-light-8: #e2e6e7;
+  --el-color-primary-light-9: #edeff0;
+  --el-color-primary-dark-2: #707b7e;
+
+  /* success（灰綠） */
+  --el-color-success: #96a87f;
+  --el-color-success-light-3: #b2c0a2;
+  --el-color-success-light-5: #c7d1bc;
+  --el-color-success-light-7: #dce2d5;
+  --el-color-success-light-8: #e5eade;
+  --el-color-success-light-9: #eef1e8;
+  --el-color-success-dark-2: #78876a;
+
+  /* warning（灰芥末） */
+  --el-color-warning: #c9a66c;
+  --el-color-warning-light-3: #d8be93;
+  --el-color-warning-light-5: #e3d0af;
+  --el-color-warning-light-7: #ede1cb;
+  --el-color-warning-light-8: #f1e8d8;
+  --el-color-warning-light-9: #f6f0e5;
+  --el-color-warning-dark-2: #a28556;
+
+  /* danger（灰赭紅） */
+  --el-color-danger: #b97c6d;
+  --el-color-danger-light-3: #cb9f93;
+  --el-color-danger-light-5: #d9b8af;
+  --el-color-danger-light-7: #e7d1cb;
+  --el-color-danger-light-8: #eddbd7;
+  --el-color-danger-light-9: #f3e7e4;
+  --el-color-danger-dark-2: #946357;
+  /* error 是 danger 的別名，Element Plus 兩個都有用到 */
+  --el-color-error: var(--el-color-danger);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
+
+  /* info（暖灰） */
+  --el-color-info: #a39c93;
+  --el-color-info-light-3: #bab4ad;
+  --el-color-info-light-5: #ccc7c1;
+  --el-color-info-light-7: #dddad5;
+  --el-color-info-light-8: #e5e2de;
+  --el-color-info-light-9: #eeece9;
+  --el-color-info-dark-2: #837d75;
+
+  --el-text-color-primary: #4a4643;
+  --el-text-color-regular: #5c5750;
+  --el-text-color-secondary: #8b8378;
+  --el-text-color-placeholder: #b3ab9e;
+  --el-border-color: #dcd5c9;
+  --el-border-color-light: #e5dfd5;
+  --el-border-color-lighter: #ede8df;
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f3f0ea;
+  --el-fill-color-light: #f3f0ea;
+}
