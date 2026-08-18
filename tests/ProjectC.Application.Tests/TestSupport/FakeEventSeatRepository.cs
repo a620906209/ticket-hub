@@ -12,6 +12,9 @@ public sealed class FakeEventSeatRepository : IEventSeatRepository
     public Task<IReadOnlyList<EventSeat>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<EventSeat>>(Data.Where(es => es.EventId == eventId).ToList());
 
+    public Task<IReadOnlyList<EventSeat>> GetByEventIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<EventSeat>>(Data.Where(es => eventIds.Contains(es.EventId)).ToList());
+
     public void AddRange(IEnumerable<EventSeat> eventSeats) => Data.AddRange(eventSeats);
 
     // 比照真正的 GetForUpdateAsync 契約：不驗證交易、找不到的不補，只回傳實際存在的實體

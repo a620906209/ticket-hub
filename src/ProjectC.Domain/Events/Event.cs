@@ -13,6 +13,8 @@ public sealed class Event
     public string? Description { get; }
     public string? PosterUrl { get; }
     public int? MaxTicketsPerOrder { get; }
+    public Guid? CreatedByMemberId { get; }
+    public DateTime? CreatedAtUtc { get; }
 
     public Event(
         Guid id,
@@ -22,7 +24,9 @@ public sealed class Event
         Guid seatMapId,
         string? description = null,
         string? posterUrl = null,
-        int? maxTicketsPerOrder = null)
+        int? maxTicketsPerOrder = null,
+        Guid? createdByMemberId = null,
+        DateTime? createdAtUtc = null)
     {
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("Event title is required.", nameof(title));
@@ -43,6 +47,8 @@ public sealed class Event
         Description = description;
         PosterUrl = posterUrl;
         MaxTicketsPerOrder = maxTicketsPerOrder;
+        CreatedByMemberId = createdByMemberId;
+        CreatedAtUtc = createdAtUtc;
     }
 
     /// <summary>為此活動的座位圖建立專屬 EventSeat 庫存；不會被儲存在 Event 上，呼叫端自行保存回傳結果。</summary>

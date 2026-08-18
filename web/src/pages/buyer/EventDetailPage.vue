@@ -8,6 +8,7 @@ import type { EventSeat, EventSummary, TicketType } from '../../types/apiRespons
 import type { SelectedSeat } from '../../types/ui'
 import { computeHeldUntilUtc } from '../../utils/orderHold'
 import { toErrorMessage } from '../../utils/errors'
+import { formatCurrency } from '../../utils/currency'
 
 const route = useRoute()
 const router = useRouter()
@@ -210,7 +211,9 @@ onMounted(loadData)
           <p v-if="event.description" class="description">{{ event.description }}</p>
           <el-table :data="ticketTypes" size="small" empty-text="尚未設定票種">
             <el-table-column prop="zoneCode" label="分區" />
-            <el-table-column prop="price" label="票價" />
+            <el-table-column label="票價">
+              <template #default="{ row }">{{ formatCurrency(row.price) }}</template>
+            </el-table-column>
           </el-table>
         </aside>
 
@@ -261,7 +264,7 @@ onMounted(loadData)
           </div>
 
           <div class="summary">
-            <p>已選 {{ selectedSeats.length }} 個座位，總金額 {{ totalPrice }}</p>
+            <p>已選 {{ selectedSeats.length }} 個座位，總金額 {{ formatCurrency(totalPrice) }}</p>
             <el-button
               type="primary"
               :disabled="selectedSeats.length === 0"

@@ -11,6 +11,7 @@ using ProjectC.Application.Authentication.Refresh;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Events.CreateEvent;
+using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Members.Activate;
@@ -91,6 +92,7 @@ builder.Services.AddScoped<GetVenueByIdHandler>();
 builder.Services.AddScoped<GetSeatMapByIdHandler>();
 builder.Services.AddScoped<CreateEventHandler>();
 builder.Services.AddScoped<CreateTicketTypeHandler>();
+builder.Services.AddScoped<GetAdminEventsHandler>();
 
 builder.Services.AddScoped<CreateOrderHandler>();
 builder.Services.AddScoped<ConfirmOrderHandler>();

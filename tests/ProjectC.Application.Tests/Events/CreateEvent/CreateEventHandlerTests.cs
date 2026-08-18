@@ -13,12 +13,15 @@ public class CreateEventHandlerTests
     private readonly FakeEventRepository _eventRepository = new();
     private readonly FakeEventSeatRepository _eventSeatRepository = new();
     private readonly FakeUnitOfWork _unitOfWork = new();
+    private readonly FakeDateTimeProvider _dateTimeProvider = new();
     private readonly CreateEventHandler _handler;
+    private static readonly Guid AdminMemberId = Guid.NewGuid();
 
     public CreateEventHandlerTests()
     {
         _handler = new CreateEventHandler(
-            _venueRepository, _seatMapRepository, _eventRepository, _eventSeatRepository, _unitOfWork, new CreateEventRequestValidator());
+            _venueRepository, _seatMapRepository, _eventRepository, _eventSeatRepository, _unitOfWork,
+            new CreateEventRequestValidator(), _dateTimeProvider);
     }
 
     private (Guid VenueId, Guid SeatMapId) SeedVenueAndSeatMap(int seatCount)
@@ -42,7 +45,7 @@ public class CreateEventHandlerTests
         var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 3);
         var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId);
 
-        var result = await _handler.HandleAsync(request, CancellationToken.None);
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _eventRepository.Data.Should().ContainSingle(e => e.Id == result.Value);
@@ -56,7 +59,7 @@ public class CreateEventHandlerTests
         var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
         var request = new CreateEventRequest("  ", DateTime.UtcNow.AddDays(30), venueId, seatMapId);
 
-        var result = await _handler.HandleAsync(request, CancellationToken.None);
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
@@ -69,7 +72,7 @@ public class CreateEventHandlerTests
         var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
         var request = new CreateEventRequest("Concert", default, venueId, seatMapId);
 
-        var result = await _handler.HandleAsync(request, CancellationToken.None);
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
@@ -82,7 +85,7 @@ public class CreateEventHandlerTests
         var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
         var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId, MaxTicketsPerOrder: 0);
 
-        var result = await _handler.HandleAsync(request, CancellationToken.None);
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
@@ -95,7 +98,7 @@ public class CreateEventHandlerTests
         var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
         var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId, MaxTicketsPerOrder: 2);
 
-        var result = await _handler.HandleAsync(request, CancellationToken.None);
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _eventRepository.Data.Single(e => e.Id == result.Value).MaxTicketsPerOrder.Should().Be(2);
@@ -107,7 +110,7 @@ public class CreateEventHandlerTests
         var (_, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
         var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMapId);
 
-        var result = await _handler.HandleAsync(request, CancellationToken.None);
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.NotFound);
@@ -120,11 +123,25 @@ public class CreateEventHandlerTests
         var (venueId, _) = SeedVenueAndSeatMap(seatCount: 1);
         var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, Guid.NewGuid());
 
-        var result = await _handler.HandleAsync(request, CancellationToken.None);
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.NotFound);
         _eventRepository.Data.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithValidRequest_RecordsCreatedByAndCreatedAt()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId);
+
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var createdEvent = _eventRepository.Data.Single(e => e.Id == result.Value);
+        createdEvent.CreatedByMemberId.Should().Be(AdminMemberId);
+        createdEvent.CreatedAtUtc.Should().Be(_dateTimeProvider.UtcNow);
     }
 
     [Fact]
@@ -134,7 +151,7 @@ public class CreateEventHandlerTests
         var (otherVenueId, _) = SeedVenueAndSeatMap(seatCount: 1);
         var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), otherVenueId, seatMapId);
 
-        var result = await _handler.HandleAsync(request, CancellationToken.None);
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.NotFound);

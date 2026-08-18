@@ -14,6 +14,7 @@ public sealed class CreateEventHandler
     private readonly IEventSeatRepository _eventSeatRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IValidator<CreateEventRequest> _validator;
+    private readonly IDateTimeProvider _dateTimeProvider;
 
     public CreateEventHandler(
         IVenueRepository venueRepository,
@@ -21,7 +22,8 @@ public sealed class CreateEventHandler
         IEventRepository eventRepository,
         IEventSeatRepository eventSeatRepository,
         IUnitOfWork unitOfWork,
-        IValidator<CreateEventRequest> validator)
+        IValidator<CreateEventRequest> validator,
+        IDateTimeProvider dateTimeProvider)
     {
         _venueRepository = venueRepository;
         _seatMapRepository = seatMapRepository;
@@ -29,9 +31,10 @@ public sealed class CreateEventHandler
         _eventSeatRepository = eventSeatRepository;
         _unitOfWork = unitOfWork;
         _validator = validator;
+        _dateTimeProvider = dateTimeProvider;
     }
 
-    public async Task<Result<Guid>> HandleAsync(CreateEventRequest request, CancellationToken cancellationToken)
+    public async Task<Result<Guid>> HandleAsync(Guid createdByMemberId, CreateEventRequest request, CancellationToken cancellationToken)
     {
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
@@ -59,7 +62,9 @@ public sealed class CreateEventHandler
             request.SeatMapId,
             request.Description,
             request.PosterUrl,
-            request.MaxTicketsPerOrder);
+            request.MaxTicketsPerOrder,
+            createdByMemberId,
+            _dateTimeProvider.UtcNow);
         var eventSeats = @event.CreateEventSeats(seatMap);
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);

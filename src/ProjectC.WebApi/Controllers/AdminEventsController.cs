@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ProjectC.Application.Events.CreateEvent;
+using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.WebApi.Common;
 
@@ -13,18 +14,30 @@ public class AdminEventsController : ControllerBase
 {
     private readonly CreateEventHandler _createEventHandler;
     private readonly CreateTicketTypeHandler _createTicketTypeHandler;
+    private readonly GetAdminEventsHandler _getAdminEventsHandler;
 
-    public AdminEventsController(CreateEventHandler createEventHandler, CreateTicketTypeHandler createTicketTypeHandler)
+    public AdminEventsController(
+        CreateEventHandler createEventHandler,
+        CreateTicketTypeHandler createTicketTypeHandler,
+        GetAdminEventsHandler getAdminEventsHandler)
     {
         _createEventHandler = createEventHandler;
         _createTicketTypeHandler = createTicketTypeHandler;
+        _getAdminEventsHandler = getAdminEventsHandler;
     }
 
     [HttpPost]
     public async Task<IActionResult> CreateEvent(CreateEventRequest request, CancellationToken cancellationToken)
     {
-        var result = await _createEventHandler.HandleAsync(request, cancellationToken);
+        var result = await _createEventHandler.HandleAsync(User.GetMemberId(), request, cancellationToken);
         return result.ToActionResult(id => StatusCode(StatusCodes.Status201Created, new { id }));
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetEvents(CancellationToken cancellationToken)
+    {
+        var events = await _getAdminEventsHandler.HandleAsync(cancellationToken);
+        return Ok(events);
     }
 
     [HttpPost("{eventId:guid}/ticket-types")]
