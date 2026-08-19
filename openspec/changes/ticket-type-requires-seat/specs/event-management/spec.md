@@ -7,6 +7,8 @@
 - `RequiresSeat = true`（綁座位）：`ZoneCode` MUST 存在於該活動座位圖的分區中，不接受 `AvailableQuantity`
 - `RequiresSeat = false`（純計數）：`ZoneCode` 僅作為票種顯示名稱，MUST NOT 驗證是否存在於座位圖分區中；`AvailableQuantity` MUST 為必填且為正整數
 
+請求未提供 `RequiresSeat` 時，系統 MUST 視為 `true`（綁座位），維持本次變更前既有客戶端（未帶此欄位）的既有建立票種行為不受影響。
+
 #### Scenario: 建立活動成功並自動產生座位庫存
 - **WHEN** Admin 提供標題、開始時間、場地、座位圖建立活動
 - **THEN** 系統成功建立活動，並依座位圖為每個座位樣板建立對應的 `EventSeat`（狀態皆為 Available）
@@ -50,3 +52,7 @@
 #### Scenario: 建立綁座位票種時提供可售總量
 - **WHEN** Admin 建立 `RequiresSeat = true` 的票種，卻同時提供 `AvailableQuantity`
 - **THEN** 系統 MUST 拒絕建立並回報驗證錯誤，綁座位票種的庫存數量須由座位圖決定，不接受額外指定總量
+
+#### Scenario: 建立票種時未提供 RequiresSeat（既有客戶端相容）
+- **WHEN** Admin 呼叫建立票種端點，請求內容比照本次變更前的既有格式，未包含 `RequiresSeat` 欄位
+- **THEN** 系統 MUST 視為 `RequiresSeat = true`（綁座位），依既有的分區存在性規則驗證，行為與本次變更前完全一致
