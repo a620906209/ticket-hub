@@ -5,6 +5,7 @@ using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
+using ProjectC.Domain.Payments;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
@@ -23,6 +24,7 @@ public class OrderServiceTests
         public FakeOrderRepository OrderRepository { get; } = new();
         public FakeUnitOfWork UnitOfWork { get; } = new();
         public FakeDateTimeProvider DateTimeProvider { get; } = new() { UtcNow = Now };
+        public FakePaymentGateway PaymentGateway { get; } = new(PaymentResult.Succeeded);
 
         public OrderService CreateOrderService() => new(
             TicketTypeRepository,
@@ -34,7 +36,7 @@ public class OrderServiceTests
             new PlaceOrderRequestValidator(),
             DateTimeProvider,
             new CreateOrderHandler(DateTimeProvider),
-            new ConfirmOrderHandler(DateTimeProvider),
+            new ConfirmOrderHandler(DateTimeProvider, PaymentGateway),
             new CancelOrderHandler(DateTimeProvider));
 
         public (Event Event, SeatMap SeatMap, EventSeat EventSeat, TicketType TicketType) SeedEventWithSeatAndTicketType(
@@ -198,7 +200,7 @@ public class OrderServiceTests
         var result = await fixture.CreateOrderService().ConfirmOrderAsync(order.Id, buyerId, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        order.Status.Should().Be(OrderStatus.Confirmed);
+        order.Status.Should().Be(OrderStatus.Paid);
     }
 
     [Fact]
@@ -222,6 +224,7 @@ public class OrderServiceTests
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Forbidden);
         order.Status.Should().Be(OrderStatus.Pending);
+        fixture.PaymentGateway.CallCount.Should().Be(0);
     }
 
     [Fact]
@@ -245,6 +248,7 @@ public class OrderServiceTests
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.NotFound);
+        fixture.PaymentGateway.CallCount.Should().Be(0);
     }
 
     [Fact]

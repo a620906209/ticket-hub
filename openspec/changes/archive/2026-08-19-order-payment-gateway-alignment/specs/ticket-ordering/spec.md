@@ -1,50 +1,4 @@
-# ticket-ordering Specification
-
-## Purpose
-TBD - created by archiving change ticketing-core-domain. Update Purpose after archive.
-## Requirements
-### Requirement: 建立訂單並原子性鎖定座位
-系統 SHALL 允許買家選定一組 `EventSeat` 建立訂單；建立過程 MUST 對所選所有座位以同一個到期時間嘗試鎖定，只有全部座位皆鎖定成功時才建立狀態為 Pending 的訂單，任一座位鎖定失敗時 MUST 不建立訂單，且已嘗試鎖定的其他座位 MUST 以訂單編號限定的方式復原為鎖定前的狀態，不得殘留部分鎖定、也不得誤釋放非本次建立流程鎖定的座位。訂單內每筆 `OrderItem` MUST 直接關聯對應的 `EventSeat`（而非共用的座位樣板 `Seat`）。此處的原子性為應用程式流程內的循序保證，非資料庫交易。
-
-在嘗試鎖定任何座位之前，系統 MUST 先驗證：所選座位不得有重複、所選座位須全部屬於同一場活動、每個座位對應的票種須與該座位屬於同一場活動。任一項驗證失敗，MUST 直接拒絕建立訂單且不得對任何座位執行鎖定。
-
-#### Scenario: 所選座位皆可鎖定
-- **WHEN** 買家選定多個皆為 Available 狀態的 `EventSeat` 建立訂單
-- **THEN** 系統建立狀態為 Pending 的訂單，且所選座位皆轉為 Held 並歸屬此訂單，逾時時間與訂單的到期時間相同
-
-#### Scenario: 所選座位其中一個已被鎖定
-- **WHEN** 買家選定的座位中，有一個座位已處於未逾時的 Held 狀態
-- **THEN** 系統 MUST 拒絕建立訂單，且本次操作中其餘已鎖定成功的座位 MUST 以本次建立所用的訂單編號限定釋放，復原為 Available，不留下部分鎖定，原本已被其他訂單持有的座位維持不變
-
-#### Scenario: 所選座位重複
-- **WHEN** 買家選定的座位清單中，同一個 `EventSeat` 出現兩次
-- **THEN** 系統 MUST 拒絕建立訂單，且不對任何座位執行鎖定
-
-#### Scenario: 所選座位橫跨多場活動
-- **WHEN** 買家選定的座位分別屬於不同的活動
-- **THEN** 系統 MUST 拒絕建立訂單，且不對任何座位執行鎖定
-
-#### Scenario: 票種與座位所屬活動不一致
-- **WHEN** 買家選定的某個座位所屬活動，與其對應票種所屬活動不同
-- **THEN** 系統 MUST 拒絕建立訂單，且不對任何座位執行鎖定
-
-### Requirement: 訂單暫扣快照票價
-系統 SHALL 在建立訂單的每筆 `OrderItem` 時，將所選座位對應票種當下的票價複製為該 `OrderItem` 的單價；建立後即使票種票價變更，MUST NOT 影響已建立訂單的金額。
-
-#### Scenario: 建立訂單時複製當下票價
-- **WHEN** 買家以票價 500 的票種建立訂單
-- **THEN** 訂單內對應 `OrderItem` 的單價記錄為 500
-
-#### Scenario: 票種事後調整票價不影響既有訂單
-- **WHEN** 訂單建立後，該票種的票價被調整為 600
-- **THEN** 該筆已建立訂單的 `OrderItem` 單價仍為建立當下記錄的 500
-
-### Requirement: 訂單只有單一到期時間
-系統 SHALL 讓每筆訂單只持有一個到期時間；訂單是否逾時 MUST 只依此單一到期時間與目前時間比較判斷，MUST NOT 逐一檢查訂單內每個座位各自的暫扣狀態來判斷訂單是否逾時。
-
-#### Scenario: 訂單到期時間套用至所有座位
-- **WHEN** 建立一筆包含多個座位的訂單
-- **THEN** 訂單記錄的到期時間，與訂單內每個座位鎖定時使用的逾時時間相同
+## MODIFIED Requirements
 
 ### Requirement: 確認訂單須驗證訂單與座位歸屬一致
 系統 SHALL 在將任何座位標記為 Sold 之前，完整驗證：(1) 訂單狀態為 Pending、(2) 訂單本身尚未逾時、(3) 每一筆 `OrderItem` 對應的座位皆能成功解析到存在的 `EventSeat`、(4) 該 `EventSeat` 所屬活動須與訂單所屬活動一致、(5) 訂單內每一筆 `OrderItem` 對應的 `EventSeat` 經由座位狀態查詢方法確認仍由本訂單合法持有暫扣（未售出、鎖定訂單編號相符、未逾時）。上述驗證一律透過 `EventSeat` 對外暴露的狀態查詢方法進行，不得直接讀取內部欄位判斷。任一驗證失敗，MUST 不變更任何座位或訂單狀態；只有全部驗證通過，才將訂單轉為 Paid 並將訂單內所有座位轉為 Sold。此驗證機制用以防止「確認某筆訂單卻誤將另一筆訂單持有的座位標記售出」的錯誤。
@@ -102,10 +56,3 @@ TBD - created by archiving change ticketing-core-domain. Update Purpose after ar
 #### Scenario: 查詢已逾時的 Pending 訂單
 - **WHEN** 查詢一筆內部狀態仍為 Pending、但已超過到期時間的訂單狀態
 - **THEN** 系統回報訂單狀態為 Expired，但訂單內部持久化狀態欄位仍維持 Pending
-
-### Requirement: 建立訂單須記錄買家身份
-系統 SHALL 在建立訂單時，將發起建立的已登入會員身份記錄為訂單的買家身份（`BuyerId`）；`BuyerId` 為訂單建立後不可變更的必填欄位，訂單 MUST NOT 在沒有買家身份的情況下建立。
-
-#### Scenario: 建立訂單時記錄買家身份
-- **WHEN** 已登入會員選定座位建立訂單
-- **THEN** 訂單記錄的買家身份為該會員的 ID，且此後不可變更

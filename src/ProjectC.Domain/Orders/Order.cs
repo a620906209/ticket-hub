@@ -52,7 +52,7 @@ public sealed class Order
         if (Status != OrderStatus.Pending)
             throw new OrderNotPendingException(Id, Status);
 
-        Status = OrderStatus.Confirmed;
+        Status = OrderStatus.Paid;
     }
 
     public void Cancel()

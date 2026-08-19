@@ -31,8 +31,10 @@ using ProjectC.Application.Venues.GetVenueById;
 using ProjectC.Application.Venues.GetVenues;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
+using ProjectC.Domain.Payments;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
+using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.Infrastructure.Persistence.Repositories;
 using ProjectC.Infrastructure.Security;
@@ -78,6 +80,12 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<AuthOptions>>
 // OrderCleanupOptions 有安全的預設值，不像 JwtOptions 缺值就無法運作，不需要 ValidateOnStart（見 design.md 決策 2）。
 builder.Services.Configure<OrderCleanupOptions>(builder.Configuration.GetSection("OrderCleanup"));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<OrderCleanupOptions>>().Value);
+
+// MockPaymentGatewayOptions 有安全的預設值（AlwaysSucceed = true），比照 OrderCleanupOptions 不需要 ValidateOnStart
+// （見 order-payment-gateway-alignment design.md 決策 2）。
+builder.Services.Configure<MockPaymentGatewayOptions>(builder.Configuration.GetSection(MockPaymentGatewayOptions.SectionName));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<MockPaymentGatewayOptions>>().Value);
+builder.Services.AddSingleton<IPaymentGateway, MockPaymentGateway>();
 
 builder.Services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
 builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();

@@ -4,6 +4,7 @@ using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
+using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.Infrastructure.Persistence.Repositories;
 using ProjectC.Infrastructure.Security;
@@ -36,7 +37,7 @@ public class OrderServiceConcurrencyTests
             new PlaceOrderRequestValidator(),
             dateTimeProvider,
             new CreateOrderHandler(dateTimeProvider),
-            new ConfirmOrderHandler(dateTimeProvider),
+            new ConfirmOrderHandler(dateTimeProvider, new MockPaymentGateway(new MockPaymentGatewayOptions())),
             new CancelOrderHandler(dateTimeProvider));
     }
 

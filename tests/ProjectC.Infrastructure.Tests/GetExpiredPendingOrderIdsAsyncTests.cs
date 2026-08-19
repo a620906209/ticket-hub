@@ -32,14 +32,14 @@ public class GetExpiredPendingOrderIdsAsyncTests
             [new OrderItem(Guid.NewGuid(), eventSeatIds[1], 500m)]);
         var notYetExpiredPending = new Order(Guid.NewGuid(), eventId, buyer.Id, now.AddMinutes(10),
             [new OrderItem(Guid.NewGuid(), eventSeatIds[2], 500m)]);
-        var expiredButConfirmed = new Order(Guid.NewGuid(), eventId, buyer.Id, now.AddMinutes(-1),
+        var expiredButPaid = new Order(Guid.NewGuid(), eventId, buyer.Id, now.AddMinutes(-1),
             [new OrderItem(Guid.NewGuid(), eventSeatIds[3], 500m)]);
-        expiredButConfirmed.Confirm();
+        expiredButPaid.Confirm();
         var expiredButCancelled = new Order(Guid.NewGuid(), eventId, buyer.Id, now.AddMinutes(-1),
             [new OrderItem(Guid.NewGuid(), eventSeatIds[4], 500m)]);
         expiredButCancelled.Cancel();
 
-        dbContext.Orders.AddRange(expiredPending, boundaryPending, notYetExpiredPending, expiredButConfirmed, expiredButCancelled);
+        dbContext.Orders.AddRange(expiredPending, boundaryPending, notYetExpiredPending, expiredButPaid, expiredButCancelled);
         await dbContext.SaveChangesAsync();
 
         var repository = new OrderRepository(dbContext);
@@ -49,6 +49,6 @@ public class GetExpiredPendingOrderIdsAsyncTests
         // PostgresCollection 共用一個資料庫，所以用「包含/不包含」而非「恰好等於」比對，
         // 避免跟其他測試類別留下的訂單資料互相影響（見 PostgresFixture 的共用資料庫設計）。
         result.Should().Contain([expiredPending.Id, boundaryPending.Id]);
-        result.Should().NotContain([notYetExpiredPending.Id, expiredButConfirmed.Id, expiredButCancelled.Id]);
+        result.Should().NotContain([notYetExpiredPending.Id, expiredButPaid.Id, expiredButCancelled.Id]);
     }
 }

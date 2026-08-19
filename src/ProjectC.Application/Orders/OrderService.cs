@@ -154,19 +154,25 @@ public sealed class OrderService
         => ChangeOrderStatusAsync(orderId, requestingBuyerId, _confirmOrderHandler.Handle, cancellationToken);
 
     public Task<Result> CancelOrderAsync(Guid orderId, Guid requestingBuyerId, CancellationToken cancellationToken)
-        => ChangeOrderStatusAsync(orderId, requestingBuyerId, _cancelOrderHandler.Handle, cancellationToken);
+        => ChangeOrderStatusAsync(orderId, requestingBuyerId, WrapSync(_cancelOrderHandler.Handle), cancellationToken);
 
     /// <summary>
     /// 背景清理呼叫，沒有買家身份可驗證，改以「訂單確實已逾時」作為授權依據，取代本人驗證
     /// （見 ticketing-order-management design.md 決策 1）。
     /// </summary>
     public Task<Result> CancelExpiredOrderAsync(Guid orderId, CancellationToken cancellationToken)
-        => ChangeOrderStatusAsync(orderId, requestingBuyerId: null, _cancelOrderHandler.Handle, cancellationToken);
+        => ChangeOrderStatusAsync(orderId, requestingBuyerId: null, WrapSync(_cancelOrderHandler.Handle), cancellationToken);
+
+    // CancelOrderHandler.Handle 維持同步（純記憶體邏輯，無 I/O），包一層轉成跟 ConfirmOrderHandler.Handle
+    // 相同的非同步委派型別，讓兩者能共用同一套 ChangeOrderStatusAsync 交易骨架（見 design.md 決策 3）。
+    private static Func<Order, IReadOnlyDictionary<Guid, EventSeat>, CancellationToken, Task<Result>> WrapSync(
+        Func<Order, IReadOnlyDictionary<Guid, EventSeat>, Result> syncHandle)
+        => (order, seats, _) => Task.FromResult(syncHandle(order, seats));
 
     private async Task<Result> ChangeOrderStatusAsync(
         Guid orderId,
         Guid? requestingBuyerId,
-        Func<Order, IReadOnlyDictionary<Guid, EventSeat>, Result> handle,
+        Func<Order, IReadOnlyDictionary<Guid, EventSeat>, CancellationToken, Task<Result>> handle,
         CancellationToken cancellationToken)
     {
         var order = await _orderRepository.GetByIdAsync(orderId, cancellationToken);
@@ -207,7 +213,7 @@ public sealed class OrderService
         await _orderRepository.ReloadAsync(order, cancellationToken);
 
         var eventSeatsById = eventSeats.ToDictionary(es => es.Id);
-        var result = handle(order, eventSeatsById);
+        var result = await handle(order, eventSeatsById, cancellationToken);
         if (!result.IsSuccess)
         {
             return result;

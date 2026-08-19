@@ -39,14 +39,14 @@ public class OrderTests
     }
 
     [Fact]
-    public void Confirm_WhenPending_TransitionsToConfirmed()
+    public void Confirm_WhenPending_TransitionsToPaid()
     {
         var now = DateTime.UtcNow;
         var order = CreateOrder(now.AddMinutes(10));
 
         order.Confirm();
 
-        order.Status.Should().Be(OrderStatus.Confirmed);
+        order.Status.Should().Be(OrderStatus.Paid);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class OrderTests
     }
 
     [Fact]
-    public void Cancel_WhenConfirmed_ThrowsOrderNotPendingException()
+    public void Cancel_WhenPaid_ThrowsOrderNotPendingException()
     {
         var now = DateTime.UtcNow;
         var order = CreateOrder(now.AddMinutes(10));
@@ -96,7 +96,7 @@ public class OrderTests
         var act = order.Cancel;
 
         act.Should().Throw<OrderNotPendingException>();
-        order.Status.Should().Be(OrderStatus.Confirmed);
+        order.Status.Should().Be(OrderStatus.Paid);
     }
 
     [Fact]
