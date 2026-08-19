@@ -30,7 +30,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasForeignKey(o => o.BuyerId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Status 只會被賦值 Pending/Confirmed/Cancelled；Expired 是 GetStatus(now) 查詢時推導出來的值，
+        // Status 只會被賦值 Pending/Paid/Cancelled；Expired 是 GetStatus(now) 查詢時推導出來的值，
         // 從不落地寫入（見 Order.GetStatus 與 seat-reservation/ticket-ordering spec 的既有不變條件）。
         builder.Property(o => o.Status).IsRequired();
 

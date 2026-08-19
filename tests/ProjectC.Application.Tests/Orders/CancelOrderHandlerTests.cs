@@ -3,6 +3,7 @@ using ProjectC.Application.Orders;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
+using ProjectC.Domain.Payments;
 using ProjectC.Domain.Venues;
 
 namespace ProjectC.Application.Tests.Orders;
@@ -57,18 +58,18 @@ public class CancelOrderHandlerTests
     }
 
     [Fact]
-    public void Handle_WhenConfirmed_FailsAndDoesNotReleaseSeats()
+    public async Task Handle_WhenPaid_FailsAndDoesNotReleaseSeats()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var (order, seatsById, _, _) = CreatePendingOrder(now);
-        var confirmHandler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now });
-        confirmHandler.Handle(order, seatsById);
+        var confirmHandler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, new FakePaymentGateway(PaymentResult.Succeeded));
+        await confirmHandler.Handle(order, seatsById, CancellationToken.None);
 
         var handler = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var result = handler.Handle(order, seatsById);
 
         result.IsSuccess.Should().BeFalse();
-        order.Status.Should().Be(OrderStatus.Confirmed);
+        order.Status.Should().Be(OrderStatus.Paid);
         seatsById.Values.Single().GetStatus(now).Should().Be(EventSeatStatus.Sold);
     }
 
@@ -87,7 +88,7 @@ public class CancelOrderHandlerTests
     }
 
     [Fact]
-    public void Handle_WhenSeatWasSoldToAnotherOrderAfterExpiry_StillCancelsWithoutThrowingOrTouchingTheSoldSeat()
+    public async Task Handle_WhenSeatWasSoldToAnotherOrderAfterExpiry_StillCancelsWithoutThrowingOrTouchingTheSoldSeat()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var (orderA, seatsById, @event, seatMap) = CreatePendingOrder(now);
@@ -100,8 +101,8 @@ public class CancelOrderHandlerTests
         resultB.IsSuccess.Should().BeTrue();
         var orderB = resultB.Value!;
 
-        var confirmHandlerB = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
-        confirmHandlerB.Handle(orderB, seatsById).IsSuccess.Should().BeTrue();
+        var confirmHandlerB = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry }, new FakePaymentGateway(PaymentResult.Succeeded));
+        (await confirmHandlerB.Handle(orderB, seatsById, CancellationToken.None)).IsSuccess.Should().BeTrue();
 
         var cancelHandlerA = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
 
