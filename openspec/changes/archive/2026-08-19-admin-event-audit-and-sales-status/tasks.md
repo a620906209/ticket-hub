@@ -71,4 +71,4 @@
 - [x] 10.1 `npm run lint`／`vue-tsc --noEmit`／`npm run test`／`npm run build` 皆通過
 - [x] 10.2 後端 `dotnet test` 全數通過（含本次新增測試）
 - [x] 10.3 用 claude-in-chrome 實際於瀏覽器驗證：開啟活動管理頁，列表顯示既有活動的建立者/建立時間（舊活動應顯示「—」）與售票狀況橫條圖 → 點「建立活動」導向獨立頁面、填寫送出後成功導回列表頁且新活動出現、建立者正確顯示為目前登入的 Admin、建立時間是剛剛的時間點、新活動的售票狀況橫條圖全部是 Available（因為還沒有人下單）→ 建立票種表單的價格欄位有 NT$ 標示 → 切換到買家端開啟該活動詳情頁，確認票價與已選座位總金額都有 NT$ 標示
-- [ ] 10.4 同步確認 `event-management`／`admin-web-ui` 兩份主 spec 的既有 Requirement 已依 delta 正確更新（歸檔時同步）
+- [x] 10.4 同步確認 `event-management`／`admin-web-ui` 兩份主 spec 的既有 Requirement 已依 delta 正確更新（歸檔時同步）
