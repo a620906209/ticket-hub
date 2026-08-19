@@ -6,22 +6,29 @@
 
 - [ ] 2.1 `TicketType` 新增 `RequiresSeat`（bool）、`AvailableQuantity`（int?）屬性
 - [ ] 2.2 建構邏輯依 `RequiresSeat` 分流驗證（`true`：`ZoneCode` 須存在於座位圖分區、`AvailableQuantity` 須為 null；`false`：`ZoneCode` 免驗證分區存在性、`AvailableQuantity` 須為正整數），對應 design.md 決策 1
-- [ ] 2.3 新增 `Reserve(int quantity)` 方法：`AvailableQuantity` 不足時拋 `DomainException`，成功則扣減；新增 `Release(int quantity)` 方法：無條件歸還，對應 design.md 決策 3
+- [ ] 2.3 新增 `Reserve(int quantity)`／`Release(int quantity)` 方法，對應 design.md 決策 3 的對稱防護規則（外部審查補強）：兩者皆須依序檢查 `quantity <= 0`（拋 `ArgumentOutOfRangeException`）→ `RequiresSeat = true`（拋 `TicketTypeRequiresSeatException`）→ `AvailableQuantity is null`（拋 `TicketTypeInventoryNotConfiguredException`，**此分支正常情況下走不到，是防禦性資料完整性檢查，見 2.6 的測試方式說明**）；`Reserve` 額外檢查庫存是否足夠（不足拋 `TicketTypeInventoryInsufficientException`，足夠則扣減）
+- [ ] 2.3a 新增上述三個 domain 型別化例外類別（`ArgumentOutOfRangeException` 是 .NET BCL 既有例外，不新增同名自訂類別，2.3 依序檢查的四種結果裡只有這三種需要新建）：`TicketTypeRequiresSeatException`、`TicketTypeInventoryNotConfiguredException`、`TicketTypeInventoryInsufficientException`；三者均繼承 `DomainException`，比照既有 `SeatAlreadySoldException` 等的命名/實作風格。**繼承 `DomainException`是功能性要求，不是風格**：`CreateOrderHandler.Handle` 現行第 49 行 `catch (DomainException)` 會把座位鎖定失敗轉成 `Result<Order>.Failure(Error.Conflict(...))`；6.8 擴充後 `TicketType.Reserve()` 也會在同一個 `try` 區塊內被呼叫，若 `TicketTypeInventoryInsufficientException` 沒繼承 `DomainException`，會直接繞過這個既有 catch、變成未處理例外往外傳播（外部審查抓到）
 - [ ] 2.4 `Event.CreateTicketType` 簽章擴充以支援兩種模式的建立參數（或新增對應的計數模式建立方法），維持既有座位模式呼叫端不需大幅修改
 - [ ] 2.5 xUnit 單元測試：`TicketType` 建構子在兩種模式下的驗證規則（對應 event-management spec 新增的「建立純計數票種成功／未提供可售總量／綁座位票種提供可售總量」三個 Scenario）
-- [ ] 2.6 xUnit 單元測試：`Reserve`／`Release` 的邊界情況（庫存剛好足夠、不足、歸還後回到原數量）
+- [ ] 2.6 xUnit 單元測試：`Reserve`／`Release` 的邊界情況（庫存剛好足夠、不足、歸還後回到原數量），**加上外部審查補強的誤用情境各自獨立測試**，斷言拋出對應的具體例外型別（不要只測「會拋例外」）：
+  - `quantity <= 0` → `ArgumentOutOfRangeException`（`Reserve`／`Release` 各一條，透過正常公開建構子建立 `RequiresSeat = false` 的票種即可測試）
+  - 對 `RequiresSeat = true` 的票種呼叫 → `TicketTypeRequiresSeatException`（`Reserve`／`Release` 各一條，透過正常公開建構子建立即可測試）
+  - **`RequiresSeat = false` 但 `AvailableQuantity is null` → `TicketTypeInventoryNotConfiguredException`（`Reserve`／`Release` 各一條）：這個狀態無法透過 `TicketType` 的公開建構方式產生（見 design.md 決策 3 的說明），測試 MUST 用測試專用手段（反射、`internal` 測試工廠，或直接操作 EF Core change tracker）刻意建立這個不一致實體，並在測試程式碼裡明確註記「刻意繞過封裝測防禦性檢查，非正常業務路徑」**
 
 ## 3. Domain 層：OrderItem 支援計數行項
 
-- [ ] 3.1 `OrderItem` 新增 `TicketTypeId`（domain 建構子層要求必填，DB 欄位維持 nullable）、`Quantity`（必填）屬性，`EventSeatId` 改為可為 null
+- [ ] 3.1 `OrderItem` 新增 `TicketTypeId`、`Quantity` 屬性，`EventSeatId` 改為可為 null。**明確區分屬性型別與建構子參數型別（外部審查抓到的阻斷問題，見 design.md 決策 2）**：entity 屬性 `public Guid? TicketTypeId { get; }`／`public Guid? EventSeatId { get; }` 都 MUST 是 `Guid?`（相容既有舊列 `TicketTypeId IS NULL`，供 EF Core 具現化）；「新建立」用的公開建構子參數 `ticketTypeId` 則 MUST 是不可為 null 的 `Guid` 且拒絕 `Guid.Empty`
+- [ ] 3.1a **新增 private EF Core 物化專用建構子（外部審查第五輪抓到的阻斷問題，見 design.md 決策 2）**：`private OrderItem(Guid id, Guid? ticketTypeId, Guid? eventSeatId, int quantity, decimal unitPrice)`，純欄位賦值、不做任何驗證，比照 `TicketType.cs`／`Order.cs` 已經在用的公開/私有雙建構子模式——只把屬性改成 `Guid?` 不夠，若只有 3.1 那個 non-nullable `Guid ticketTypeId` 參數的公開建構子，EF Core 物化 `TicketTypeId IS NULL` 的舊列時型別不相容，既有座位訂單會直接讀不出來
 - [ ] 3.2 建構邏輯驗證兩種形狀互斥：座位行項（`EventSeatId` 有值、`Quantity = 1`）、計數行項（`EventSeatId = null`、`Quantity >= 1`），對應 design.md 決策 2
-- [ ] 3.3 xUnit 單元測試：兩種合法形狀建構成功、非法組合（例如同時有 `EventSeatId` 又 `Quantity > 1`，或兩者皆空）被拒絕
+- [ ] 3.3 xUnit 單元測試：兩種合法形狀建構成功、非法組合（例如同時有 `EventSeatId` 又 `Quantity > 1`，或兩者皆空）被拒絕；**加上 `ticketTypeId = Guid.Empty` 必須被公開建構子拒絕**（3.1 已要求此規則，但先前的測試清單沒明列，外部審查補強）
 
 ## 4. Infrastructure：Migration 與 Repository
 
 - [ ] 4.1 EF Core migration：`TicketType` 新增 `RequiresSeat`（`NOT NULL DEFAULT true`）、`AvailableQuantity`（nullable）
 - [ ] 4.2 EF Core migration：`OrderItem` 新增 `TicketTypeId`（nullable，既有資料不回填，見 design.md Migration Plan）、`Quantity`（`NOT NULL DEFAULT 1`）、`EventSeatId` 改 nullable
 - [ ] 4.3 `TicketTypeConfiguration`／`OrderItemConfiguration`（若無則新增）同步反映上述欄位與 nullable 設定
+- [ ] 4.3a `OrderItemConfiguration` 新增 `OrderItem.TicketTypeId` 的 FK 約束，比照既有 `EventSeatId` 的既定模式：`builder.HasOne<TicketType>().WithMany().HasForeignKey(i => i.TicketTypeId).OnDelete(DeleteBehavior.Restrict)`（nullable FK）；不需要額外手動 `.HasIndex()`，EF Core 依慣例會對 FK 欄位自動建索引（外部審查補強，見 design.md Migration Plan 第 4 點）
+- [ ] 4.3b `TicketTypeConfiguration` 新增資料庫層 check constraint，鎖死 `RequiresSeat`／`AvailableQuantity` 一致性：`(RequiresSeat = TRUE AND AvailableQuantity IS NULL) OR (RequiresSeat = FALSE AND AvailableQuantity >= 0)`——注意是 `>= 0` 不是 `> 0`（庫存賣完是合法值 0），初始值必須為正整數的規則留給 domain 建構子／validator 負責，這裡只守「兩欄位互不矛盾」（外部審查補強，見 design.md Migration Plan 第 5 點）
 - [ ] 4.4 `ITicketTypeRepository` 新增 `GetForUpdateAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken)`——**MUST 逐字比照 `IEventSeatRepository.GetForUpdateAsync` 的三個關鍵屬性**（外部審查抓到，design.md 決策 3 已修正原本「永遠單列」的錯誤前提）：(1) 接受一組 ID 而非單一 ID；(2) 方法內部自行 `Distinct()` 去重，不信任呼叫端；(3) 用單一 `FromSqlInterpolated` 陳述式搭配 `ORDER BY "Id" FOR UPDATE`，不得逐筆迴圈個別鎖定。同時比照既有方法在無進行中交易時 fail fast（`_dbContext.Database.CurrentTransaction is null` 檢查）
 - [ ] 4.5 **`TicketTypeRepository.GetByIdAsync` 加上 `.AsNoTracking()`**（外部審查抓到的阻斷問題，design.md 決策 3 修正段落）：這是目前 `OrderService.PlaceOrderAsync` 交易前存在性檢查的唯一呼叫端，若不改為 no-tracking，交易內 `GetForUpdateAsync` 對同一主鍵的查詢會被 EF Core identity resolution 擋下、回傳鎖前的舊追蹤物件，`Reserve()` 會依舊值誤判庫存足夠，實質等於沒有鎖——這個修正是本次規劃第四輪才發現的根本問題，比先前「不可誤用 ticketTypesById」的說法更關鍵，沒有這個修正光靠「呼叫哪個變數」是無法保證正確性的
 
@@ -64,9 +71,10 @@
 
 ## 8. Application 層：訂單查詢明細同步
 
-- [ ] 8.1 `OrderItemDto`（`src/ProjectC.Application/Orders/GetOrderById/OrderDetailDto.cs`）新增 `TicketTypeId`、`Quantity`，`EventSeatId` 改為 `Guid?`，對應 `OrderItem` 的結構變更（審查後補充，原本的任務規劃遺漏此檔案，`GetOrderByIdHandler` 目前的建構呼叫在 `EventSeatId` 改型別後會編譯失敗）
+- [ ] 8.1 `OrderItemDto`（`src/ProjectC.Application/Orders/GetOrderById/OrderDetailDto.cs`）新增 `TicketTypeId`（**`Guid?`，不是 `Guid`——見 design.md 決策 2 阻斷修正，既有舊訂單 `TicketTypeId IS NULL` 查詢時必須能忠實回傳 `null`，不能查詢失敗或塞假值**）、`Quantity`，`EventSeatId` 改為 `Guid?`，對應 `OrderItem` 的結構變更（審查後補充，原本的任務規劃遺漏此檔案，`GetOrderByIdHandler` 目前的建構呼叫在 `EventSeatId` 改型別後會編譯失敗）
 - [ ] 8.2 `GetOrderByIdHandler` 同步調整建構 `OrderItemDto` 的呼叫
 - [ ] 8.3 xUnit 測試：查詢含計數項目、含混合項目的訂單明細，回傳的 `OrderItemDto` 正確帶出 `TicketTypeId`／`Quantity`／可為 null 的 `EventSeatId`
+- [ ] 8.4 **整合測試（外部審查抓到的阻斷問題，第五輪要求擴充斷言範圍）**：直接在測試資料庫植入一筆 `TicketTypeId IS NULL` 的既有座位訂單（模擬 migration 前建立、不回填的歷史資料，不透過應用程式正常流程建立——正常流程一定會帶 `TicketTypeId`；用真正的 `ApplicationDbContext` 讀取，驗證的是 3.1a 那支 private 物化建構子真的能被 EF Core 正確綁定，不是單純測 DTO mapping 邏輯），呼叫 `GetOrderById` 查詢，驗證成功回傳且：`OrderItemDto.TicketTypeId = null`、`EventSeatId` 有值（座位訂單本來就該有）、`Quantity = 1`，不拋例外、不查詢失敗
 
 ## 9. 收尾
 
