@@ -17,7 +17,7 @@ TBD - created by archiving change ticketing-purchase. Update Purpose after archi
 - **THEN** 系統回傳 401 未授權，不建立任何訂單
 
 ### Requirement: 瀏覽活動與座位可售狀態
-系統 SHALL 提供不需登入即可查詢的端點，讓使用者查詢活動列表、活動的座位可售狀態（含分區代碼，供對應票種價格）、活動的票種與價格。
+系統 SHALL 提供不需登入即可查詢的端點，讓使用者查詢活動列表、活動的座位可售狀態（含分區代碼，供對應票種價格）、活動的票種與價格。查詢票種列表時，每筆票種 SHALL 附帶 `RequiresSeat`，供呼叫端判斷該票種是否需要另外指定座位；`RequiresSeat = false` 的票種 SHALL 額外附帶當下的可售總量（`AvailableQuantity`）。
 
 #### Scenario: 查詢活動列表
 - **WHEN** 使用者查詢活動列表
@@ -29,14 +29,14 @@ TBD - created by archiving change ticketing-purchase. Update Purpose after archi
 
 #### Scenario: 查詢活動票種與價格
 - **WHEN** 使用者查詢某活動的票種列表
-- **THEN** 系統回傳該活動已建立的票種與對應價格
+- **THEN** 系統回傳該活動已建立的票種、對應價格，以及每個票種的 `RequiresSeat`；`RequiresSeat = false` 的票種另附帶當下可售總量
 
 #### Scenario: 查詢不存在的活動
 - **WHEN** 使用者以不存在的活動 ID 查詢座位可售狀態或票種列表
 - **THEN** 系統回傳 404 找不到資源，不得擲出未預期例外
 
-### Requirement: 透過 API 建立訂單並鎖定座位
-系統 SHALL 提供已登入會員選擇一組座位與對應票種建立訂單的端點，鎖定與驗證規則遵循既有 `ticket-ordering` 能力的規範（原子性鎖定、票價快照、跨活動與重複選位驗證等），並將發起建立的會員身份記錄為訂單的買家身份。選定的座位或票種若不存在，MUST 拒絕建立並回報找不到對應資源。所選座位實際所屬的分區 MUST 與所選票種的分區一致，不一致 MUST 拒絕建立。
+### Requirement: 透過 API 建立訂單並鎖定座位或扣減票種庫存
+系統 SHALL 提供已登入會員建立訂單的端點，可在同一次請求中混合兩種選購項目：座位項目（指定 `EventSeatId` 與對應 `TicketTypeId`，票種須為 `RequiresSeat = true`）、計數項目（指定 `TicketTypeId` 與購買數量，票種須為 `RequiresSeat = false`，不指定 `EventSeatId`）。鎖定/扣減與驗證規則遵循既有 `ticket-ordering` 能力的規範（原子性鎖定或扣減、票價快照、跨活動與重複選位驗證等），並將發起建立的會員身份記錄為訂單的買家身份。選定的座位或票種若不存在，MUST 拒絕建立並回報找不到對應資源。座位項目所選座位實際所屬的分區 MUST 與所選票種的分區一致，不一致 MUST 拒絕建立。項目所指定的票種與其 `RequiresSeat` 屬性不一致時（例如對 `RequiresSeat = false` 的票種指定 `EventSeatId`，或對 `RequiresSeat = true` 的票種只指定數量、不指定座位，或對 `RequiresSeat = true` 的票種指定 `EventSeatId` 卻同時指定非 1 的購買數量）MUST 拒絕建立並回報驗證錯誤。同一次請求中，`EventSeatId` 為空的計數項目之間 `TicketTypeId` MUST 互不重複——買家想購買多張同一計數票種，MUST 將數量加總為單一選購項目的購買數量送出，不接受拆成多筆重複的計數項目。選購項目未提供購買數量時，系統 MUST 視為 1，維持本次變更前既有客戶端（未帶此欄位）的既有座位選購行為不受影響。
 
 #### Scenario: 成功建立訂單
 - **WHEN** 已登入會員選定多個皆可售的座位與對應票種建立訂單
@@ -53,6 +53,30 @@ TBD - created by archiving change ticketing-purchase. Update Purpose after archi
 #### Scenario: 座位分區與票種分區不一致
 - **WHEN** 已登入會員選定的座位當中，有一個實際所屬分區與配對的票種分區不同（例如座位屬於 A 區，卻配了 B 區票種）
 - **THEN** 系統 MUST 拒絕建立訂單並回報驗證錯誤，不建立訂單也不對任何座位執行鎖定（不建立業務上的 Held 狀態、不落地寫入；查詢過程中可能對座位短暫取得資料庫層級的 row lock，交易結束即釋放）
+
+#### Scenario: 成功建立純計數選購的訂單
+- **WHEN** 已登入會員對 `RequiresSeat = false` 的票種指定購買數量（不指定 `EventSeatId`）建立訂單，且指定數量不超過當下可售總量
+- **THEN** 系統成功建立 Pending 訂單，該票種的可售總量相應扣減，訂單的買家身份為該會員
+
+#### Scenario: 純計數票種指定了座位
+- **WHEN** 已登入會員對 `RequiresSeat = false` 的票種在請求中指定了 `EventSeatId`
+- **THEN** 系統 MUST 拒絕建立訂單並回報驗證錯誤，不對任何座位或庫存執行變更
+
+#### Scenario: 綁座位票種未指定座位
+- **WHEN** 已登入會員對 `RequiresSeat = true` 的票種在請求中只指定數量、未指定 `EventSeatId`
+- **THEN** 系統 MUST 拒絕建立訂單並回報驗證錯誤，不對任何座位或庫存執行變更
+
+#### Scenario: 座位項目指定非 1 的購買數量
+- **WHEN** 已登入會員對 `RequiresSeat = true` 的票種在請求中指定了 `EventSeatId`，同時指定購買數量不等於 1
+- **THEN** 系統 MUST 拒絕建立訂單並回報驗證錯誤，不對任何座位或庫存執行變更
+
+#### Scenario: 同一計數票種在同一次請求中重複出現
+- **WHEN** 已登入會員在同一次建立訂單請求中，對同一個 `RequiresSeat = false` 的票種送出兩筆以上不指定 `EventSeatId` 的選購項目（例如分開指定購買數量 2 與 3）
+- **THEN** 系統 MUST 拒絕建立訂單並回報驗證錯誤，不對任何座位或庫存執行變更；買家應改為送出單一選購項目、購買數量為加總後的值
+
+#### Scenario: 座位選購項目未提供購買數量（既有客戶端相容）
+- **WHEN** 已登入會員呼叫建立訂單端點，選購項目比照本次變更前的既有格式，只提供 `EventSeatId` 與 `TicketTypeId`、未包含購買數量欄位
+- **THEN** 系統 MUST 視為購買數量 1，依既有座位選購規則處理，行為與本次變更前完全一致
 
 ### Requirement: 透過 API 確認訂單（模擬付款）
 系統 SHALL 提供已登入會員確認自己所屬 Pending 訂單的端點；此端點不接受任何付款資訊，改由系統呼叫 `IPaymentGateway` 完成付款，付款結果由伺服器端設定決定（呼叫端無法控制成功或失敗）。系統 MUST 先依既有 `ticket-ordering` 能力的確認驗證規則（訂單狀態、逾時、座位歸屬）完成驗證，驗證通過後才呼叫付款；付款成功才將訂單標記為已付款，付款失敗則訂單維持 Pending。非訂單買家本人呼叫 MUST 被拒絕。
@@ -89,7 +113,7 @@ TBD - created by archiving change ticketing-purchase. Update Purpose after archi
 - **THEN** 系統回傳 404，不開啟交易也不鎖定任何座位
 
 ### Requirement: 確認與取消訂單的並發一致性
-系統 SHALL 保證同一筆訂單被並發的確認與取消操作（或兩個並發的同類操作）同時處理時，只有一個操作能成功，另一個 MUST 依訂單當下的最新狀態被拒絕，不得覆蓋先完成的那個操作的結果。
+系統 SHALL 保證同一筆訂單被並發的確認與取消操作（或兩個並發的同類操作）同時處理時，只有一個操作能成功，另一個 MUST 依訂單當下的最新狀態被拒絕，不得覆蓋先完成的那個操作的結果。此保證 MUST NOT 只適用於含座位項目的訂單——訂單內全部為計數項目（不含任何座位）時，系統仍 MUST 鎖定訂單內每筆計數項目對應的 `TicketType`，作為該訂單的資料庫層序列化點，即使該次操作（例如確認）本身不需要寫入 `AvailableQuantity`。
 
 #### Scenario: 並發確認與取消同一筆訂單
 - **WHEN** 兩個請求幾乎同時對同一筆 Pending 訂單分別呼叫確認端點與取消端點
@@ -98,3 +122,26 @@ TBD - created by archiving change ticketing-purchase. Update Purpose after archi
 #### Scenario: 並發兩個同類操作（例如重複點擊取消）
 - **WHEN** 兩個請求幾乎同時對同一筆 Pending 訂單呼叫同一個端點（例如兩次取消，或兩次確認）
 - **THEN** 系統保證只有一個操作成功，另一個依訂單當下已變更的狀態被拒絕（而非誤判為成功），不會發生第二個請求誤報成功的情況
+
+#### Scenario: 並發確認同一筆純計數（不含座位）訂單
+- **WHEN** 兩個請求幾乎同時對同一筆內容全部為計數項目、不含任何座位的 Pending 訂單呼叫確認端點
+- **THEN** 系統保證只有一個確認操作成功並觸發一次付款，另一個依訂單當下已變更的狀態被拒絕，MUST NOT 觸發第二次付款
+
+### Requirement: 建立訂單時每筆訂單限購張數以購買數量加總計算
+系統 SHALL 在活動設定每筆訂單限購張數（`Event.MaxTicketsPerOrder`）時，於建立訂單前檢查本次請求所有項目的購買數量總和（座位項目每筆固定計為 1，計數項目依指定數量計入）是否超過該上限；超過 MUST 拒絕建立訂單並回報驗證錯誤，不對任何座位或庫存執行變更。活動未設定此上限時不受此限制。
+
+#### Scenario: 純座位訂單超過限購張數
+- **WHEN** 活動設定每筆訂單限購 4 張，已登入會員選定 5 個座位建立訂單
+- **THEN** 系統 MUST 拒絕建立訂單並回報已達限購張數，不對任何座位執行鎖定
+
+#### Scenario: 純計數訂單超過限購張數
+- **WHEN** 活動設定每筆訂單限購 4 張，已登入會員對一個 `RequiresSeat = false` 的票種指定購買數量 5 建立訂單
+- **THEN** 系統 MUST 拒絕建立訂單並回報已達限購張數，不扣減任何庫存
+
+#### Scenario: 混合座位與計數項目的數量加總超過限購張數
+- **WHEN** 活動設定每筆訂單限購 4 張，已登入會員選定 2 個座位，並對一個計數票種指定購買數量 3（合計 5 張）建立訂單
+- **THEN** 系統 MUST 拒絕建立訂單並回報已達限購張數，不對任何座位或庫存執行變更
+
+#### Scenario: 混合項目的數量加總未超過限購張數
+- **WHEN** 活動設定每筆訂單限購 4 張，已登入會員選定 2 個座位，並對一個計數票種指定購買數量 2（合計 4 張）建立訂單
+- **THEN** 系統成功建立訂單

@@ -73,7 +73,13 @@ TBD - created by archiving change ticketing-event-management. Update Purpose aft
 - **THEN** 系統 MUST 回傳成功，座位清單為空陣列，不得視同找不到
 
 ### Requirement: 透過管理 API 建立活動與票種
-系統 SHALL 提供 Admin 建立 `Event`（指定場地與座位圖）與 `TicketType`（指定分區代碼與票價）的端點，建立規則遵循既有 `event-catalog` 能力的規範（包含活動建立時自動產生對應 `EventSeat`、票種須核對座位圖歸屬與分區存在性等）。建立前 MUST 先確認引用的場地／座位圖／活動存在，不存在時 MUST 拒絕並回報找不到對應資源。建立活動時，若指定的座位圖存在但不屬於指定的場地，MUST 視同找不到座位圖，拒絕建立（不得建立場地與座位圖不對應的活動）。建立活動成功時，系統 SHALL 記錄呼叫端當下的登入身份（建立者）與當下時間（建立時間）；這兩項資訊由後端依 JWT 解析取得，不接受前端在建立活動的請求內容中指定或覆寫。
+系統 SHALL 提供 Admin 建立 `Event`（指定場地與座位圖）與 `TicketType`（指定分區代碼與票價，並指定是否綁座位 `RequiresSeat`）的端點，建立規則遵循既有 `event-catalog` 能力的規範（包含活動建立時自動產生對應 `EventSeat` 等）。建立前 MUST 先確認引用的場地／座位圖／活動存在，不存在時 MUST 拒絕並回報找不到對應資源。建立活動時，若指定的座位圖存在但不屬於指定的場地，MUST 視同找不到座位圖，拒絕建立（不得建立場地與座位圖不對應的活動）。建立活動成功時，系統 SHALL 記錄呼叫端當下的登入身份（建立者）與當下時間（建立時間）；這兩項資訊由後端依 JWT 解析取得，不接受前端在建立活動的請求內容中指定或覆寫。
+
+建立票種時，驗證規則依 `RequiresSeat` 分流：
+- `RequiresSeat = true`（綁座位）：`ZoneCode` MUST 存在於該活動座位圖的分區中，不接受 `AvailableQuantity`
+- `RequiresSeat = false`（純計數）：`ZoneCode` 僅作為票種顯示名稱，MUST NOT 驗證是否存在於座位圖分區中；`AvailableQuantity` MUST 為必填且為正整數
+
+請求未提供 `RequiresSeat` 時，系統 MUST 視為 `true`（綁座位），維持本次變更前既有客戶端（未帶此欄位）的既有建立票種行為不受影響。
 
 #### Scenario: 建立活動成功並自動產生座位庫存
 - **WHEN** Admin 提供標題、開始時間、場地、座位圖建立活動
@@ -99,13 +105,29 @@ TBD - created by archiving change ticketing-event-management. Update Purpose aft
 - **WHEN** Admin 為活動建立票種並指定票價為 0 或負數
 - **THEN** 系統 MUST 拒絕建立並回報票價無效錯誤
 
-#### Scenario: 建立票種時對應不存在的分區
-- **WHEN** Admin 為活動建立票種，指定的分區代碼不存在於該活動的座位圖中
+#### Scenario: 建立綁座位票種時對應不存在的分區
+- **WHEN** Admin 建立 `RequiresSeat = true` 的票種，指定的分區代碼不存在於該活動的座位圖中
 - **THEN** 系統 MUST 拒絕建立並回報分區不存在錯誤
 
 #### Scenario: 建立票種時活動不存在
 - **WHEN** Admin 對不存在的活動建立票種
 - **THEN** 系統 MUST 拒絕建立並回報找不到活動
+
+#### Scenario: 建立純計數票種成功
+- **WHEN** Admin 建立 `RequiresSeat = false` 的票種，指定顯示名稱、票價與正整數的可售總量 `AvailableQuantity`
+- **THEN** 系統成功建立票種，不驗證顯示名稱是否對應座位圖分區，票種初始可售數量為指定的 `AvailableQuantity`
+
+#### Scenario: 建立純計數票種時未提供可售總量
+- **WHEN** Admin 建立 `RequiresSeat = false` 的票種但未提供 `AvailableQuantity`，或提供 0 或負數
+- **THEN** 系統 MUST 拒絕建立並回報可售總量無效錯誤
+
+#### Scenario: 建立綁座位票種時提供可售總量
+- **WHEN** Admin 建立 `RequiresSeat = true` 的票種，卻同時提供 `AvailableQuantity`
+- **THEN** 系統 MUST 拒絕建立並回報驗證錯誤，綁座位票種的庫存數量須由座位圖決定，不接受額外指定總量
+
+#### Scenario: 建立票種時未提供 RequiresSeat（既有客戶端相容）
+- **WHEN** Admin 呼叫建立票種端點，請求內容比照本次變更前的既有格式，未包含 `RequiresSeat` 欄位
+- **THEN** 系統 MUST 視為 `RequiresSeat = true`（綁座位），依既有的分區存在性規則驗證，行為與本次變更前完全一致
 
 ### Requirement: 透過管理 API 查詢活動列表時取得建立者與售票狀況統計
 系統 SHALL 提供一個獨立於既有公開活動列表查詢端點（`event-catalog` 能力既有的公開端點，供買家瀏覽用）的 Admin 專用活動列表查詢端點，沿用既有「後台管理 API 需要 Admin 角色」的權限規則。這個端點 SHALL 為每筆活動附帶：建立者（Admin 的 MemberId 與可辨識的顯示名稱，查無對應會員或活動未記錄建立者時顯示名稱為 null）、建立時間（未記錄時為 null）、座位依 Available／Held／Sold 分類的數量統計。統計 SHALL 反映查詢當下的即時狀態（依既有座位狀態計算邏輯，Held 若已過期 MUST 視為 Available，不得沿用過期前的分類）。查詢活動列表不需要另外呼叫其他端點才能取得這份統計。既有公開的活動列表查詢端點 MUST NOT 回傳建立者、建立時間或售票狀況統計這幾項——這些是 Admin 專用資訊，不對未登入的公開查詢揭露。
