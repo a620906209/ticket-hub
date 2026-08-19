@@ -24,7 +24,7 @@ public sealed class GetOrderByIdHandler
         }
 
         var now = _dateTimeProvider.UtcNow;
-        var items = order.Items.Select(i => new OrderItemDto(i.Id, i.EventSeatId, i.UnitPrice)).ToList();
+        var items = order.Items.Select(i => new OrderItemDto(i.Id, i.EventSeatId, i.TicketTypeId, i.Quantity, i.UnitPrice)).ToList();
         var dto = new OrderDetailDto(order.Id, order.EventId, order.BuyerId, order.GetStatus(now).ToString(), order.HeldUntilUtc, items);
 
         return Result<OrderDetailDto>.Success(dto);

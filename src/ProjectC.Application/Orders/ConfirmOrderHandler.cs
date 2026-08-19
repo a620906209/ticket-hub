@@ -3,6 +3,7 @@ using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
+using ProjectC.Domain.Tickets;
 
 namespace ProjectC.Application.Orders;
 
@@ -17,7 +18,11 @@ public sealed class ConfirmOrderHandler
         _paymentGateway = paymentGateway;
     }
 
-    public async Task<Result> Handle(Order order, IReadOnlyDictionary<Guid, EventSeat> eventSeatsById, CancellationToken cancellationToken)
+    public async Task<Result> Handle(
+        Order order,
+        IReadOnlyDictionary<Guid, EventSeat> eventSeatsById,
+        IReadOnlyDictionary<Guid, TicketType> ticketTypesById,
+        CancellationToken cancellationToken)
     {
         var now = _dateTimeProvider.UtcNow;
 
@@ -30,7 +35,18 @@ public sealed class ConfirmOrderHandler
         var seats = new List<EventSeat>();
         foreach (var item in order.Items)
         {
-            if (!eventSeatsById.TryGetValue(item.EventSeatId, out var seat))
+            if (!item.EventSeatId.HasValue)
+            {
+                // 計數項目：庫存已在建立訂單當下扣減（Reserve），確認訂單時 MUST NOT 再次扣減，
+                // 呼叫端鎖 TicketType 只是為了序列化並發確認，這裡不需要額外驗證數量
+                // （design.md 決策 3）。仍檢查對應 TicketType 是否存在，跟座位項目的檢查方式對稱。
+                if (!ticketTypesById.ContainsKey(item.TicketTypeId!.Value))
+                    return Result.Failure(Error.NotFound($"Ticket type '{item.TicketTypeId}' could not be found."));
+
+                continue;
+            }
+
+            if (!eventSeatsById.TryGetValue(item.EventSeatId.Value, out var seat))
                 return Result.Failure(Error.NotFound($"Seat '{item.EventSeatId}' could not be found."));
 
             if (seat.EventId != order.EventId)
@@ -46,7 +62,9 @@ public sealed class ConfirmOrderHandler
         // 是刻意接受的技術債：Mock 沒有真正網路 I/O 所以無害，但真實金流串接時必須重新設計成交易外呼叫
         // + 回來後重新驗證 + 補償機制，不能沿用這裡的作法（見 order-payment-gateway-alignment design.md
         // Risks 小節第一項、決策 7）。例外不吞，讓 ChargeAsync 拋出的例外直接往外傳播給全域 IExceptionHandler。
-        var amount = order.Items.Sum(i => i.UnitPrice);
+        // 金額計算 MUST 乘以 Quantity——計數項目一筆 OrderItem 可能代表多張，座位項目 Quantity 固定 1，
+        // 語意自然相容（design.md Risks，外部審查抓到）。
+        var amount = order.Items.Sum(i => i.UnitPrice * i.Quantity);
         var paymentResult = await _paymentGateway.ChargeAsync(order.Id, amount, cancellationToken);
         if (paymentResult != PaymentResult.Succeeded)
             return Result.Failure(Error.Conflict($"Payment for order '{order.Id}' was declined."));

@@ -176,7 +176,8 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - 座位鎖定機制：維持既有 `seat-reservation` 的**悲觀鎖**實作，本文件不再規劃改為樂觀鎖 RowVersion（原「兩套機制衝突」已解決）
 - 訂單確認流程與狀態機命名：**決策讓既有實作對齊本規劃**（而非把規劃改成配合現況）——後續需另開 OpenSpec 提案，針對既有 `ticket-purchase` 確認訂單流程補上 `IPaymentGateway` 抽象化，並將 `OrderStatus` 對齊調整為含 `Paid` 命名；是否新增 `Refunded` 待該提案階段決定
 - **既有實作調整順序（避免新功能重工）**：① 訂單確認流程 `IPaymentGateway` 化 + `OrderStatus` 命名對齊 → ② `TicketType.RequiresSeat` 開關 → ③ 全新電子票券（Ticket entity）+ 核銷 API。理由：Ticket 出票邏輯會掛在訂單付款成功事件上，且需要知道票種是否綁座位，故先調整地基再蓋新功能，三者各自獨立開 OpenSpec 提案
-  - ① **已完成並歸檔**（2026-08-19，`openspec/changes/archive/2026-08-19-order-payment-gateway-alignment`）：`IPaymentGateway`/`MockPaymentGateway` 已實作，`OrderStatus.Confirmed` 已全面改名為 `OrderStatus.Paid`，`ticket-purchase`/`ticket-ordering`/`order-administration` 三份 spec 已同步更新；`Refunded` 狀態未加入（不在本次範疇）。下一步是②`TicketType.RequiresSeat` 開關
+  - ① **已完成並歸檔**（2026-08-19，`openspec/changes/archive/2026-08-19-order-payment-gateway-alignment`）：`IPaymentGateway`/`MockPaymentGateway` 已實作，`OrderStatus.Confirmed` 已全面改名為 `OrderStatus.Paid`，`ticket-purchase`/`ticket-ordering`/`order-administration` 三份 spec 已同步更新；`Refunded` 狀態未加入（不在本次範疇）
+  - ② **已完成**（`ticket-type-requires-seat`，`openspec/changes/ticket-type-requires-seat/`，規劃階段經過多輪內部與外部審查）：`TicketType` 新增 `RequiresSeat`／`AvailableQuantity`，支援純計數（不綁座位）票種；`OrderItem` 新增 `TicketTypeId`／`Quantity`，`EventSeatId` 改為可為 null，同一張訂單可混合座位項目與計數項目；純計數庫存的鎖定沿用既有悲觀鎖模式（`ITicketTypeRepository.GetForUpdateAsync`，依 Id 排序防死鎖）；`event-management`/`ticket-ordering`/`ticket-purchase` 三份 spec 已同步更新。純後端範圍（不含前端），已跑過完整測試套件（331 個測試通過）與真實 API 手動驗證（純計數/混合訂單的建立、確認、取消、庫存扣減/歸還）。下一步是③電子票券（Ticket entity）+ 核銷 API
 
 ---
 
@@ -184,7 +185,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 
 > 逐項列出清單容易與實際進度脫節，故僅記錄下方 Phase 1 Must 盤點快照（盤點日期見標題），之後仍以 `openspec/specs/`（archived proposal）與 codebase 現況為準，不逐一維護本節。
 
-**Phase 1 Must 盤點快照（2026-08-19）**
+**Phase 1 Must 盤點快照（2026-08-19，`ticket-type-requires-seat` 完成後更新）**
 
 | Must 項目 | 狀態 | 對應 spec / 程式碼 |
 |---|---|---|
@@ -193,9 +194,9 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 | 訂單建立與結帳流程 | ✅ 已完成，`IPaymentGateway` 抽象化已補上（見第 8 節） | `ticket-ordering`、`ticket-purchase` |
 | 電子票券產出（QR Code + HMAC） | ❌ 未做，`Ticket` entity 不存在 | — |
 | 核銷 API | ❌ 未做 | — |
-| `TicketType.RequiresSeat` 開關 | ❌ 未做，目前僅支援綁座位模式 | `TicketType.cs` |
+| `TicketType.RequiresSeat` 開關 | ✅ 已完成（純後端，見第 8 節） | `TicketType.cs`、`event-management`、`ticket-ordering`、`ticket-purchase` |
 | 會員系統整合登入 | ✅ 已完成 | `authentication`、`member-management` |
-| 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細仍待補查詢 API（原 `buyer-order-query` 提案已移除，需重新走 `/openspec-propose`） | `buyer-web-ui`、`admin-web-ui` |
+| 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細仍待補查詢 API（原 `buyer-order-query` 提案已移除，需重新走 `/openspec-propose`）；純計數票種的建立表單／購票 UI 也還沒做（`TicketType.RequiresSeat` 這次是純後端） | `buyer-web-ui`、`admin-web-ui` |
 
 - 專案骨架與技術棧設定請參照 `CLAUDE.md`
 - 已完成 / 進行中功能請查閱 `openspec/` 下已核准（archived）的 proposal，或直接檢視 codebase 現有實作

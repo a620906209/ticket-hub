@@ -23,20 +23,21 @@ public class GetExpiredPendingOrderIdsAsyncTests
 
         await using var dbContext = _fixture.CreateDbContext();
         var (eventId, eventSeatIds) = await TicketingTestData.SeedEventWithSeatsAsync(dbContext, seatCount: 5);
+        var ticketTypeId = await TicketingTestData.SeedTicketTypeAsync(dbContext, eventId);
         var buyer = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Test Buyer", "hash");
         dbContext.Members.Add(buyer);
 
         var expiredPending = new Order(Guid.NewGuid(), eventId, buyer.Id, now.AddMinutes(-1),
-            [new OrderItem(Guid.NewGuid(), eventSeatIds[0], 500m)]);
+            [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatIds[0], 1, 500m)]);
         var boundaryPending = new Order(Guid.NewGuid(), eventId, buyer.Id, now,
-            [new OrderItem(Guid.NewGuid(), eventSeatIds[1], 500m)]);
+            [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatIds[1], 1, 500m)]);
         var notYetExpiredPending = new Order(Guid.NewGuid(), eventId, buyer.Id, now.AddMinutes(10),
-            [new OrderItem(Guid.NewGuid(), eventSeatIds[2], 500m)]);
+            [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatIds[2], 1, 500m)]);
         var expiredButPaid = new Order(Guid.NewGuid(), eventId, buyer.Id, now.AddMinutes(-1),
-            [new OrderItem(Guid.NewGuid(), eventSeatIds[3], 500m)]);
+            [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatIds[3], 1, 500m)]);
         expiredButPaid.Confirm();
         var expiredButCancelled = new Order(Guid.NewGuid(), eventId, buyer.Id, now.AddMinutes(-1),
-            [new OrderItem(Guid.NewGuid(), eventSeatIds[4], 500m)]);
+            [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatIds[4], 1, 500m)]);
         expiredButCancelled.Cancel();
 
         dbContext.Orders.AddRange(expiredPending, boundaryPending, notYetExpiredPending, expiredButPaid, expiredButCancelled);

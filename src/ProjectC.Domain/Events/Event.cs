@@ -62,7 +62,7 @@ public sealed class Event
             .ToList();
     }
 
-    /// <summary>建立票種前核對 seatMap 確實是此活動使用的座位圖，避免用別的活動的座位圖建立票種。</summary>
+    /// <summary>建立綁座位票種前核對 seatMap 確實是此活動使用的座位圖，避免用別的活動的座位圖建立票種。</summary>
     public TicketType CreateTicketType(string zoneCode, decimal price, SeatMap seatMap)
     {
         if (seatMap.Id != SeatMapId)
@@ -70,4 +70,8 @@ public sealed class Event
 
         return new TicketType(Guid.NewGuid(), Id, zoneCode, price, seatMap);
     }
+
+    /// <summary>建立純計數（不綁座位）票種，不需要座位圖，庫存以 availableQuantity 為初始可售總量。</summary>
+    public TicketType CreateCountBasedTicketType(string zoneCode, decimal price, int availableQuantity)
+        => new(Guid.NewGuid(), Id, zoneCode, price, availableQuantity);
 }

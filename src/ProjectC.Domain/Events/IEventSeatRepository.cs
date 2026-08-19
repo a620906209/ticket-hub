@@ -7,6 +7,15 @@ public interface IEventSeatRepository
     /// <summary>唯讀查詢，不鎖定，供瀏覽端點使用；跟 <see cref="GetForUpdateAsync"/> 是兩個不同用途的方法，不要混用。</summary>
     Task<IReadOnlyList<EventSeat>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken);
 
+    /// <summary>唯讀批次查詢，MUST no-tracking（不加鎖），供建立訂單前的存在性／所屬活動比對使用——
+    /// 這個比對必須在任何 <see cref="GetForUpdateAsync"/> 鎖定發生前完成（見 ticket-ordering spec
+    /// 「在嘗試鎖定或扣減任何項目之前，系統 MUST 先驗證...所有項目須全部屬於同一場活動」）。
+    /// 跟 <see cref="GetForUpdateAsync"/> 是不同用途的方法，不要混用——這個方法刻意 no-tracking，
+    /// 避免 EF Core identity resolution 讓後續 <see cref="GetForUpdateAsync"/> 拿到查前的舊快照
+    /// （design.md 決策 3 對 TicketType 的同一個陷阱，這裡是座位版本）。<paramref name="eventSeatIds"/>
+    /// 為空清單時 MUST 直接回傳空清單，不得執行任何資料庫查詢。</summary>
+    Task<IReadOnlyList<EventSeat>> GetByIdsAsync(IReadOnlyList<Guid> eventSeatIds, CancellationToken cancellationToken);
+
     /// <summary>
     /// 一次查詢多個活動底下的所有座位，供 Admin 活動列表的售票狀況統計使用；唯讀不鎖定，跟
     /// <see cref="GetForUpdateAsync"/> 是不同用途的方法，不要混用。

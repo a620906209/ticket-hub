@@ -10,7 +10,7 @@ public class GetOrdersHandlerTests
     private static readonly DateTime Now = new(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
 
     private static Order CreateOrder(DateTime heldUntilUtc)
-        => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), heldUntilUtc, [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), 500m)]);
+        => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), heldUntilUtc, [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m)]);
 
     [Fact]
     public async Task HandleAsync_ReturnsAllOrdersWithLiveStatus()

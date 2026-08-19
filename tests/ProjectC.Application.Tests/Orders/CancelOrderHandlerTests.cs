@@ -4,6 +4,7 @@ using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
+using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
 namespace ProjectC.Application.Tests.Orders;
@@ -19,7 +20,7 @@ public class CancelOrderHandlerTests
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
 
         var createHandler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
-        var result = createHandler.Handle(Guid.NewGuid(), [new SeatSelection(eventSeat, ticketType)]);
+        var result = createHandler.Handle(Guid.NewGuid(), [new SeatSelection(eventSeat, ticketType)], []);
 
         return (result.Value!, new Dictionary<Guid, EventSeat> { [eventSeat.Id] = eventSeat }, @event, seatMap);
     }
@@ -31,7 +32,7 @@ public class CancelOrderHandlerTests
         var (order, seatsById, _, _) = CreatePendingOrder(now);
         var handler = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = now });
 
-        var result = handler.Handle(order, seatsById);
+        var result = handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>());
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(OrderStatus.Cancelled);
@@ -50,7 +51,7 @@ public class CancelOrderHandlerTests
         seat.Hold(otherOrderId, afterExpiry.AddMinutes(10), afterExpiry);
 
         var handler = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
-        var result = handler.Handle(order, seatsById);
+        var result = handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>());
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(OrderStatus.Cancelled);
@@ -63,10 +64,10 @@ public class CancelOrderHandlerTests
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var (order, seatsById, _, _) = CreatePendingOrder(now);
         var confirmHandler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, new FakePaymentGateway(PaymentResult.Succeeded));
-        await confirmHandler.Handle(order, seatsById, CancellationToken.None);
+        await confirmHandler.Handle(order, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         var handler = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = now });
-        var result = handler.Handle(order, seatsById);
+        var result = handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>());
 
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Paid);
@@ -79,9 +80,9 @@ public class CancelOrderHandlerTests
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var (order, seatsById, _, _) = CreatePendingOrder(now);
         var handler = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = now });
-        handler.Handle(order, seatsById);
+        handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>());
 
-        var result = handler.Handle(order, seatsById);
+        var result = handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>());
 
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Cancelled);
@@ -97,16 +98,16 @@ public class CancelOrderHandlerTests
         var afterExpiry = orderA.HeldUntilUtc.AddMinutes(1);
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
         var createHandlerB = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
-        var resultB = createHandlerB.Handle(Guid.NewGuid(), [new SeatSelection(seat, ticketType)]);
+        var resultB = createHandlerB.Handle(Guid.NewGuid(), [new SeatSelection(seat, ticketType)], []);
         resultB.IsSuccess.Should().BeTrue();
         var orderB = resultB.Value!;
 
         var confirmHandlerB = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry }, new FakePaymentGateway(PaymentResult.Succeeded));
-        (await confirmHandlerB.Handle(orderB, seatsById, CancellationToken.None)).IsSuccess.Should().BeTrue();
+        (await confirmHandlerB.Handle(orderB, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None)).IsSuccess.Should().BeTrue();
 
         var cancelHandlerA = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });
 
-        var result = cancelHandlerA.Handle(orderA, seatsById);
+        var result = cancelHandlerA.Handle(orderA, seatsById, new Dictionary<Guid, TicketType>());
 
         result.IsSuccess.Should().BeTrue();
         orderA.Status.Should().Be(OrderStatus.Cancelled);
@@ -124,7 +125,7 @@ public class CancelOrderHandlerTests
         seat.ConfirmSold(order.Id, now);
 
         var handler = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = now });
-        var result = handler.Handle(order, seatsById);
+        var result = handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>());
 
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Pending);

@@ -4,6 +4,7 @@ using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
+using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
 namespace ProjectC.Application.Tests.Orders;
@@ -19,7 +20,7 @@ public class ConfirmOrderHandlerTests
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
 
         var createHandler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
-        var result = createHandler.Handle(Guid.NewGuid(), [new SeatSelection(eventSeat, ticketType)]);
+        var result = createHandler.Handle(Guid.NewGuid(), [new SeatSelection(eventSeat, ticketType)], []);
 
         return (result.Value!, new Dictionary<Guid, EventSeat> { [eventSeat.Id] = eventSeat });
     }
@@ -32,7 +33,7 @@ public class ConfirmOrderHandlerTests
         var paymentGateway = new FakePaymentGateway(PaymentResult.Succeeded);
         var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, paymentGateway);
 
-        var result = await handler.Handle(order, seatsById, CancellationToken.None);
+        var result = await handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(OrderStatus.Paid);
@@ -57,19 +58,19 @@ public class ConfirmOrderHandlerTests
 
         var createHandler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
         var createResult = createHandler.Handle(Guid.NewGuid(),
-            [new SeatSelection(eventSeatA, ticketTypeA), new SeatSelection(eventSeatB, ticketTypeB)]);
+            [new SeatSelection(eventSeatA, ticketTypeA), new SeatSelection(eventSeatB, ticketTypeB)], []);
         var order = createResult.Value!;
         var seatsById = new Dictionary<Guid, EventSeat> { [eventSeatA.Id] = eventSeatA, [eventSeatB.Id] = eventSeatB };
 
         var paymentGateway = new FakePaymentGateway(PaymentResult.Succeeded);
         var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, paymentGateway);
 
-        await handler.Handle(order, seatsById, CancellationToken.None);
+        await handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         paymentGateway.CallCount.Should().Be(1);
         paymentGateway.LastOrderId.Should().Be(order.Id);
         paymentGateway.LastAmount.Should().Be(800m);
-        paymentGateway.LastAmount.Should().Be(order.Items.Sum(i => i.UnitPrice));
+        paymentGateway.LastAmount.Should().Be(order.Items.Sum(i => i.UnitPrice * i.Quantity));
     }
 
     [Fact]
@@ -80,7 +81,7 @@ public class ConfirmOrderHandlerTests
         var paymentGateway = new FakePaymentGateway(PaymentResult.Declined);
         var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, paymentGateway);
 
-        var result = await handler.Handle(order, seatsById, CancellationToken.None);
+        var result = await handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Pending);
@@ -96,7 +97,7 @@ public class ConfirmOrderHandlerTests
         var paymentGateway = new FakePaymentGateway(PaymentResult.Succeeded);
         var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry }, paymentGateway);
 
-        var result = await handler.Handle(order, seatsById, CancellationToken.None);
+        var result = await handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Pending);
@@ -115,7 +116,7 @@ public class ConfirmOrderHandlerTests
 
         var paymentGateway = new FakePaymentGateway(PaymentResult.Succeeded);
         var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, paymentGateway);
-        var result = await handler.Handle(order, seatsById, CancellationToken.None);
+        var result = await handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Pending);
@@ -131,7 +132,7 @@ public class ConfirmOrderHandlerTests
 
         var paymentGateway = new FakePaymentGateway(PaymentResult.Succeeded);
         var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, paymentGateway);
-        var result = await handler.Handle(order, seatsById, CancellationToken.None);
+        var result = await handler.Handle(order, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         paymentGateway.CallCount.Should().Be(0);
@@ -146,7 +147,7 @@ public class ConfirmOrderHandlerTests
 
         var paymentGateway = new FakePaymentGateway(PaymentResult.Succeeded);
         var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, paymentGateway);
-        var result = await handler.Handle(order, emptySeatsById, CancellationToken.None);
+        var result = await handler.Handle(order, emptySeatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Pending);
@@ -170,7 +171,7 @@ public class ConfirmOrderHandlerTests
 
         var paymentGateway = new FakePaymentGateway(PaymentResult.Succeeded);
         var handler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, paymentGateway);
-        var result = await handler.Handle(order, mismatchedSeatsById, CancellationToken.None);
+        var result = await handler.Handle(order, mismatchedSeatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         order.Status.Should().Be(OrderStatus.Pending);

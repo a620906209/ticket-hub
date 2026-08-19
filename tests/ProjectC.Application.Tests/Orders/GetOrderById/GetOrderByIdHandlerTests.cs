@@ -15,7 +15,7 @@ public class GetOrderByIdHandlerTests
     {
         var eventSeatId = Guid.NewGuid();
         // 已逾時但持久化狀態仍是 Pending，驗證明細的 Status 也是即時推導值，跟列表端點語意一致。
-        var order = new Order(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Now.AddMinutes(-1), [new OrderItem(Guid.NewGuid(), eventSeatId, 500m)]);
+        var order = new Order(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Now.AddMinutes(-1), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), eventSeatId, 1, 500m)]);
         var orderRepository = new FakeOrderRepository();
         orderRepository.Data.Add(order);
         var handler = new GetOrderByIdHandler(orderRepository, new FakeDateTimeProvider { UtcNow = Now });

@@ -24,7 +24,9 @@ public sealed class GetTicketTypesHandler
         }
 
         var ticketTypes = await _ticketTypeRepository.GetByEventIdAsync(eventId, cancellationToken);
-        IReadOnlyList<TicketTypeDto> dtos = ticketTypes.Select(t => new TicketTypeDto(t.Id, t.ZoneCode, t.Price)).ToList();
+        IReadOnlyList<TicketTypeDto> dtos = ticketTypes
+            .Select(t => new TicketTypeDto(t.Id, t.ZoneCode, t.Price, t.RequiresSeat, t.AvailableQuantity))
+            .ToList();
 
         return Result<IReadOnlyList<TicketTypeDto>>.Success(dtos);
     }

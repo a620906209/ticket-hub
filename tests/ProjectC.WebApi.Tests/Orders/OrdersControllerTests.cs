@@ -104,6 +104,28 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
     }
 
     [Fact]
+    public async Task PlaceOrder_WithLegacyPayloadMissingQuantity_TreatsAsOneAndHoldsSeat()
+    {
+        // 外部審查第四輪抓到的阻斷問題：MUST 用匿名物件送出只有舊欄位的原始 JSON，
+        // 用強型別 PlaceOrderSelectionRequest 物件建構測不出「欄位缺失」這個情境
+        // （強型別物件永遠會序列化出 Quantity 的預設值，不是真的缺欄位）。
+        var (eventId, eventSeatId, ticketTypeId) = await SeedEventWithSeatAndTicketTypeAsync();
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await buyerClient.PostAsJsonAsync(
+            "/api/orders",
+            new { Selections = new[] { new { EventSeatId = eventSeatId, TicketTypeId = ticketTypeId } } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created,
+            "缺 Quantity 欄位的舊格式座位選購請求 MUST 視為購買數量 1，成功建立訂單");
+
+        var publicClient = _factory.CreateClient();
+        var seatsResponse = await publicClient.GetAsync($"/api/events/{eventId}/seats");
+        var seats = await seatsResponse.Content.ReadFromJsonAsync<List<EventSeatDto>>();
+        seats!.Single(s => s.EventSeatId == eventSeatId).Status.Should().Be("Held");
+    }
+
+    [Fact]
     public async Task PlaceOrder_WithNonExistentSeatOrTicketType_Returns404()
     {
         var (_, eventSeatId, _) = await SeedEventWithSeatAndTicketTypeAsync();

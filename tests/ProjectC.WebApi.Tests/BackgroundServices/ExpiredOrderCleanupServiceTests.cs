@@ -84,6 +84,49 @@ public class ExpiredOrderCleanupServiceTests : IClassFixture<CustomWebApplicatio
     private async Task<Guid> SeedExpiredPendingOrderAsync()
         => (await SeedExpiredPendingOrderWithSeatAsync()).OrderId;
 
+    /// <summary>透過既有 Admin/買家 API 建立一筆純計數（不綁座位）票種的逾時 Pending 訂單，驗證逾時清理
+    /// 同時涵蓋計數行項（design.md Risks，7.5）。</summary>
+    private async Task<(Guid OrderId, Guid TicketTypeId)> SeedExpiredPendingCountingOrderAsync(int availableQuantity = 10, int quantity = 3)
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Cleanup Test Venue"));
+        var venueId = await ReadCreatedIdAsync(venueResponse);
+        var seatMapResponse = await adminClient.PostAsJsonAsync(
+            $"/api/admin/venues/{venueId}/seat-maps", new CreateSeatMapRequest([new SeatRequest("A", "1")]));
+        var seatMapId = await ReadCreatedIdAsync(seatMapResponse);
+        var eventResponse = await adminClient.PostAsJsonAsync(
+            "/api/admin/events", new CreateEventRequest("Cleanup Test Event", DateTime.UtcNow.AddDays(30), venueId, seatMapId));
+        var eventId = await ReadCreatedIdAsync(eventResponse);
+        var ticketTypeResponse = await adminClient.PostAsJsonAsync(
+            $"/api/admin/events/{eventId}/ticket-types",
+            new CreateTicketTypeRequest("站票", 300m, RequiresSeat: false, AvailableQuantity: availableQuantity));
+        var ticketTypeId = await ReadCreatedIdAsync(ticketTypeResponse);
+
+        var buyerClient = _factory.CreateClient();
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(buyerClient);
+        buyerClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        var placeResponse = await buyerClient.PostAsJsonAsync(
+            "/api/orders", new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, ticketTypeId, quantity)]));
+        var orderId = await ReadCreatedIdAsync(placeResponse);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var order = await dbContext.Orders.SingleAsync(o => o.Id == orderId);
+        dbContext.Entry(order).Property(o => o.HeldUntilUtc).CurrentValue = DateTime.UtcNow.AddMinutes(-1);
+        await dbContext.SaveChangesAsync();
+
+        return (orderId, ticketTypeId);
+    }
+
+    private async Task<int?> ReadAvailableQuantityFromDbAsync(Guid ticketTypeId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var ticketType = await dbContext.TicketTypes.AsNoTracking().SingleAsync(t => t.Id == ticketTypeId);
+        return ticketType.AvailableQuantity;
+    }
+
     private async Task<OrderStatus> ReadOrderStatusFromDbAsync(Guid orderId)
     {
         using var scope = _factory.Services.CreateScope();
@@ -109,6 +152,18 @@ public class ExpiredOrderCleanupServiceTests : IClassFixture<CustomWebApplicatio
         var seatsResponse = await publicClient.GetAsync($"/api/events/{eventIdA}/seats");
         var seats = await seatsResponse.Content.ReadFromJsonAsync<List<EventSeatDto>>();
         seats!.Single(s => s.EventSeatId == eventSeatIdA).Status.Should().Be("Available");
+    }
+
+    [Fact]
+    public async Task CleanupOnceAsync_WhenPureCountingOrderIsExpired_CancelsOrderAndRestoresAvailableQuantity()
+    {
+        var (orderId, ticketTypeId) = await SeedExpiredPendingCountingOrderAsync(availableQuantity: 10, quantity: 3);
+        (await ReadAvailableQuantityFromDbAsync(ticketTypeId)).Should().Be(7, "建立訂單當下已扣減 3 張");
+
+        await CreateService().CleanupOnceAsync(CancellationToken.None);
+
+        (await ReadOrderStatusFromDbAsync(orderId)).Should().Be(OrderStatus.Cancelled);
+        (await ReadAvailableQuantityFromDbAsync(ticketTypeId)).Should().Be(10, "逾時清理須歸還純計數行項扣減的數量，不能只處理座位");
     }
 
     [Fact]

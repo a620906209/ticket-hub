@@ -64,7 +64,7 @@ public class RepositoryCrudRoundTripTests
             dbContext.Members.Add(buyer);
 
             var order = new Order(orderId, eventId, buyer.Id, DateTime.UtcNow.AddMinutes(10),
-                [new OrderItem(Guid.NewGuid(), eventSeatId, ticketType.Price)]);
+                [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatId, 1, ticketType.Price)]);
             orderRepo.Add(order);
 
             await tx.CommitAsync(CancellationToken.None);

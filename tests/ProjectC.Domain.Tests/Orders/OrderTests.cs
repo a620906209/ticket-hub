@@ -6,7 +6,7 @@ namespace ProjectC.Domain.Tests.Orders;
 public class OrderTests
 {
     private static Order CreateOrder(DateTime heldUntilUtc)
-        => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), heldUntilUtc, [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), 500m)]);
+        => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), heldUntilUtc, [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m)]);
 
     [Fact]
     public void GetStatus_WhenPendingAndNotExpired_ReturnsPending()
@@ -125,7 +125,7 @@ public class OrderTests
     {
         var act = () => new Order(
             Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, DateTime.UtcNow.AddMinutes(10),
-            [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), 500m)]);
+            [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m)]);
 
         act.Should().Throw<ArgumentException>();
     }

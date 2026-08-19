@@ -141,6 +141,24 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task CreateTicketType_WithLegacyPayloadMissingRequiresSeat_TreatsAsRequiringSeatAndSucceeds()
+    {
+        // 外部審查第四輪抓到的阻斷問題：MUST 用匿名物件送出只有舊欄位的原始 JSON，
+        // 用強型別 CreateTicketTypeRequest 物件建構測不出「欄位缺失」這個情境
+        // （強型別物件永遠會序列化出 RequiresSeat 的預設值，不是真的缺欄位）。
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient, zoneCode: "A");
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+
+        var response = await adminClient.PostAsJsonAsync(
+            $"/api/admin/events/{eventId}/ticket-types",
+            new { ZoneCode = "A", Price = 500m });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created,
+            "缺 RequiresSeat 欄位的舊格式請求 MUST 視為綁座位模式，依既有分區驗證規則成功建立");
+    }
+
     // ---- 建立活動記錄建立者（透過 GET /api/admin/events 查詢驗證，POST 的成功回應只有 { id }） ----
 
     [Fact]

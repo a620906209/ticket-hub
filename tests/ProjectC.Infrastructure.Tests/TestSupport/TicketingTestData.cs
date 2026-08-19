@@ -29,6 +29,21 @@ public static class TicketingTestData
         return (@event.Id, eventSeats.Select(es => es.Id).ToList());
     }
 
+    /// <summary>幫 <see cref="SeedEventWithSeatsAsync"/> 建立的活動（座位一律在 "A" 分區）補一個對應的
+    /// 綁座位 TicketType——OrderItem.TicketTypeId 是 nullable FK，非 null 值仍須指向真實存在的列。</summary>
+    public static async Task<Guid> SeedTicketTypeAsync(
+        ApplicationDbContext dbContext, Guid eventId, decimal price = 500m, CancellationToken ct = default)
+    {
+        var @event = await dbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId, ct);
+        var seatMap = await dbContext.SeatMaps.AsNoTracking().Include(s => s.Seats).SingleAsync(s => s.Id == @event.SeatMapId, ct);
+
+        var ticketType = @event.CreateTicketType("A", price, seatMap);
+        dbContext.TicketTypes.Add(ticketType);
+        await dbContext.SaveChangesAsync(ct);
+
+        return ticketType.Id;
+    }
+
     public static async Task<EventSeat> ReloadAsync(ApplicationDbContext dbContext, Guid eventSeatId, CancellationToken ct = default)
         => await dbContext.EventSeats.AsNoTracking().SingleAsync(es => es.Id == eventSeatId, ct);
 }

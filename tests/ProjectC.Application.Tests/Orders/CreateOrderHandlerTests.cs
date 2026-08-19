@@ -34,7 +34,7 @@ public class CreateOrderHandlerTests
         var selectionA = CreateSeatSelection(@event, seatMap, "1");
         var selectionB = CreateSeatSelection(@event, seatMap, "2");
 
-        var result = handler.Handle(Guid.NewGuid(), [selectionA, selectionB]);
+        var result = handler.Handle(Guid.NewGuid(), [selectionA, selectionB], []);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.Status.Should().Be(OrderStatus.Pending);
@@ -55,7 +55,7 @@ public class CreateOrderHandlerTests
         var otherOrderId = Guid.NewGuid();
         selectionB.EventSeat.Hold(otherOrderId, now.AddMinutes(10), now);
 
-        var result = handler.Handle(Guid.NewGuid(), [selectionA, selectionB]);
+        var result = handler.Handle(Guid.NewGuid(), [selectionA, selectionB], []);
 
         result.IsSuccess.Should().BeFalse();
         selectionA.EventSeat.GetStatus(now).Should().Be(EventSeatStatus.Available);
@@ -71,7 +71,7 @@ public class CreateOrderHandlerTests
         var selection = CreateSeatSelection(@event, seatMap, "1");
         var buyerId = Guid.NewGuid();
 
-        var result = handler.Handle(buyerId, [selection]);
+        var result = handler.Handle(buyerId, [selection], []);
 
         result.Value!.BuyerId.Should().Be(buyerId);
     }
@@ -84,7 +84,7 @@ public class CreateOrderHandlerTests
         var (@event, seatMap) = CreateEventWithSeatMap();
         var selection = CreateSeatSelection(@event, seatMap, "1", price: 750m);
 
-        var result = handler.Handle(Guid.NewGuid(), [selection]);
+        var result = handler.Handle(Guid.NewGuid(), [selection], []);
 
         result.Value!.Items.Single().UnitPrice.Should().Be(750m);
     }
@@ -98,7 +98,7 @@ public class CreateOrderHandlerTests
         var selectionA = CreateSeatSelection(@event, seatMap, "1");
         var selectionB = CreateSeatSelection(@event, seatMap, "2");
 
-        var result = handler.Handle(Guid.NewGuid(), [selectionA, selectionB]);
+        var result = handler.Handle(Guid.NewGuid(), [selectionA, selectionB], []);
 
         var afterExpiry = result.Value!.HeldUntilUtc.AddMinutes(1);
         selectionA.EventSeat.GetStatus(afterExpiry).Should().Be(EventSeatStatus.Available);
@@ -110,7 +110,7 @@ public class CreateOrderHandlerTests
     {
         var handler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = DateTime.UtcNow });
 
-        var result = handler.Handle(Guid.NewGuid(), []);
+        var result = handler.Handle(Guid.NewGuid(), [], []);
 
         result.IsSuccess.Should().BeFalse();
     }
@@ -124,7 +124,7 @@ public class CreateOrderHandlerTests
         var selection = CreateSeatSelection(@event, seatMap, "1");
         var duplicate = new SeatSelection(selection.EventSeat, selection.TicketType);
 
-        var result = handler.Handle(Guid.NewGuid(), [selection, duplicate]);
+        var result = handler.Handle(Guid.NewGuid(), [selection, duplicate], []);
 
         result.IsSuccess.Should().BeFalse();
         selection.EventSeat.GetStatus(now).Should().Be(EventSeatStatus.Available);
@@ -140,7 +140,7 @@ public class CreateOrderHandlerTests
         var selectionA = CreateSeatSelection(eventA, seatMapA, "1");
         var selectionB = CreateSeatSelection(eventB, seatMapB, "1");
 
-        var result = handler.Handle(Guid.NewGuid(), [selectionA, selectionB]);
+        var result = handler.Handle(Guid.NewGuid(), [selectionA, selectionB], []);
 
         result.IsSuccess.Should().BeFalse();
         selectionA.EventSeat.GetStatus(now).Should().Be(EventSeatStatus.Available);
@@ -159,7 +159,7 @@ public class CreateOrderHandlerTests
         var ticketTypeFromB = eventB.CreateTicketType("A", 500m, seatMapB);
         var mismatchedSelection = new SeatSelection(seatFromA, ticketTypeFromB);
 
-        var result = handler.Handle(Guid.NewGuid(), [mismatchedSelection]);
+        var result = handler.Handle(Guid.NewGuid(), [mismatchedSelection], []);
 
         result.IsSuccess.Should().BeFalse();
         seatFromA.GetStatus(now).Should().Be(EventSeatStatus.Available);
