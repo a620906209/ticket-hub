@@ -24,6 +24,7 @@ using ProjectC.Application.Orders.GetOrderById;
 using ProjectC.Application.Orders.GetOrders;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketTypes;
+using ProjectC.Application.Tickets.RedeemTicket;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.Application.Venues.GetSeatMapById;
@@ -38,6 +39,7 @@ using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.Infrastructure.Persistence.Repositories;
 using ProjectC.Infrastructure.Security;
+using ProjectC.Infrastructure.Tickets;
 using ProjectC.WebApi.BackgroundServices;
 using ProjectC.WebApi.Common;
 using ProjectC.WebApi.ExceptionHandling;
@@ -66,6 +68,7 @@ builder.Services.AddScoped<IEventRepository, EventRepository>();
 builder.Services.AddScoped<IEventSeatRepository, EventSeatRepository>();
 builder.Services.AddScoped<ITicketTypeRepository, TicketTypeRepository>();
 builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+builder.Services.AddScoped<ITicketRepository, TicketRepository>();
 
 // JwtOptions：啟動時驗證，SigningKey 等缺失直接讓應用程式啟動失敗（Fail Fast，見 design.md 決策 9）。
 builder.Services
@@ -86,6 +89,21 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<OrderCleanupO
 builder.Services.Configure<MockPaymentGatewayOptions>(builder.Configuration.GetSection(MockPaymentGatewayOptions.SectionName));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<MockPaymentGatewayOptions>>().Value);
 builder.Services.AddSingleton<IPaymentGateway, MockPaymentGateway>();
+
+// TicketSigningOptions：比照 JwtOptions 啟動時 fail-fast 驗證，簽章金鑰缺失或過弱直接讓應用程式啟動失敗
+// （見 design.md 決策 3）；再比照 AuthOptions/OrderCleanupOptions/MockPaymentGatewayOptions 解包成
+// 一般 class 註冊為 Singleton，讓 HmacTicketSigningService 能直接建構子注入。
+builder.Services
+    .AddOptions<TicketSigningOptions>()
+    .Bind(builder.Configuration.GetSection(TicketSigningOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<TicketSigningOptions>>().Value);
+
+// HmacTicketSigningService／TicketQrCodeGenerator 皆無狀態，比照 MockPaymentGateway 的 Singleton 選擇
+// （純運算、thread-safe，不持有任何 DbContext 或 request-scoped 狀態）。
+builder.Services.AddSingleton<ITicketSigningService, HmacTicketSigningService>();
+builder.Services.AddTransient<TicketQrCodeGenerator>();
 
 builder.Services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
 builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();
@@ -111,6 +129,7 @@ builder.Services.AddScoped<GetEventSeatsHandler>();
 builder.Services.AddScoped<GetTicketTypesHandler>();
 builder.Services.AddScoped<GetOrdersHandler>();
 builder.Services.AddScoped<GetOrderByIdHandler>();
+builder.Services.AddScoped<RedeemTicketHandler>();
 
 // Testing 環境（見 CustomWebApplicationFactory.UseEnvironment("Testing")）不啟動真實背景服務，
 // 否則所有既有 WebApi 整合測試都會連帶啟動一個對著自己 Testcontainers 資料庫跑的清理服務

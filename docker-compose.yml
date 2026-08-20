@@ -35,6 +35,7 @@ services:
       Jwt__AccessTokenExpirationMinutes: ${JWT_ACCESS_TOKEN_EXPIRATION_MINUTES}
       Auth__RefreshTokenExpirationDays: ${AUTH_REFRESH_TOKEN_EXPIRATION_DAYS}
       Auth__PasswordResetTokenExpirationMinutes: ${AUTH_PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES}
+      TicketSigning__SigningKey: ${TICKET_SIGNING_KEY}
       # 讓容器內的 Testcontainers 整合測試知道要把臨時容器加進哪個 compose 網路，
       # 才能跟 api 自己互連；固定寫死是因為下面 networks.default.name 也固定為同一個值。
       Testcontainers__ComposeNetworkName: projectc_default

@@ -22,6 +22,7 @@ public class OrderServiceTests
         public FakeSeatMapRepository SeatMapRepository { get; } = new();
         public FakeTicketTypeRepository TicketTypeRepository { get; } = new();
         public FakeOrderRepository OrderRepository { get; } = new();
+        public FakeTicketRepository TicketRepository { get; } = new();
         public FakeUnitOfWork UnitOfWork { get; } = new();
         public FakeDateTimeProvider DateTimeProvider { get; } = new() { UtcNow = Now };
         public FakePaymentGateway PaymentGateway { get; } = new(PaymentResult.Succeeded);
@@ -36,7 +37,7 @@ public class OrderServiceTests
             new PlaceOrderRequestValidator(),
             DateTimeProvider,
             new CreateOrderHandler(DateTimeProvider),
-            new ConfirmOrderHandler(DateTimeProvider, PaymentGateway),
+            new ConfirmOrderHandler(DateTimeProvider, PaymentGateway, TicketRepository),
             new CancelOrderHandler(DateTimeProvider));
 
         public (Event Event, SeatMap SeatMap, EventSeat EventSeat, TicketType TicketType) SeedEventWithSeatAndTicketType(
@@ -442,6 +443,13 @@ public class OrderServiceTests
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(OrderStatus.Paid);
+
+        // ticket-purchase spec「買家確認自己的訂單成功」：確認成功後依訂單項目購買數量建立對應張數、
+        // 狀態皆為 Issued 的 Ticket（與 ticket-issuance 能力共用同一段出票邏輯，見 ConfirmOrderHandler）。
+        var expectedTicketCount = order.Items.Sum(i => i.Quantity);
+        fixture.TicketRepository.Data.Should().HaveCount(expectedTicketCount);
+        fixture.TicketRepository.Data.Should().OnlyContain(t => t.Status == TicketStatus.Issued);
+        fixture.TicketRepository.Data.Should().OnlyContain(t => order.Items.Select(i => i.Id).Contains(t.OrderItemId));
     }
 
     [Fact]
@@ -466,6 +474,7 @@ public class OrderServiceTests
         result.Error!.Type.Should().Be(ErrorType.Forbidden);
         order.Status.Should().Be(OrderStatus.Pending);
         fixture.PaymentGateway.CallCount.Should().Be(0);
+        fixture.TicketRepository.Data.Should().BeEmpty();
     }
 
     [Fact]

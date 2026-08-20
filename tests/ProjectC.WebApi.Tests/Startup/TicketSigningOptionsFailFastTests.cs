@@ -6,10 +6,10 @@ using Microsoft.Extensions.Options;
 
 namespace ProjectC.WebApi.Tests.Startup;
 
-public class JwtOptionsFailFastTests
+public class TicketSigningOptionsFailFastTests
 {
     [Fact]
-    public void CreatingHost_WithoutJwtSigningKey_ThrowsOptionsValidationException()
+    public void CreatingHost_WithoutTicketSigningKey_ThrowsOptionsValidationException()
     {
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
@@ -18,13 +18,10 @@ public class JwtOptionsFailFastTests
             {
                 configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["Jwt:Issuer"] = "",
-                    ["Jwt:Audience"] = "",
-                    ["Jwt:SigningKey"] = "",
-                    // TicketSigningOptions 也有 ValidateOnStart（見 Program.cs），這裡補上合法值讓它通過驗證，
-                    // 避免這支只測 Jwt fail-fast 的測試因為另一個無關的 Options 同時驗證失敗，
-                    // 讓宿主丟出包住兩個 OptionsValidationException 的 AggregateException 造成斷言歧義。
-                    ["TicketSigning:SigningKey"] = "startup-test-ticket-signing-key-not-for-prod-32+",
+                    ["Jwt:Issuer"] = "ProjectC.Tests",
+                    ["Jwt:Audience"] = "ProjectC.Tests.Client",
+                    ["Jwt:SigningKey"] = "startup-test-jwt-signing-key-not-for-prod-32chars+",
+                    ["TicketSigning:SigningKey"] = "",
                 });
             });
         });

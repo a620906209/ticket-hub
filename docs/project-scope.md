@@ -37,7 +37,7 @@
 - 座位（或票種）選擇與鎖定（**悲觀鎖，資料庫交易鎖 + 固定順序取鎖避免死鎖**，套用於 `Seat`）——**已於既有 `seat-reservation` spec 完成實作，決策維持悲觀鎖現況，不改為樂觀鎖**
 - 訂單建立與結帳流程（Mock 金流，`IPaymentGateway` 介面 + 假實作展示 DIP）——既有 `ticket-purchase` 確認訂單端點目前為「不接受付款資訊、呼叫即成功」的簡化版，**決策讓既有實作對齊本規劃**，待開 OpenSpec 提案補上 `IPaymentGateway` 抽象化
 - 電子票券產出（QR Code，內容為 HMAC 簽章過的 Ticket ID，防偽造）
-- 核銷 API（`PATCH /tickets/{id}/redeem`，需處理併發核銷防重複、狀態機驗證）
+- 核銷 API（`PATCH /api/admin/tickets/{id}/redeem`，需處理併發核銷防重複、狀態機驗證；路由掛在 `/api/admin/` 前綴的理由見 `ticket-issuance-and-redemption` design.md 決策 5）
 - 與既有會員系統整合登入
 - 前端 RWD（手機瀏覽器支援）
 
@@ -91,8 +91,8 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 
 | 實體 | 狀態機 |
 |---|---|
-| Order | `Pending`（待付款）→ `Paid`（已付款，規劃目標命名）→ `Cancelled`（已取消，含逾時未付款自動轉）→ `Refunded`（已退款，若做）——**既有實作目前為 `Confirmed`（無 `Paid`）且無 `Refunded`，決策讓既有實作對齊本規劃，待 `IPaymentGateway` 提案時一併調整命名** |
-| Ticket | `Issued`（已發放）→ `Redeemed`（已核銷）→ `Voided`（作廢，對應訂單取消） |
+| Order | `Pending`（待付款）→ `Paid`（已付款）→ `Cancelled`（已取消，含逾時未付款自動轉）→ `Refunded`（已退款，**尚未實作，待未來提案決定是否新增**）——`Confirmed`→`Paid` 的命名對齊已於 `order-payment-gateway-alignment`（2026-08-19 歸檔）完成 |
+| Ticket | `Issued`（已發放）→ `Redeemed`（已核銷）→ `Voided`（作廢，對應退款／已付款訂單取消，**本次無觸發路徑，待未來提案**，見 `ticket-issuance-and-redemption`） |
 | Seat | `Available` → `Locked` → `Sold`；`Locked` 逾時須自動釋放回 `Available`（與 Order 狀態連動，具體實作方式待 OpenSpec 提案階段決定） |
 
 **資料量級**
@@ -114,7 +114,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 | 金流 | 完全自建 Mock Gateway（假成功/假失敗開關），設計為 `IPaymentGateway` 介面 + 假實作展示依賴反轉；第三方 sandbox（綠界/藍新）列入 Won't |
 | 通知 | 站內查看為 Must；Email 通知（`INotificationService` 介面）為 Should；簡訊列入 Won't |
 | 電子票券 | 本地產生 QR Code（QRCoder 套件），內容為 HMAC 簽章過的 Ticket ID 防偽造，不接第三方憑證/簽章服務，列為 Must |
-| 核銷 | 本次範疇僅做 Ticket 狀態切換 API（`PATCH /tickets/{id}/redeem`），不含現場掃碼 App/頁面（掃碼前端頁面列入 Could） |
+| 核銷 | 本次範疇僅做 Ticket 狀態切換 API（`PATCH /api/admin/tickets/{id}/redeem`），不含現場掃碼 App/頁面（掃碼前端頁面列入 Could） |
 | 部署 | 暫定本機 Docker Compose 展示，視情況加雲端環境（Azure App Service / Render 免費層）供履歷連結 **［待確認］** |
 | 監控 | 暫定 Serilog + Seq（本地容器化） **［待確認］** |
 
@@ -185,15 +185,15 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 
 > 逐項列出清單容易與實際進度脫節，故僅記錄下方 Phase 1 Must 盤點快照（盤點日期見標題），之後仍以 `openspec/specs/`（archived proposal）與 codebase 現況為準，不逐一維護本節。
 
-**Phase 1 Must 盤點快照（2026-08-19，`ticket-type-requires-seat` 完成後更新）**
+**Phase 1 Must 盤點快照（2026-08-20，`ticket-issuance-and-redemption` 完成後更新）**
 
 | Must 項目 | 狀態 | 對應 spec / 程式碼 |
 |---|---|---|
 | 活動/票種建立與上架 | ✅ 已完成 | `event-catalog`、`event-management` |
 | 座位選擇與鎖定 | ✅ 已完成（悲觀鎖，見第 8 節決策） | `seat-reservation` |
 | 訂單建立與結帳流程 | ✅ 已完成，`IPaymentGateway` 抽象化已補上（見第 8 節） | `ticket-ordering`、`ticket-purchase` |
-| 電子票券產出（QR Code + HMAC） | ❌ 未做，`Ticket` entity 不存在 | — |
-| 核銷 API | ❌ 未做 | — |
+| 電子票券產出（QR Code + HMAC） | ✅ 已完成（純後端；QR/簽章為按需產生，出票交易本身不呼叫，見 `ticket-issuance-and-redemption` design.md 決策 1、3） | `ticket-issuance` |
+| 核銷 API | ✅ 已完成（`PATCH /api/admin/tickets/{id}/redeem`，Admin-only，含併發防重複核銷） | `ticket-redemption` |
 | `TicketType.RequiresSeat` 開關 | ✅ 已完成（純後端，見第 8 節） | `TicketType.cs`、`event-management`、`ticket-ordering`、`ticket-purchase` |
 | 會員系統整合登入 | ✅ 已完成 | `authentication`、`member-management` |
 | 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細仍待補查詢 API（原 `buyer-order-query` 提案已移除，需重新走 `/openspec-propose`）；純計數票種的建立表單／購票 UI 也還沒做（`TicketType.RequiresSeat` 這次是純後端） | `buyer-web-ui`、`admin-web-ui` |

@@ -39,7 +39,7 @@ public class TicketTypeConcurrencyTests
             new PlaceOrderRequestValidator(),
             dateTimeProvider,
             new CreateOrderHandler(dateTimeProvider),
-            new ConfirmOrderHandler(dateTimeProvider, paymentGateway ?? new ThreadSafeFakePaymentGateway()),
+            new ConfirmOrderHandler(dateTimeProvider, paymentGateway ?? new ThreadSafeFakePaymentGateway(), new TicketRepository(dbContext)),
             new CancelOrderHandler(dateTimeProvider));
     }
 

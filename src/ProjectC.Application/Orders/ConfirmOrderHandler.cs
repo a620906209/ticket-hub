@@ -11,11 +11,13 @@ public sealed class ConfirmOrderHandler
 {
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IPaymentGateway _paymentGateway;
+    private readonly ITicketRepository _ticketRepository;
 
-    public ConfirmOrderHandler(IDateTimeProvider dateTimeProvider, IPaymentGateway paymentGateway)
+    public ConfirmOrderHandler(IDateTimeProvider dateTimeProvider, IPaymentGateway paymentGateway, ITicketRepository ticketRepository)
     {
         _dateTimeProvider = dateTimeProvider;
         _paymentGateway = paymentGateway;
+        _ticketRepository = ticketRepository;
     }
 
     public async Task<Result> Handle(
@@ -73,6 +75,14 @@ public sealed class ConfirmOrderHandler
             seat.ConfirmSold(order.Id, now);
 
         order.Confirm();
+
+        // MUST NOT 呼叫 ITicketSigningService 或 QR 圖檔服務——QR 內容/圖檔為按需產生，不在出票交易內產生（design.md 決策 1）。
+        foreach (var item in order.Items)
+        {
+            for (var i = 0; i < item.Quantity; i++)
+                _ticketRepository.Add(new Ticket(Guid.NewGuid(), item.Id, now));
+        }
+
         return Result.Success();
     }
 }

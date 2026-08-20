@@ -87,6 +87,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
                 ["Jwt:AccessTokenExpirationMinutes"] = "30",
                 ["Auth:RefreshTokenExpirationDays"] = "14",
                 ["Auth:PasswordResetTokenExpirationMinutes"] = "15",
+                // TicketSigningOptions 有 ValidateOnStart（見 Program.cs），appsettings.json 留空，
+                // 測試環境一樣要用固定、通過驗證的值覆蓋，否則 host build 會直接失敗（比照上面的 Jwt 設定）。
+                ["TicketSigning:SigningKey"] = "integration-test-ticket-signing-key-not-for-prod-32+",
             });
         });
 

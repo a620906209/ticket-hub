@@ -63,7 +63,7 @@ public class CancelOrderHandlerTests
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var (order, seatsById, _, _) = CreatePendingOrder(now);
-        var confirmHandler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, new FakePaymentGateway(PaymentResult.Succeeded));
+        var confirmHandler = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = now }, new FakePaymentGateway(PaymentResult.Succeeded), new FakeTicketRepository());
         await confirmHandler.Handle(order, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None);
 
         var handler = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = now });
@@ -102,7 +102,7 @@ public class CancelOrderHandlerTests
         resultB.IsSuccess.Should().BeTrue();
         var orderB = resultB.Value!;
 
-        var confirmHandlerB = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry }, new FakePaymentGateway(PaymentResult.Succeeded));
+        var confirmHandlerB = new ConfirmOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry }, new FakePaymentGateway(PaymentResult.Succeeded), new FakeTicketRepository());
         (await confirmHandlerB.Handle(orderB, seatsById, new Dictionary<Guid, TicketType>(), CancellationToken.None)).IsSuccess.Should().BeTrue();
 
         var cancelHandlerA = new CancelOrderHandler(new FakeDateTimeProvider { UtcNow = afterExpiry });

@@ -37,7 +37,7 @@ public class OrderServiceConcurrencyTests
             new PlaceOrderRequestValidator(),
             dateTimeProvider,
             new CreateOrderHandler(dateTimeProvider),
-            new ConfirmOrderHandler(dateTimeProvider, new MockPaymentGateway(new MockPaymentGatewayOptions())),
+            new ConfirmOrderHandler(dateTimeProvider, new MockPaymentGateway(new MockPaymentGatewayOptions()), new TicketRepository(dbContext)),
             new CancelOrderHandler(dateTimeProvider));
     }
 
