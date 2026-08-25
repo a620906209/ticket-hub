@@ -6,8 +6,6 @@ using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Tickets;
 using ProjectC.Infrastructure.Persistence;
-using ProjectC.Infrastructure.Persistence.Repositories;
-using ProjectC.Infrastructure.Security;
 using ProjectC.Infrastructure.Tests.TestSupport;
 
 namespace ProjectC.Infrastructure.Tests;
@@ -27,21 +25,7 @@ public class TicketTypeConcurrencyTests
     }
 
     private static OrderService CreateOrderService(ApplicationDbContext dbContext, ProjectC.Domain.Payments.IPaymentGateway? paymentGateway = null)
-    {
-        var dateTimeProvider = new SystemDateTimeProvider();
-        return new OrderService(
-            new TicketTypeRepository(dbContext),
-            new EventSeatRepository(dbContext),
-            new EventRepository(dbContext),
-            new SeatMapRepository(dbContext),
-            new OrderRepository(dbContext),
-            new UnitOfWork(dbContext),
-            new PlaceOrderRequestValidator(),
-            dateTimeProvider,
-            new CreateOrderHandler(dateTimeProvider),
-            new ConfirmOrderHandler(dateTimeProvider, paymentGateway ?? new ThreadSafeFakePaymentGateway(), new TicketRepository(dbContext)),
-            new CancelOrderHandler(dateTimeProvider));
-    }
+        => OrderServiceTestFactory.Create(dbContext, paymentGateway ?? new ThreadSafeFakePaymentGateway());
 
     private async Task<Guid> SeedCountBasedTicketTypeAsync(ApplicationDbContext dbContext, Guid eventId, string zoneCode, int availableQuantity)
     {

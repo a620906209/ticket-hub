@@ -79,6 +79,12 @@ public sealed class ConfirmOrderHandler
         // MUST NOT 呼叫 ITicketSigningService 或 QR 圖檔服務——QR 內容/圖檔為按需產生，不在出票交易內產生（design.md 決策 1）。
         foreach (var item in order.Items)
         {
+            // 座位項目的 Quantity MUST 固定為 1（見上方金額計算註解與 CreateOrderHandler），
+            // 一張票綁一個座位；此處防呆是為了避免上游若日後出現 Quantity 計算錯誤時，
+            // 靜默對同一個座位發出多張票。
+            if (item.EventSeatId.HasValue && item.Quantity != 1)
+                throw new InvalidOperationException($"Seat-backed order item '{item.Id}' has quantity {item.Quantity}, expected 1.");
+
             for (var i = 0; i < item.Quantity; i++)
                 _ticketRepository.Add(new Ticket(Guid.NewGuid(), item.Id, now));
         }

@@ -41,15 +41,7 @@ public class EventSeatRepository : IEventSeatRepository
         if (eventSeatIds.Count == 0)
             throw new ArgumentException("At least one event seat id must be provided.", nameof(eventSeatIds));
 
-        // PostgreSQL 的列鎖只在交易存續期間有效；沒有進行中的交易時，SELECT ... FOR UPDATE
-        // 一返回鎖就釋放了，等於完全沒有鎖定保護，所以在這裡 fail fast（design.md 決策 2）。
-        if (_dbContext.Database.CurrentTransaction is null)
-        {
-            throw new InvalidOperationException(
-                $"{nameof(GetForUpdateAsync)} must be called within an active transaction " +
-                "(see IUnitOfWork.BeginTransactionAsync); otherwise the row lock is released " +
-                "as soon as this query returns.");
-        }
+        _dbContext.EnsureActiveTransaction(nameof(GetForUpdateAsync));
 
         // 去重是這個方法自己的責任，不信任呼叫端一定會先去重（design.md 決策 1）。
         var distinctIds = eventSeatIds.Distinct().ToArray();

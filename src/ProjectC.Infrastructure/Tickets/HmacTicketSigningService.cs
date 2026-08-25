@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.IdentityModel.Tokens;
 using ProjectC.Domain.Tickets;
 
 namespace ProjectC.Infrastructure.Tickets;
@@ -8,11 +9,11 @@ public sealed class HmacTicketSigningService : ITicketSigningService
 {
     private const char Separator = '.';
 
-    private readonly TicketSigningOptions _options;
+    private readonly byte[] _keyBytes;
 
     public HmacTicketSigningService(TicketSigningOptions options)
     {
-        _options = options;
+        _keyBytes = Encoding.UTF8.GetBytes(options.SigningKey);
     }
 
     public string Sign(Guid ticketId)
@@ -50,12 +51,8 @@ public sealed class HmacTicketSigningService : ITicketSigningService
 
     private string ComputeSignature(string idText)
     {
-        var keyBytes = Encoding.UTF8.GetBytes(_options.SigningKey);
         var messageBytes = Encoding.UTF8.GetBytes(idText);
-        var hash = HMACSHA256.HashData(keyBytes, messageBytes);
-        return Base64UrlEncode(hash);
+        var hash = HMACSHA256.HashData(_keyBytes, messageBytes);
+        return Base64UrlEncoder.Encode(hash);
     }
-
-    private static string Base64UrlEncode(byte[] bytes)
-        => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

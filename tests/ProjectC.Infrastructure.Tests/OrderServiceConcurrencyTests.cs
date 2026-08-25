@@ -4,10 +4,7 @@ using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
-using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
-using ProjectC.Infrastructure.Persistence.Repositories;
-using ProjectC.Infrastructure.Security;
 using ProjectC.Infrastructure.Tests.TestSupport;
 
 namespace ProjectC.Infrastructure.Tests;
@@ -25,21 +22,7 @@ public class OrderServiceConcurrencyTests
     }
 
     private static OrderService CreateOrderService(ApplicationDbContext dbContext)
-    {
-        var dateTimeProvider = new SystemDateTimeProvider();
-        return new OrderService(
-            new TicketTypeRepository(dbContext),
-            new EventSeatRepository(dbContext),
-            new EventRepository(dbContext),
-            new SeatMapRepository(dbContext),
-            new OrderRepository(dbContext),
-            new UnitOfWork(dbContext),
-            new PlaceOrderRequestValidator(),
-            dateTimeProvider,
-            new CreateOrderHandler(dateTimeProvider),
-            new ConfirmOrderHandler(dateTimeProvider, new MockPaymentGateway(new MockPaymentGatewayOptions()), new TicketRepository(dbContext)),
-            new CancelOrderHandler(dateTimeProvider));
-    }
+        => OrderServiceTestFactory.Create(dbContext);
 
     private async Task<(Guid OrderId, Guid BuyerId)> SeedPendingOrderAsync(ApplicationDbContext dbContext)
     {
@@ -103,5 +86,17 @@ public class OrderServiceConcurrencyTests
         var cancelTask = serviceB.CancelOrderAsync(orderId, buyerId, CancellationToken.None);
         var results = await Task.WhenAll(confirmTask, cancelTask);
         results.Count(r => r.IsSuccess).Should().Be(1, "同一筆訂單被並發的確認與取消操作，只能有一個成功");
+
+        // 確認贏了才 MUST 出票（design.md 決策 1）；取消贏了代表確認那側必然失敗，MUST NOT 留下任何 Ticket。
+        var confirmWon = results[0].IsSuccess;
+        await using var readDbContext = _fixture.CreateDbContext();
+        var orderItemIds = await readDbContext.OrderItems.AsNoTracking()
+            .Where(i => EF.Property<Guid>(i, "OrderId") == orderId)
+            .Select(i => i.Id)
+            .ToListAsync();
+        var ticketCount = await readDbContext.Tickets.AsNoTracking().CountAsync(t => orderItemIds.Contains(t.OrderItemId));
+        ticketCount.Should().Be(confirmWon ? 1 : 0, confirmWon
+            ? "確認訂單贏得競態時 MUST 出票"
+            : "取消訂單贏得競態時，確認訂單那側必然失敗，MUST NOT 建立任何 Ticket");
     }
 }

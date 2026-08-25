@@ -5,7 +5,6 @@ using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Application.Tickets.RedeemTicket;
 using ProjectC.Domain.Members;
 using ProjectC.Domain.Tickets;
-using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.Infrastructure.Persistence.Repositories;
 using ProjectC.Infrastructure.Security;
@@ -26,21 +25,7 @@ public class RedeemTicketConcurrencyTests
     }
 
     private static OrderService CreateOrderService(ApplicationDbContext dbContext)
-    {
-        var dateTimeProvider = new SystemDateTimeProvider();
-        return new OrderService(
-            new TicketTypeRepository(dbContext),
-            new EventSeatRepository(dbContext),
-            new EventRepository(dbContext),
-            new SeatMapRepository(dbContext),
-            new OrderRepository(dbContext),
-            new UnitOfWork(dbContext),
-            new PlaceOrderRequestValidator(),
-            dateTimeProvider,
-            new CreateOrderHandler(dateTimeProvider),
-            new ConfirmOrderHandler(dateTimeProvider, new MockPaymentGateway(new MockPaymentGatewayOptions()), new TicketRepository(dbContext)),
-            new CancelOrderHandler(dateTimeProvider));
-    }
+        => OrderServiceTestFactory.Create(dbContext);
 
     private static RedeemTicketHandler CreateRedeemTicketHandler(ApplicationDbContext dbContext)
         => new(new TicketRepository(dbContext), new UnitOfWork(dbContext), new SystemDateTimeProvider());
