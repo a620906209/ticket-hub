@@ -21,8 +21,11 @@ using ProjectC.Application.Members.Register;
 using ProjectC.Application.Members.UpdateMyProfile;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.GetOrderById;
+using ProjectC.Application.Orders.GetMyOrderDetail;
+using ProjectC.Application.Orders.GetMyOrders;
 using ProjectC.Application.Orders.GetOrders;
 using ProjectC.Application.Tickets.CreateTicketType;
+using ProjectC.Application.Tickets.GetTicketQrCode;
 using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Application.Tickets.RedeemTicket;
 using ProjectC.Application.Venues.CreateSeatMap;
@@ -102,9 +105,8 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<TicketSigning
 
 // HmacTicketSigningService 無狀態，比照 MockPaymentGateway 的 Singleton 選擇
 // （純運算、thread-safe，不持有任何 DbContext 或 request-scoped 狀態）。
-// TicketQrCodeGenerator 本次範疇內沒有任何呼叫路徑（見該類別註解與 tasks.md 2.7），
-// 故意不在此註冊——等票券查詢/現場掃碼端點的提案落地時再一併加回 DI 註冊。
 builder.Services.AddSingleton<ITicketSigningService, HmacTicketSigningService>();
+builder.Services.AddTransient<ITicketQrCodeGenerator, TicketQrCodeGenerator>();
 
 builder.Services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
 builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();
@@ -130,6 +132,9 @@ builder.Services.AddScoped<GetEventSeatsHandler>();
 builder.Services.AddScoped<GetTicketTypesHandler>();
 builder.Services.AddScoped<GetOrdersHandler>();
 builder.Services.AddScoped<GetOrderByIdHandler>();
+builder.Services.AddScoped<GetMyOrdersHandler>();
+builder.Services.AddScoped<GetMyOrderDetailHandler>();
+builder.Services.AddScoped<GetTicketQrCodeHandler>();
 builder.Services.AddScoped<RedeemTicketHandler>();
 
 // Testing 環境（見 CustomWebApplicationFactory.UseEnvironment("Testing")）不啟動真實背景服務，

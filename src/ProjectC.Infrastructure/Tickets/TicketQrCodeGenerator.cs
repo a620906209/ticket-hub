@@ -4,8 +4,8 @@ using QRCoder;
 namespace ProjectC.Infrastructure.Tickets;
 
 // 按需（on-demand）產生：輸入 Ticket ID 才能推導出內容與圖檔，不持久化、不快取（design.md 決策 1、3）。
-// 本次範疇內沒有任何呼叫路徑會使用這個類別——票券查詢/現場掃碼前端待另開提案才會消費（見 tasks.md 2.7）。
-public sealed class TicketQrCodeGenerator
+// 買家票券查詢端點按需產生 QR Code；現場掃碼前端仍待另開提案。
+public sealed class TicketQrCodeGenerator : ITicketQrCodeGenerator
 {
     private readonly ITicketSigningService _signingService;
 

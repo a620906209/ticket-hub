@@ -18,6 +18,19 @@ public class OrderRepository : IOrderRepository
     public async Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken)
         => await _dbContext.Orders.Include(o => o.Items).ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)
+        => await _dbContext.Orders
+            .AsNoTracking()
+            .Include(o => o.Items)
+            .Where(o => o.BuyerId == buyerId)
+            .ToListAsync(cancellationToken);
+
+    public Task<Order?> GetByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
+        => _dbContext.Orders
+            .AsNoTracking()
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.Items.Any(i => i.Id == orderItemId), cancellationToken);
+
     public async Task<IReadOnlyList<Guid>> GetExpiredPendingOrderIdsAsync(DateTime now, CancellationToken cancellationToken)
         => await _dbContext.Orders
             .Where(o => o.Status == OrderStatus.Pending && o.HeldUntilUtc <= now)

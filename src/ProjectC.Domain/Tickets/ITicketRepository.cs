@@ -4,6 +4,10 @@ public interface ITicketRepository
 {
     void Add(Ticket ticket);
 
+    Task<Ticket?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<Ticket>> GetByOrderItemIdsAsync(IReadOnlyList<Guid> orderItemIds, CancellationToken cancellationToken);
+
     /// <summary>
     /// 悲觀鎖定單一 Ticket，用於核銷前的並發保護，比照 <see cref="ITicketTypeRepository.GetForUpdateAsync"/>／
     /// <see cref="Domain.Events.IEventSeatRepository.GetForUpdateAsync"/> 的既定模式，改為單筆查詢。

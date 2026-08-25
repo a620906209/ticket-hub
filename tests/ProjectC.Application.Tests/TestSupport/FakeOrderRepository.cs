@@ -12,6 +12,12 @@ public sealed class FakeOrderRepository : IOrderRepository
     public Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<Order>>(Data.ToList());
 
+    public Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<Order>>(Data.Where(order => order.BuyerId == buyerId).ToList());
+
+    public Task<Order?> GetByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
+        => Task.FromResult(Data.FirstOrDefault(order => order.Items.Any(item => item.Id == orderItemId)));
+
     public Task<IReadOnlyList<Guid>> GetExpiredPendingOrderIdsAsync(DateTime now, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<Guid>>(
             Data.Where(o => o.Status == OrderStatus.Pending && o.HeldUntilUtc <= now).Select(o => o.Id).ToList());

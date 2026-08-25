@@ -8,6 +8,10 @@ public interface IOrderRepository
     /// <summary>供 Admin 訂單列表/明細使用，實作 MUST 一併載入 <see cref="Order.Items"/>（跟 <see cref="GetByIdAsync"/> 一致）。</summary>
     Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken);
+
+    Task<Order?> GetByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken);
+
     /// <summary>找出狀態為 Pending 且已超過到期時間的訂單 Id 清單，只回傳 Id、不加鎖，供背景清理掃描候選訂單使用。</summary>
     Task<IReadOnlyList<Guid>> GetExpiredPendingOrderIdsAsync(DateTime now, CancellationToken cancellationToken);
 

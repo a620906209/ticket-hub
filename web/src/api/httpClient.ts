@@ -49,7 +49,7 @@ async function parseProblemDetails(response: Response): Promise<ProblemDetails |
   }
 }
 
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function fetchResponse(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' }
 
   if (!options.skipAuth) {
@@ -76,6 +76,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     throw new ApiError(response.status, await parseProblemDetails(response))
   }
 
+  return response
+}
+
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await fetchResponse(path, options)
+
   if (response.status === 204) {
     return undefined as T
   }
@@ -85,6 +91,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     return undefined as T
   }
   return (await response.json()) as T
+}
+
+async function requestBlobOnce(path: string, options: RequestOptions): Promise<Blob> {
+  return (await fetchResponse(path, options)).blob()
 }
 
 type RefreshHandler = () => Promise<boolean>
@@ -114,16 +124,32 @@ function refreshOnce(): Promise<boolean> {
  * 不會遞迴）。每個請求最多重試一次，重試後仍 401 就直接把錯誤丟出去，不再觸發第二次換發
  * （見設計文件決策 5 的防遞迴與重試邊界）。
  */
-export async function authorizedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function requestWithRefresh<T>(
+  requestFunction: (path: string, options: RequestOptions) => Promise<T>,
+  path: string,
+  options: RequestOptions,
+): Promise<T> {
   try {
-    return await request<T>(path, options)
+    return await requestFunction(path, options)
   } catch (error) {
     if (error instanceof ApiError && error.status === 401 && !options._retriedAfterRefresh) {
       const refreshed = await refreshOnce()
       if (refreshed) {
-        return authorizedRequest<T>(path, { ...options, _retriedAfterRefresh: true })
+        return requestWithRefresh(requestFunction, path, { ...options, _retriedAfterRefresh: true })
       }
     }
     throw error
   }
+}
+
+export function authorizedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return requestWithRefresh(request<T>, path, options)
+}
+
+/**
+ * 取得需驗證的二進位 API 回應。與 authorizedRequest() 共用 Authorization 注入、
+ * 401 single-flight 換發及最多一次重試邏輯，但成功時不解析 JSON。
+ */
+export function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  return requestWithRefresh(requestBlobOnce, path, options)
 }

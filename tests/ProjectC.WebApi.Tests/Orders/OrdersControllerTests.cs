@@ -287,4 +287,30 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task GetMyOrders_WithoutAuthentication_Returns401()
+    {
+        var response = await _factory.CreateClient().GetAsync("/api/orders");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetMyOrdersAndDetail_WhenBuyerOwnsConfirmedOrder_Returns200()
+    {
+        var (_, eventSeatId, ticketTypeId) = await SeedEventWithSeatAndTicketTypeAsync();
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+        var placeResponse = await buyerClient.PostAsJsonAsync(
+            "/api/orders", new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeatId, ticketTypeId)]));
+        var orderId = await ReadCreatedIdAsync(placeResponse);
+        var confirmResponse = await buyerClient.PostAsync($"/api/orders/{orderId}/confirm", null);
+        confirmResponse.EnsureSuccessStatusCode();
+
+        var listResponse = await buyerClient.GetAsync("/api/orders");
+        var detailResponse = await buyerClient.GetAsync($"/api/orders/{orderId}");
+
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        detailResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
 }

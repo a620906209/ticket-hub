@@ -5,6 +5,7 @@ import {
   configureHttpClientAuth,
   configureHttpClientRefresh,
   request,
+  requestBlob,
 } from './httpClient'
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -85,6 +86,49 @@ describe('httpClient request', () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
 
     await expect(request('/orders/some-id/confirm', { method: 'POST' })).resolves.toBeUndefined()
+  })
+})
+
+describe('requestBlob', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    configureHttpClientAuth(() => null)
+    configureHttpClientRefresh(() => Promise.resolve(false))
+  })
+
+  it('帶入 Authorization Header 並回傳二進位內容', async () => {
+    configureHttpClientAuth(() => 'test-token')
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('png-data', { status: 200, headers: { 'content-type': 'image/png' } }))
+
+    const blob = await requestBlob('/tickets/ticket-1/qr-code')
+
+    const [, init] = vi.mocked(fetch).mock.calls[0]
+    const headers = init?.headers as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer test-token')
+    await expect(blob.text()).resolves.toBe('png-data')
+  })
+
+  it('收到 401 後換發並以新 token 重試一次', async () => {
+    let currentToken = 'expired-token'
+    configureHttpClientAuth(() => currentToken)
+    configureHttpClientRefresh(async () => {
+      currentToken = 'new-token'
+      return true
+    })
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      const headers = init?.headers as Record<string, string>
+      return headers.Authorization === 'Bearer new-token'
+        ? new Response('png-data', { status: 200 })
+        : jsonResponse(401, { status: 401, detail: 'expired' })
+    })
+
+    const blob = await requestBlob('/tickets/ticket-1/qr-code')
+    await expect(blob.text()).resolves.toBe('png-data')
+    expect(fetch).toHaveBeenCalledTimes(2)
   })
 })
 

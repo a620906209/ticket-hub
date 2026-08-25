@@ -14,6 +14,24 @@ public class TicketRepository : ITicketRepository
 
     public void Add(Ticket ticket) => _dbContext.Tickets.Add(ticket);
 
+    public Task<Ticket?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+        => _dbContext.Tickets
+            .AsNoTracking()
+            .FirstOrDefaultAsync(ticket => ticket.Id == id, cancellationToken);
+
+    public async Task<IReadOnlyList<Ticket>> GetByOrderItemIdsAsync(IReadOnlyList<Guid> orderItemIds, CancellationToken cancellationToken)
+    {
+        if (orderItemIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _dbContext.Tickets
+            .AsNoTracking()
+            .Where(ticket => orderItemIds.Contains(ticket.OrderItemId))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<Ticket?> GetForUpdateAsync(Guid ticketId, CancellationToken cancellationToken)
     {
         _dbContext.EnsureActiveTransaction(nameof(GetForUpdateAsync));

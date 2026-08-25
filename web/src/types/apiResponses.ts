@@ -61,6 +61,36 @@ export interface OrderDetail {
   items: OrderItem[]
 }
 
+// 對應買家專屬訂單查詢 DTO；不共用管理端型別，以免誤以為買家端會取得 BuyerId。
+export interface MyOrderSummary {
+  id: string
+  eventId: string
+  status: string
+  heldUntilUtc: string
+}
+
+export interface MyTicket {
+  id: string
+  status: string
+}
+
+export interface MyOrderItem {
+  id: string
+  eventSeatId: string | null
+  ticketTypeId: string | null
+  quantity: number
+  unitPrice: number
+  tickets: MyTicket[]
+}
+
+export interface MyOrderDetail {
+  id: string
+  eventId: string
+  status: string
+  heldUntilUtc: string
+  items: MyOrderItem[]
+}
+
 export interface VenueSummary {
   id: string
   name: string
