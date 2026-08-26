@@ -66,7 +66,7 @@
 ## 8. Spec 同步確認
 
 - [x] 8.1 實作完成後，確認 `openspec/changes/buyer-order-query/specs/` 下兩份 delta（`buyer-order-query` 新增、`buyer-web-ui` 修改）與最終實作行為一致，逐條核對授權語意（401/403/404）、票券狀態不限制 QR 存取、批次查詢無 N+1
-- [ ] 8.2 實作完成後，向使用者確認並更新 `docs/project-scope.md` 第 9 節「Phase 1 Must 盤點快照」：前端 RWD 那列「買家我的訂單查詢」缺口移除，快照日期與備註更新為本次變更
+- [x] 8.2 實作完成後，向使用者確認並更新 `docs/project-scope.md` 第 9 節「Phase 1 Must 盤點快照」：前端 RWD 那列「買家我的訂單查詢」缺口移除，快照日期與備註更新為本次變更
 
 ## 9. Strict Review 後續追蹤
 
