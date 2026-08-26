@@ -23,6 +23,8 @@ export interface TicketType {
   id: string
   zoneCode: string
   price: number
+  requiresSeat: boolean
+  availableQuantity: number | null
 }
 
 export interface MemberProfile {

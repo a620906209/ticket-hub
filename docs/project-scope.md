@@ -185,7 +185,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 
 > 逐項列出清單容易與實際進度脫節，故僅記錄下方 Phase 1 Must 盤點快照（盤點日期見標題），之後仍以 `openspec/specs/`（archived proposal）與 codebase 現況為準，不逐一維護本節。
 
-**Phase 1 Must 盤點快照（2026-08-26，`buyer-order-query` 完成後更新）**
+**Phase 1 Must 盤點快照（2026-08-26，`count-ticket-type-web-ui` 完成後更新——Phase 1 Must 全數完成）**
 
 | Must 項目 | 狀態 | 對應 spec / 程式碼 |
 |---|---|---|
@@ -196,7 +196,9 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 | 核銷 API | ✅ 已完成（`PATCH /api/admin/tickets/{id}/redeem`，Admin-only，含併發防重複核銷） | `ticket-redemption` |
 | `TicketType.RequiresSeat` 開關 | ✅ 已完成（純後端，見第 8 節） | `TicketType.cs`、`event-management`、`ticket-ordering`、`ticket-purchase` |
 | 會員系統整合登入 | ✅ 已完成 | `authentication`、`member-management` |
-| 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細與票券 QR Code 查詢已補上（見 `buyer-order-query`）；純計數票種的建立表單／購票 UI 也還沒做（`TicketType.RequiresSeat` 這次是純後端） | `buyer-web-ui`、`admin-web-ui` |
+| 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細與票券 QR Code 查詢已補上（見 `buyer-order-query`）；純計數票種的 Admin 建立表單與買家購票 UI 已補上（見 `count-ticket-type-web-ui`） | `buyer-web-ui`、`admin-web-ui` |
+
+**Phase 1 Must 全數完成**：以上 8 項皆已 ✅，達成第 7 節定義的「中期可展示節點」——建立活動（含座位制／純計數兩種票種）→ 買家下單（選位或計數購買）→ Mock 付款 → 出票 → 核銷可 end-to-end 跑通。下一步依第 7 節開發階段順序進入 Phase 2（Should）。
 
 - 專案骨架與技術棧設定請參照 `CLAUDE.md`
 - 已完成 / 進行中功能請查閱 `openspec/` 下已核准（archived）的 proposal，或直接檢視 codebase 現有實作

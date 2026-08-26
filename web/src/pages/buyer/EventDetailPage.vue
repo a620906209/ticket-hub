@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getEvents, getEventSeats, getTicketTypes } from '../../api/events'
 import { placeOrder } from '../../api/orders'
+import type { PlaceOrderSelection } from '../../api/orders'
+import { ApiError } from '../../api/httpClient'
 import { useAuthStore } from '../../stores/auth'
 import type { EventSeat, EventSummary, TicketType } from '../../types/apiResponses'
 import type { SelectedSeat } from '../../types/ui'
@@ -23,13 +25,24 @@ const loading = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
 
+// 只納入座位制票種：純計數票種的 zoneCode 是自由顯示名稱，可能剛好跟某個座位分區同名，
+// 若也放進這個 Map 可能覆寫掉真正的座位分區對照，導致座位選購組出「RequiresSeat = false
+// 卻帶 EventSeatId」的無效項目、被後端拒絕。
 const ticketTypeByZone = computed(() => {
   const map = new Map<string, TicketType>()
   for (const ticketType of ticketTypes.value) {
+    if (!ticketType.requiresSeat) continue
     map.set(ticketType.zoneCode, ticketType)
   }
   return map
 })
+
+// 純計數票種（不綁座位）走獨立的「計數購票」區塊，座位網格與區域隨選只處理座位制票種。
+const countTicketTypes = computed(() => ticketTypes.value.filter((t) => !t.requiresSeat))
+
+// 每個純計數票種各自的購買數量輸入值；0 代表不購買，送出訂單時過濾掉（見 design.md 決策 1）。
+const countQuantities = reactive<Record<string, number>>({})
+const countTotal = computed(() => Object.values(countQuantities).reduce((sum, n) => sum + (n || 0), 0))
 
 // 座位數量可能到幾百個，用 Set 做 O(1) 查找，不要對每個座位都去掃一次 selectedSeats 陣列
 // （原本用 .some() 掃陣列，500 個座位 x 每次選位都要重算，畫面會明顯卡頓，實測抓到才發現）。
@@ -55,10 +68,31 @@ const seatsByZone = computed(() => {
 
 // 每筆訂單限購張數（Admin 建立活動時設定，選填，null 代表不限制）；後端 OrderService.PlaceOrderAsync
 // 也會擋一次（見 design.md），這裡只是提前給使用者清楚的提示，不是唯一的把關點。
+// 座位選購與計數購買共用同一份剩餘額度（design.md 決策 3），任一方消耗額度後另一方的可選/可輸入上限立即跟著變動。
 const maxTicketsPerOrder = computed(() => event.value?.maxTicketsPerOrder ?? null)
 const remainingCapacity = computed(() =>
-  maxTicketsPerOrder.value === null ? Infinity : maxTicketsPerOrder.value - selectedSeats.value.length,
+  maxTicketsPerOrder.value === null ? Infinity : maxTicketsPerOrder.value - selectedSeats.value.length - countTotal.value,
 )
+
+// 限制型輸入（design.md 決策 6）：計算結果直接當作 el-input-number 的 max，元件本身擋掉超額輸入，
+// 不需要另外顯示「超過上限」的錯誤訊息。availableQuantity 為 null 屬不應發生的資料異常（task 3.9），
+// 直接回傳 0 讓輸入框鎖住，不讓 null 參與 Math.min 運算。
+function countMaxFor(ticketType: TicketType): number {
+  if (ticketType.availableQuantity === null) return 0
+  const ownValue = countQuantities[ticketType.id] ?? 0
+  if (remainingCapacity.value === Infinity) return ticketType.availableQuantity
+  return Math.max(0, Math.min(ticketType.availableQuantity, remainingCapacity.value + ownValue))
+}
+
+// 未登入時調整計數數量比照既有選位規則，互動當下立即攔截導向登入頁，不套用該次變更
+// （design.md 決策 7）；因為攔截發生在寫入 countQuantities 之前，沒有暫存值需要還原。
+function handleCountChange(ticketType: TicketType, rawValue: number | undefined): void {
+  if (!authStore.isAuthenticated) {
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+  countQuantities[ticketType.id] = rawValue ?? 0
+}
 
 function buildSelection(seat: EventSeat): SelectedSeat | null {
   const ticketType = ticketTypeByZone.value.get(seat.zoneCode)
@@ -99,7 +133,11 @@ function toggleSeat(seat: EventSeat): void {
   selectedSeats.value = [...selectedSeats.value, selection]
 }
 
-const totalPrice = computed(() => selectedSeats.value.reduce((sum, s) => sum + s.price, 0))
+const totalPrice = computed(
+  () =>
+    selectedSeats.value.reduce((sum, s) => sum + s.price, 0) +
+    countTicketTypes.value.reduce((sum, t) => sum + (countQuantities[t.id] ?? 0) * t.price, 0),
+)
 
 // 區域隨選購票：買家不用一個一個手動點座位，選分區＋張數，系統隨機從符合條件的 Available
 // 座位中抽出補滿（受每筆訂單限購張數與可售座位數雙重限制），選完直接送出訂單，不用再手動
@@ -108,7 +146,13 @@ const ALL_ZONES = '__ALL__'
 const quickPickZone = ref(ALL_ZONES)
 const quickPickCount = ref(1)
 
-const zoneOptions = computed(() => seatsByZone.value.map(([zoneCode]) => zoneCode))
+// 只列出「有座位制票種對應」的分區：座位是依座位圖建立的，票種是 Admin 另外設定的，
+// 兩者不保證同步——某分區可能還沒有對應的 RequiresSeat = true 票種。若把這種分區也
+// 放進選項/候選池，buildSelection() 會回傳 null，抽到這種座位就會讓實際下單張數少於
+// 買家要求的張數，重新引入「要求數量與實際下單數量不一致」的問題。
+const zoneOptions = computed(() =>
+  seatsByZone.value.filter(([zoneCode]) => ticketTypeByZone.value.has(zoneCode)).map(([zoneCode]) => zoneCode),
+)
 
 function shuffle<T>(items: T[]): T[] {
   const result = [...items]
@@ -131,22 +175,25 @@ async function handleQuickPick(): Promise<void> {
     (seat) =>
       seat.status === 'Available' &&
       !isSelected(seat) &&
+      ticketTypeByZone.value.has(seat.zoneCode) &&
       (quickPickZone.value === ALL_ZONES || seat.zoneCode === quickPickZone.value),
   )
-  const takeCount = Math.min(quickPickCount.value, candidates.length, remainingCapacity.value)
-  if (takeCount <= 0) {
+  // 張數不足時 MUST 顯示錯誤、不加入任何座位、不呼叫下單 API——不能用 Math.min() 靜默縮減成
+  // 實際可抽的數量直接送出，那樣送出的訂單張數會跟買家要求的不一致（spec Scenario「區域隨選
+  // 張數超過可售座位或限購剩餘額度」）。
+  if (quickPickCount.value > remainingCapacity.value) {
+    errorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請先取消已選的座位再選新的`
+    return
+  }
+  if (quickPickCount.value > candidates.length) {
     errorMessage.value =
-      remainingCapacity.value <= 0
-        ? `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請先取消已選的座位再選新的`
-        : quickPickZone.value === ALL_ZONES
-          ? '目前沒有足夠的可售座位'
-          : `${quickPickZone.value} 區沒有足夠的可售座位`
+      quickPickZone.value === ALL_ZONES ? '目前沒有足夠的可售座位' : `${quickPickZone.value} 區沒有足夠的可售座位`
     return
   }
 
   const picked: SelectedSeat[] = []
   for (const seat of shuffle(candidates)) {
-    if (picked.length >= takeCount) break
+    if (picked.length >= quickPickCount.value) break
     const selection = buildSelection(seat)
     if (selection) picked.push(selection)
   }
@@ -174,22 +221,59 @@ async function loadData(): Promise<void> {
   }
 }
 
+function buildCountSelections(): PlaceOrderSelection[] {
+  return countTicketTypes.value
+    .filter((t) => (countQuantities[t.id] ?? 0) > 0)
+    .map((t) => ({ eventSeatId: null, ticketTypeId: t.id, quantity: countQuantities[t.id] }))
+}
+
+function clearSelections(): void {
+  selectedSeats.value = []
+  for (const ticketTypeId of Object.keys(countQuantities)) {
+    countQuantities[ticketTypeId] = 0
+  }
+}
+
 async function handleSubmit(): Promise<void> {
-  if (selectedSeats.value.length === 0) return
+  const countSelections = buildCountSelections()
+  if (selectedSeats.value.length === 0 && countSelections.length === 0) return
+
+  // 送出前重新加總，不只依賴各輸入元件的 max 屬性把關（design.md 決策 3 風險緩解）。
+  const totalCount = selectedSeats.value.length + countSelections.reduce((sum, s) => sum + (s.quantity ?? 0), 0)
+  if (maxTicketsPerOrder.value !== null && totalCount > maxTicketsPerOrder.value) {
+    errorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請調整已選座位或購買數量`
+    return
+  }
 
   submitting.value = true
   errorMessage.value = ''
   try {
-    const { id } = await placeOrder(
-      selectedSeats.value.map((s) => ({ eventSeatId: s.eventSeatId, ticketTypeId: s.ticketTypeId })),
-    )
+    const { id } = await placeOrder([
+      ...selectedSeats.value.map((s) => ({ eventSeatId: s.eventSeatId, ticketTypeId: s.ticketTypeId })),
+      ...countSelections,
+    ])
     const heldUntilUtc = computeHeldUntilUtc()
     await router.push({ path: `/order-result/${id}`, query: { heldUntilUtc } })
   } catch (error) {
-    // 401（換發也失敗）已經由 App.vue 的全域 watcher 統一導去登入頁，這裡只處理座位被搶等業務錯誤。
-    errorMessage.value = toErrorMessage(error, '下單失敗，可能有座位已被搶先鎖定或售出，請重新選擇')
+    // 401（換發也失敗）不能指望 App.vue 的全域 watcher 導頁——那個 watcher 只在目前路由
+    // 的 meta 標示 requiresAuth/requiresAdmin 時才會導向登入頁，而活動詳情頁是公開頁
+    // （未登入也能瀏覽選位，見 buyer-web-ui spec），route meta 沒有這個標記，watcher 不會
+    // 處理這裡的登入失效。必須在這個元件自己攔截 401，直接導向登入頁，不落入下面「下單
+    // 失敗」的一般錯誤處理，否則會顯示誤導訊息、還把使用者的選購狀態清空。
+    if (error instanceof ApiError && error.status === 401) {
+      router.push({ path: '/login', query: { redirect: route.fullPath } })
+      return
+    }
+    // 其餘失敗（座位被搶、計數庫存於送出當下已變動、後端其他驗證失敗）一律清空並刷新，
+    // 不依錯誤類型分流（design.md 決策 8）。
+    // 注意：loadData() 一開始會清空 errorMessage，所以錯誤訊息必須在 loadData() 之後才設定，
+    // 否則會被立刻清掉、畫面上完全看不到（這是既有程式碼原本就有的問題，這次順便修正）。
+    // 這也代表：若 loadData() 本身也失敗，它內部設定的錯誤訊息會被這裡的下單失敗訊息蓋掉——
+    // 這是刻意的（下單失敗才是使用者當下最需要知道的事），不是遺漏。
+    const message = toErrorMessage(error, '下單失敗，可能有座位已被搶先鎖定或售出，請重新選擇')
     await loadData()
-    selectedSeats.value = []
+    errorMessage.value = message
+    clearSelections()
   } finally {
     submitting.value = false
   }
@@ -224,7 +308,7 @@ onMounted(loadData)
             v-if="!authStore.isAuthenticated"
             type="info"
             :closable="false"
-            title="請先登入才能選位購票"
+            title="請先登入才能選位或購買計數票種"
             style="margin-bottom: 16px"
           />
           <p v-if="maxTicketsPerOrder !== null" class="limit-hint">每筆訂單限購 {{ maxTicketsPerOrder }} 張</p>
@@ -263,11 +347,34 @@ onMounted(loadData)
             </div>
           </div>
 
+          <div v-if="countTicketTypes.length > 0" class="count-purchase-section">
+            <h2>計數購票</h2>
+            <div v-for="ticketType in countTicketTypes" :key="ticketType.id" class="count-ticket-row">
+              <span class="count-ticket-name">{{ ticketType.zoneCode }}</span>
+              <span class="count-ticket-price">{{ formatCurrency(ticketType.price) }}</span>
+              <span class="count-ticket-quantity">
+                <template v-if="ticketType.availableQuantity === null">資料異常</template>
+                <template v-else-if="ticketType.availableQuantity === 0">已售完</template>
+                <template v-else>可售 {{ ticketType.availableQuantity }}</template>
+              </span>
+              <el-input-number
+                :model-value="countQuantities[ticketType.id] ?? 0"
+                :min="0"
+                :max="countMaxFor(ticketType)"
+                :step="1"
+                :precision="0"
+                :disabled="ticketType.availableQuantity === null"
+                style="width: 110px"
+                @change="(value: number | undefined) => handleCountChange(ticketType, value)"
+              />
+            </div>
+          </div>
+
           <div class="summary">
-            <p>已選 {{ selectedSeats.length }} 個座位，總金額 {{ formatCurrency(totalPrice) }}</p>
+            <p>已選 {{ selectedSeats.length }} 個座位、{{ countTotal }} 張計數票券，總金額 {{ formatCurrency(totalPrice) }}</p>
             <el-button
               type="primary"
-              :disabled="selectedSeats.length === 0"
+              :disabled="selectedSeats.length === 0 && countTotal === 0"
               :loading="submitting"
               @click="handleSubmit"
             >
@@ -337,6 +444,25 @@ onMounted(loadData)
 .quick-pick-label {
   font-size: 13px;
   color: var(--color-text-secondary);
+}
+.count-purchase-section {
+  margin-top: 20px;
+}
+.count-ticket-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.count-ticket-name {
+  flex: 1;
+}
+.count-ticket-price,
+.count-ticket-quantity {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
 }
 .zone-block {
   margin-bottom: 20px;

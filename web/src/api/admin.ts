@@ -36,10 +36,16 @@ export function createEvent(
   })
 }
 
-export function createTicketType(eventId: string, zoneCode: string, price: number): Promise<{ id: string }> {
+export function createTicketType(
+  eventId: string,
+  zoneCode: string,
+  price: number,
+  requiresSeat = true,
+  availableQuantity?: number,
+): Promise<{ id: string }> {
   return authorizedRequest(`/admin/events/${eventId}/ticket-types`, {
     method: 'POST',
-    body: { zoneCode, price },
+    body: requiresSeat ? { zoneCode, price, requiresSeat } : { zoneCode, price, requiresSeat, availableQuantity },
   })
 }
 

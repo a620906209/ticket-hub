@@ -2,8 +2,9 @@ import { authorizedRequest, requestBlob } from './httpClient'
 import type { MyOrderDetail, MyOrderSummary } from '../types/apiResponses'
 
 export interface PlaceOrderSelection {
-  eventSeatId: string
+  eventSeatId: string | null
   ticketTypeId: string
+  quantity?: number
 }
 
 export function placeOrder(selections: PlaceOrderSelection[]): Promise<{ id: string }> {

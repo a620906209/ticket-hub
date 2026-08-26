@@ -35,6 +35,23 @@ export function positiveNumberRule(message: string) {
   }
 }
 
+// 給必填的正整數欄位用（例如純計數票種的可售總量）：未填、非整數或非正數皆視為驗證失敗。
+// 必須帶 required: true——async-validator 對純 validator 規則，值為 undefined/空時預設不會呼叫
+// validator（除非明確標示 required），這是實測過的既有 gotcha，不能只靠 validator 內判斷 undefined。
+export function requiredPositiveIntegerRule(message: string) {
+  return {
+    required: true,
+    validator: (_rule: unknown, value: number | undefined | null, callback: (error?: Error) => void) => {
+      if (value === undefined || value === null || !Number.isInteger(value) || value <= 0) {
+        callback(new Error(message))
+        return
+      }
+      callback()
+    },
+    trigger: 'blur' as const,
+  }
+}
+
 // 給選填的正整數欄位用（例如每筆訂單限購張數）：沒填視為合法（代表不限制），有填才檢查是不是正整數。
 export function optionalPositiveIntegerRule(message: string) {
   return {
