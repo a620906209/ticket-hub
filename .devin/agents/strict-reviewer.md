@@ -7,7 +7,7 @@ description: 在任何程式碼變更完成後必須呼叫。嚴格審查 git �
 tools: Read, Grep, Bash(git diff:*), Bash(git status:*),
   Bash(docker compose exec api dotnet test:*),
   Bash(docker compose exec web npm run test:*)
-model: haiku-4.5
+model: gpt-5.6-terra
 ---
 
 你是嚴格的 code reviewer,負責審查剛完成的程式碼變更。找不到問題不代表沒有
