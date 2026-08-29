@@ -43,7 +43,7 @@
 
 **Should（提升體驗，Phase 2，非上線阻塞項）**
 - 主辦方銷售報表（即時或準即時，僅支援活動進行中/結束後查詢，不含歷史趨勢分析）
-- Rate limiting / 基礎排隊機制（與「API 防搶票機器人」共用同一套機制）——**已於 `rate-limiting-queue` 完成實作**（`Microsoft.AspNetCore.RateLimiting` 分區限流 + `PurchaseQueueEntry` 排隊機制，見 `openspec/changes/rate-limiting-queue/`）
+- Rate limiting / 基礎排隊機制（與「API 防搶票機器人」共用同一套機制）——**已完成實作並合併至 master**（`Microsoft.AspNetCore.RateLimiting` 分區限流 + `PurchaseQueueEntry` 排隊機制，見 `openspec/changes/archive/2026-08-29-rate-limiting-queue/`）
 - Email 通知（`INotificationService` 介面，票券產出後通知買家）
 - 登入 Rate limiting（防暴力破解）
 - 監控（Serilog + Seq，本地容器化，對應 CLAUDE.md 結構化 log 規範）**［待確認］**
