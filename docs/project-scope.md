@@ -45,7 +45,7 @@
 - 主辦方銷售報表（即時或準即時，僅支援活動進行中/結束後查詢，不含歷史趨勢分析）
 - Rate limiting / 基礎排隊機制（與「API 防搶票機器人」共用同一套機制）——**已完成實作並合併至 master**（`Microsoft.AspNetCore.RateLimiting` 分區限流 + `PurchaseQueueEntry` 排隊機制，見 `openspec/changes/archive/2026-08-29-rate-limiting-queue/`）
 - Email 通知（`INotificationService` 介面，票券產出後通知買家）
-- 登入 Rate limiting（防暴力破解）——**已完成實作**（以來源 IP 為分區鍵的獨立 `login` policy，共用 `Microsoft.AspNetCore.RateLimiting` 既定機制，見 `openspec/changes/login-rate-limiting/`，archive 後路徑另行更新）
+- 登入 Rate limiting（防暴力破解）——**已完成實作並合併至 master**（以來源 IP 為分區鍵的獨立 `login` policy，共用 `Microsoft.AspNetCore.RateLimiting` 既定機制，見 `openspec/changes/archive/2026-08-30-login-rate-limiting/`）
 - 監控（Serilog + Seq，本地容器化，對應 CLAUDE.md 結構化 log 規範）**［待確認］**
 
 **Could（技術深化，Phase 3，視剩餘時間精力擴充，暫不預排優先順序）**
