@@ -1,0 +1,130 @@
+## Context
+
+`POST /api/orders`（建立訂單並鎖定座位/扣減票種庫存）與 `POST /api/orders/{id}/confirm`（模擬付款確認）目前皆為 `[Authorize]` 端點，只做身份驗證，完全沒有請求頻率或入場管制。開賣瞬間高頻腳本呼叫會直接打進既有的悲觀鎖交易（`seat-reservation`／`ITicketTypeRepository.GetForUpdateAsync`），造成一般買家的請求排在腳本後面而搶不到。
+
+專案現況（相關既有慣例，本設計沿用）：
+- Options 綁定慣例：有安全預設值的設定（如 `OrderCleanupOptions`、`MockPaymentGatewayOptions`）用 `Configure<T>` + 解包成 Singleton class，不強制 `ValidateOnStart`；必要設定（如 `JwtOptions`、`TicketSigningOptions`）才用 `ValidateOnStart` fail-fast。
+- 背景週期性工作慣例：`ExpiredOrderCleanupService`（`AddHostedService`），在 `Testing` 環境不註冊，避免整合測試意外跑背景服務。
+- 悲觀鎖慣例：多筆資源鎖定依 Id 排序取鎖避免死鎖（`seat-reservation`、`ITicketTypeRepository.GetForUpdateAsync`）。
+- 訂單逾時採「查詢時推導」（不落地寫入狀態）；但本設計的排隊入場需要主動釋放名額給下一位等待者，屬於需要主動推進的狀態轉換，性質更接近 `ExpiredOrderCleanupService` 的週期性背景處理，而非單純查詢時推導。
+- 錯誤回應慣例：`GlobalExceptionHandler` 統一輸出 `ProblemDetails`（`Status`／`Title`／`traceId` extension）。
+
+`docs/project-scope.md` 明確將「Redis 分散式鎖 / Queue 排隊室」列為 Could（Phase 3 進階版），代表本次「基礎排隊機制」不應引入 Redis 等新基礎設施，改以既有 PostgreSQL + EF Core 落地。
+
+## Goals / Non-Goals
+
+**Goals:**
+- 針對 `POST /api/orders`、`POST /api/orders/{id}/confirm` 套用以會員 Id 為分區的固定時間窗限流，超量回傳 `429`（`ProblemDetails` 格式，比照 `GlobalExceptionHandler`）
+- 提供 Admin 可針對個別活動開關的「熱門搶購模式」；開啟後買家須先加入排隊並取得入場名額，才能呼叫 `POST /api/orders`
+- 提供排隊狀態查詢，讓前端顯示目前排隊人數/是否已輪到
+
+**Non-Goals:**
+- 不做 Redis 分散式鎖或分散式 Queue（Could / Phase 3）
+- 不做「依剩餘庫存自動觸發熱門搶購模式」的判定邏輯（本次僅 Admin 手動開關）
+- 不做登入端點的 Rate limiting（`docs/project-scope.md` 列為獨立的 Should 項目，非本次範圍）
+- 不做跨機器多實例協調優化；本次假設單一 `api` container（現行 Docker Compose 部署現況），多實例情境下 DB 層悲觀鎖仍保證正確性，但輪詢間隔造成的入場延遲不做針對性優化
+- 不提供預估等待時間（例如剩餘秒數／預計入場時刻）；排隊狀態查詢只回傳前方等待人數，不換算成時間——沒有實際購票速度的歷史資料可供估算，貿然給出的數字容易誤導買家，此範疇留待有實際使用數據後再評估
+
+## Decisions
+
+**1. Rate limiting 採 ASP.NET Core 內建 `Microsoft.AspNetCore.RateLimiting`（Fixed Window），分區鍵僅用會員 Id，兩端點各自獨立計數**
+- 受影響端點皆已是 `[Authorize]`，未登入請求會在進入限流檢查前就被 401 擋下，故不需要 IP fallback，分區鍵單純使用 `User.GetMemberId()`（修正 proposal.md 先前殘留的「IP fallback」措辭，以本節為準）
+- 選 Fixed Window 而非 Sliding Window／Token Bucket：內建套件皆支援，Fixed Window 實作最簡單、對「基礎」等級的防護已足夠；已知邊界效應（窗口交界處可能出現突發流量）記錄於 Risks，未來若需收緊可用同套件切換演算法，遷移成本低
+- **`POST /api/orders` 與 `POST /api/orders/{id}/confirm` 使用兩個獨立命名的限流 policy**（例如 `place-order`／`confirm-order`），共用同一組 `RateLimitingOptions`（`PermitLimit`、`Window`）設定值但各自累計用量、不共用同一個 bucket——避免買家建立訂單的用量排擠到確認付款的額度，兩個操作的呼叫頻率語意本來就不同
+- 設定值（`PermitLimit`、`Window`）透過 `RateLimitingOptions`；`PermitLimit` MUST 為正整數（`> 0`）、`Window` MUST 為正時間長度（`> TimeSpan.Zero`），以 DataAnnotations 標註，缺漏時套用明確預設值（`PermitLimit = 20`、`Window = 1 分鐘`，作為「基礎」等級的保守起點，可依上線後觀察調整，不代表最終調優值）；設定值本身為 0 或負數雖不若 `PurchaseQueueOptions` 那樣會讓功能完全失效（極端值只是讓限流變得極嚴格或形同無限流），但仍屬明顯誤設定，MUST 擋下，不允許以無效值靜默套用
+- **註冊方式的精確寫法**：`services.Configure<TOptions>(section)`（純 `IServiceCollection` 擴充方法）回傳的是 `IServiceCollection`，不是 `OptionsBuilder<TOptions>`，**不能**直接串接 `.ValidateDataAnnotations()`——先前版本「`Configure<T>` 搭配 `ValidateDataAnnotations()`」的措辭不精確，容易誤導成兩者可以直接串接。正確寫法須改用 `services.AddOptions<RateLimitingOptions>().Bind(section).ValidateDataAnnotations()`（**不**加尾端的 `.ValidateOnStart()`），比照既有 `JwtOptions`／`TicketSigningOptions` 在 `Program.cs` 的 `AddOptions<T>().Bind(...).ValidateDataAnnotations()` 寫法，只是本次不鏈上 `ValidateOnStart()`（因為有安全預設值，「未設定」不視為需要 fail-fast 的誤設定，只有「設定但為 0 或負數」才需要被 DataAnnotations 擋下）
+- **驗證觸發時機**：不鏈 `ValidateOnStart()` 時，DataAnnotations 驗證在該 `IOptions<T>.Value`（或 `IOptionsMonitor<T>.CurrentValue`）**第一次被解析**時執行（.NET Options 驗證的既定行為）；`AddRateLimiter` 的 policy 設定回呼在 `app.Build()` 建置中介軟體管線時就會讀取這個值以取得 `PermitLimit`／`Window`，故驗證實務上發生於應用程式啟動過程中，不會延遲到第一個進入該端點的 HTTP 請求才觸發
+- **Fixed Window 的視窗起算與邊界行為**：視窗起算點為該分區鍵（會員 Id + policy）第一次被觀察到請求的時間點，視窗長度為 `Window`，視窗內累計請求數達 `PermitLimit` 前（含第 `PermitLimit` 次）皆允許，第 `PermitLimit + 1` 次起拒絕；視窗到期後立即重置為新視窗、計數歸零（此為 `Microsoft.AspNetCore.RateLimiting` `FixedWindowRateLimiterOptions` 的內建行為，不需自行實作視窗管理邏輯）
+- `OnRejected` callback 自訂輸出，比照 `GlobalExceptionHandler` 的 `ProblemDetails` 格式（`Status = 429`、`Title`、`traceId` extension），並加上 `Retry-After` 回應標頭（單位秒，內建 Fixed Window limiter 的 `RateLimitLease` 會透過 `RetryAfter` metadata 提供距離下次視窗重置的秒數，直接讀取寫入標頭即可，不需自行計算），供前端提示更精確的等待時間，維持全站錯誤回應一致
+
+**2. 「熱門搶購模式」為 `Event` 上的手動開關欄位，而非自動判定**
+- 新增 `Event.IsQueueModeEnabled`（`private set`，透過 `EnableQueueMode()`／`DisableQueueMode()` 方法變更，符合 Rich Domain Model 規範）
+- 考慮過「依剩餘座位/庫存比例自動觸發」，但屬於需要跨多個 Entity 查詢才能判斳的規則，且自動觸發的誤判風險（例如短暫庫存波動誤觸發）超出「基礎」排隊機制的範疇，留待 Phase 3 或使用回饋後再評估，列入 Open Questions
+- 新增 Admin 端點 `PATCH /api/admin/events/{id}/queue-mode`（比照既有 `PATCH /api/admin/tickets/{id}/redeem` 命名慣例），Body 為 `{ "enabled": bool }`；`enabled` 為必填 boolean，缺漏或型別錯誤時由 FluentValidation 攔截回傳 `400`；活動 Id 不存在時回傳 `404`。**成功時的回應 SHALL 為 `204 No Content`**，不回傳 body——完整比照 `ticket-redemption`「透過 API 核銷票券」既有慣例（`PATCH /api/admin/tickets/{id}/redeem` 成功時同樣是 `204 No Content`，且該 spec 明確記錄此比照 `POST /api/orders/{id}/confirm`／`POST /api/orders/{id}/cancel` 的既定慣例），不需要另外設計一套回傳異動後資源本體的 response contract
+- **公開活動列表 `EventDto`（`GET /api/events`，`ticket-purchase`「查詢活動列表」能力）新增 `IsQueueModeEnabled` 欄位**：這是買家 UI 判斷是否要走排隊流程的必要資訊，非 Admin 專用資料，不比照 `admin-event-audit-and-sales-status` 那樣另建 Admin 專用端點分流（該次分流的理由是防止洩漏建立者身份/即時售票統計等敏感欄位，`IsQueueModeEnabled` 是活動的公開屬性，性質不同）
+
+**3. 排隊機制以新 Domain Entity `PurchaseQueueEntry` 落地於 PostgreSQL（EF Core），不用 Redis**
+- 欄位：`Id`、`EventId`、`MemberId`、`Status`（`Waiting` / `Admitted` / `Completed` / `Expired`）、`JoinedAtUtc`、`AdmittedAtUtc`（nullable）、`AdmissionExpiresAtUtc`（nullable）；`Status` 這個 enum 的 EF Core 儲存方式 MUST 明確指定為字串轉換（`HasConversion<string>()`），不使用 EF Core 預設的 integer 儲存——下面 partial unique index 的條件式（`WHERE Status IN ('Waiting', 'Admitted')`）是以字面字串比對，若欄位實際以 integer 儲存，migration 產生的 SQL 條件式會與實際欄位型別不一致，索引不會如預期生效
+- **資料庫層唯一性約束**：對 `(EventId, MemberId)` 建立 partial unique index，條件為 `Status IN ('Waiting', 'Admitted')`——同一會員對同一活動同時最多只有一筆「進行中」（`Waiting` 或 `Admitted`）的紀錄，`Completed`／`Expired` 屬於歷史紀錄不受此唯一性約束，允許同一會員在資格逾時後重新加入排隊、產生新的一筆紀錄
+- **唯一索引與「查詢時逾時推導」的落差，須在加入排隊流程內以寫入方式收斂**：partial unique index 只認資料庫實際落地的 `Status` 欄位，不理解 `AdmissionExpiresAtUtc` 這種動態時間條件——一筆 `Status` 仍是 `Admitted`、但 `AdmissionExpiresAtUtc` 已過期、且背景服務尚未來得及將其寫為 `Expired` 的紀錄，仍會被唯一索引視為「進行中」而佔用該會員/活動的唯一名額，導致同一會員想重新加入排隊時被唯一索引擋下（即使查詢端點會把它「視為」已逾時，資料庫層的約束並不知道）。`JoinPurchaseQueueHandler`（Application 層）的流程：
+  1. 開啟交易（`IUnitOfWork.BeginTransactionAsync`）
+  2. 以 `IPurchaseQueueRepository.GetForUpdateAsync(eventId, memberId)` 取得該會員在該活動「進行中」（`Status IN (Waiting, Admitted)`）的紀錄並鎖定（因唯一索引保證，最多一筆；查無則此步驟不鎖定任何列）
+  3. 若查得一筆且狀態為 `Admitted` 且 `AdmissionExpiresAtUtc <= now`：呼叫該紀錄的 `Expire()`（僅變更追蹤中的 Entity 狀態，尚未寫入資料庫），視為「查無進行中紀錄」繼續下一步
+  4. 若查得一筆且仍為 `Waiting` 或未逾時的 `Admitted`：呼叫 `transaction.CommitAsync()` 並回傳該筆既有紀錄，不新增
+  5. 若查無進行中紀錄（原本就沒有，或第 3 步剛把逾時紀錄轉為 `Expired`）：建立新的 `Waiting` 紀錄，呼叫 `IPurchaseQueueRepository.AddOrGetExistingAsync(newEntry, ct)`（見下一點，這個方法內部會處理併發新增衝突並回傳最終應採用的紀錄），再呼叫 `transaction.CommitAsync()` 完成交易——`CommitAsync` 這次觸發的 `SaveChangesAsync` 會把第 3 步的 `Expire()`（如果有）與 `AddOrGetExistingAsync` 內部已確定要保留的新增（若有）一併寫入
+  - 此流程解決的是「同一會員自己過去的逾時紀錄擋住自己重新加入」；不同會員之間、或同一會員兩個並發請求都命中「查無進行中紀錄」分支的情況，見下一點
+- **違反唯一約束的處理協議 MUST 完整封裝在 Infrastructure 層，不得洩漏到 Application 層，且 MUST NOT 依賴「捕捉例外後在同一交易內繼續」**——這是本次審查修正的第二個問題：先前版本（先是要求 Application 直接處理、後改為 Infrastructure 捕捉 `DbUpdateException` 後呼叫 `ChangeTracker.Clear()` 並在同一個外層交易內繼續查詢/重試）忽略了 PostgreSQL 的交易語意——**一旦某個 SQL 陳述式在交易內失敗（例如違反唯一索引），該交易會立即進入 aborted 狀態，後續在同一交易內的任何指令（即使只是 `SELECT`）都會被拒絕，直到交易結束（`COMMIT` 或 `ROLLBACK`）為止**；`ChangeTracker.Clear()` 只清空 EF Core 端的記憶體追蹤狀態，完全不影響資料庫連線那一側的交易狀態，不足以讓交易恢復可用
+- **改採 `INSERT ... ON CONFLICT ... DO NOTHING`，從根本上避免觸發例外**（而非「發生例外後想辦法補救」）：`(EventId, MemberId) WHERE Status IN ('Waiting', 'Admitted')` 是 partial unique index，PostgreSQL 支援以 `ON CONFLICT (EventId, MemberId) WHERE "Status" IN ('Waiting', 'Admitted') DO NOTHING`（conflict target 的欄位與 `WHERE` 條件須與該 partial index 定義完全一致，這是 PostgreSQL 官方文件記載給 partial unique index 用的標準 upsert 寫法）精確對應這個 partial index、把「插入時撞到既有進行中紀錄」變成一次**不拋例外的靜默無操作**，而不是讓 INSERT 失敗、拋出例外再捕捉。EF Core 目前的 LINQ／`Add()`＋`SaveChangesAsync()` pipeline 沒有對應 `ON CONFLICT` 的 API，因此比照本專案既有的 `GetForUpdateAsync`（`FromSqlInterpolated` 搭配 `FOR UPDATE`，理由同樣是「EF Core 沒有對應 LINQ API」）的既定慣例，改用 `_dbContext.Database.ExecuteSqlInterpolated($"INSERT INTO ...")`（參數化，避免 SQL Injection）直接送出這段 SQL，**完全繞過 EF Core 的 change tracking pipeline**——沒有呼叫 `DbSet.Add(...)`，`newEntry` 從頭到尾都不會進入 `ChangeTracker`，因此也就沒有「失敗後 `ChangeTracker` 殘留 `Added` 狀態」這個問題，`ChangeTracker.Clear()` 在這個修正後的設計裡不再需要
+- `IPurchaseQueueRepository` 新增 `Task<PurchaseQueueEntry> AddOrGetExistingAsync(PurchaseQueueEntry newEntry, CancellationToken)`（介面定義在 Domain，簽章純粹是「給一筆想新增的紀錄，回傳最終應採用的紀錄」，不外露任何 EF Core／Npgsql／SQL 型別或字串），**Infrastructure 的 `PurchaseQueueRepository` 實作內部**：
+  1. 執行上述 `ExecuteSqlInterpolated`（`INSERT ... ON CONFLICT ... DO NOTHING`），取得受影響列數（1 = 成功插入，0 = 撞到既有進行中紀錄、未插入）
+  2. 受影響列數為 1：直接回傳 `newEntry`
+  3. 受影響列數為 0：以 no-tracking 查詢取得該會員在該活動目前「進行中」的既有紀錄並回傳——PostgreSQL 的 `INSERT ... ON CONFLICT` 對併發衝突有內建的等待/重新檢查語意（若另一筆並發交易的插入尚未提交，本次陳述式會等待對方交易結束後才判定是否衝突，不會有「兩邊都以為自己插入成功」的競態），因此正常情況下這裡幾乎必定查得到剛剛讓本次插入判定為衝突的那筆紀錄
+  4. 若步驟 3 的查詢仍查無紀錄（理論上極端罕見，例如查詢當下又被別的流程處理掉），MUST NOT 無限重試；改為重新執行一次步驟 1（僅重試一次），第二次仍查無則拋出 Domain 定義的 `PurchaseQueueJoinConflictException`（`: DomainException`，比照既有 `SeatAlreadyHeldException` 等具體例外子類別的既定命名/繼承慣例），不得吞掉例外、不得回傳 500
+  - `JoinPurchaseQueueHandler` 對 `AddOrGetExistingAsync` 的呼叫本身不需要任何 EF Core／SQL 相關的 `try/catch`——正常的「撞到既有紀錄」情境已在 Infrastructure 內部處理成回傳值（不是例外），只有第 4 點極端情況下的 `PurchaseQueueJoinConflictException` 需要 Handler 比照既有 `CreateOrderHandler` 捕捉 `DomainException` 子類別映射為 `Error` 的既定模式，捕捉並轉為 `Error.Conflict(ex.Message)`
+  - **為何這個方法即使被撞到衝突，也完全不影響外層交易的可用性**：`ON CONFLICT DO NOTHING` 讓「插入失敗」在 PostgreSQL 眼中根本不是一個錯誤，是這個語法明確設計的正常結果（受影響列數為 0），陳述式本身成功執行完畢，交易不會進入 aborted 狀態，`JoinPurchaseQueueHandler` 接下來呼叫 `transaction.CommitAsync()` 完全不受影響
+  - **與「自我修復 Expire() 逾時紀錄」分支的關係**：`GetForUpdateAsync` 對已存在的紀錄會取得列鎖（`SELECT ... FOR UPDATE`），若該會員該活動已有紀錄，任何後到的並發請求會在同一步驟被資料庫阻塞，等前一個交易結束才能繼續——因此「兩個並發請求都判斷查無進行中紀錄、都嘗試新增」只會發生在雙方都是名符其實的**首次加入**（沒有任何既有紀錄可鎖），這種情況下 `Expire()` 根本不會被觸發，`AddOrGetExistingAsync` 也不會有任何「本來要保留」的其他異動需要顧慮
+- **「目前紀錄」的選取規則**：查詢排隊狀態或加入排隊時，若同一會員對同一活動存在多筆歷史紀錄（因逾時或完成後重新加入），只在 `Status IN ('Waiting', 'Admitted', 'Expired')`（仍有查詢意義的狀態）範圍內取 `JoinedAtUtc` 最新（並列時取 `Id` 最新）的一筆作為代表；若該範圍內查無紀錄（從未加入，或僅有的歷史紀錄皆為 `Completed`——代表過去已成功下單，對後續查詢不再有意義），一律視為「尚未加入排隊」，可重新呼叫加入排隊端點
+- 排隊狀態查詢 `GET /api/events/{id}/queue/entries/me`：回傳目前狀態、若為 `Waiting` 則回傳前方等待人數（依 `JoinedAtUtc ASC, Id ASC` 排序後，早於自己的 `Waiting` 筆數）；活動不存在時回傳 `404`。此端點 MUST 於查詢當下依 `AdmissionExpiresAtUtc` 即時推導 `Admitted` 是否已逾時（比照既有訂單逾時「查詢時推導」慣例），不得只依賴背景服務尚未執行到的 `Expired` 寫入，但查詢本身不落地寫回，落地寫回仍統一由背景服務處理（維持單一寫入來源）
+- **排序統一使用 `JoinedAtUtc ASC, Id ASC` 作為 tie-breaker**：背景推進的處理順序、前方等待人數計算、測試案例三處 MUST 使用完全相同的排序規則，避免 `JoinedAtUtc` 精度相同時排序不穩定，導致「先到先服務」無法被穩定驗證
+- **入場推進以週期性背景服務處理**（新增 `PurchaseQueueAdmissionService`，比照 `ExpiredOrderCleanupService` 的 `AddHostedService` 慣例，`Testing` 環境不註冊）：每個 tick 針對每個 `IsQueueModeEnabled = true` 的活動，計算目前**有效名額 = COUNT(Status = 'Admitted' AND AdmissionExpiresAtUtc > now)**，與上限（`MaxConcurrentAdmittedBuyers`，設定值）比較；有剩餘名額時，依 `JoinedAtUtc ASC, Id ASC` 將 `Waiting` 狀態依序推進為 `Admitted` 並設定 `AdmissionExpiresAtUtc`；同一 tick 內同時將已逾時（`AdmissionExpiresAtUtc <= now`）的 `Admitted` 標記為 `Expired`
+- **關閉/重新開啟熱門搶購模式期間的行為，皆由上述「有效名額」定義與 tick 邏輯自然涵蓋，不需特殊處理**：關閉期間背景服務跳過該活動（只處理 `IsQueueModeEnabled = true` 者），既有 `Waiting`／`Admitted` 紀錄原樣保留、不清理；`CreateOrderHandler`／`OrderService` 的排隊檢查僅在 `IsQueueModeEnabled = true` 時執行，關閉期間不論排隊資格為何皆不受限制（比照一般活動）；重新開啟後，任何在關閉期間已過 `AdmissionExpiresAtUtc` 但尚未被標記的 `Admitted` 紀錄，會在下一輪 tick 依既有「標記逾時」邏輯自動處理（不計入有效名額、標記為 `Expired`），仍未逾時的 `Admitted` 紀錄則繼續計入有效名額；`Waiting` 紀錄依原有 `JoinedAtUtc` 順序繼續推進，不重新排序、不要求重新加入
+- **背景服務查詢範圍限定、避免整批載入歷史資料**：`IPurchaseQueueRepository` 供背景服務使用的查詢 MUST 以 `WHERE EventId = @eventId AND Status IN ('Waiting', 'Admitted')` 為條件（`Completed`／`Expired` 為終態，與本輪推進無關，不需載入）；資料庫新增複合索引 `(EventId, Status, JoinedAtUtc, Id)` 支援此查詢與排隊狀態查詢的排序需求
+- 該推進運算對同一活動的多筆 `PurchaseQueueEntry` 需要交易一致性，沿用既有悲觀鎖慣例：取得上述篩選範圍內的 `PurchaseQueueEntry` 時使用資料庫交易鎖（比照 `ITicketTypeRepository.GetForUpdateAsync` 的模式），確保單一活動同時只有一個 tick 在推進，不會超額入場
+- 選擇「新 Entity + 背景服務」而非「複用現有 Order Pending 逾時的查詢時推導模式」：因為入場推進需要主動釋放名額給下一位等待者（有「誰是下一個」的排序語意），查詢時被動推導無法在沒有人查詢的情況下讓名額流動，週期性背景服務是更合適、且與 `ExpiredOrderCleanupService` 一致的既有模式
+- **`Waiting` 狀態本身沒有獨立逾時機制**：`Waiting` 紀錄只會因背景服務推進為 `Admitted`，不會因等待時間過長而自動失效——排隊機制的設計前提是「先到先服務」，若對 `Waiting` 也設逾時，等到的人反而會被踢出重排，與排隊的直覺語意矛盾；唯一有 TTL 的是 `Admitted` 狀態（入場後多久內須完成下單）
+- **`MaxConcurrentAdmittedBuyers`、`AdmissionTtl`、`PollingInterval` 三者皆走 fail-fast 驗證，不當作「有安全預設值」的設定**：與 `OrderCleanupOptions`／`MockPaymentGatewayOptions` 不同，這三個值只要有一個被設為 0 或負數，就會讓開啟熱門搶購模式的活動永遠無人能入場，或背景服務停止有效運作（形同該活動下單功能完全失效），屬於嚴重誤設定而非可接受的保守預設值，因此 `PurchaseQueueOptions` 比照 `JwtOptions`／`TicketSigningOptions`，以 DataAnnotations 標註三者皆須為正數，並 `ValidateOnStart` fail-fast——**注意這裡的 fail-fast 是「值存在但不合法時擋下」，不是「值缺漏時也擋下」；`appsettings` 仍須實際填入下面的具體數值，`ValidateOnStart` 只保證不會漏填或填零負值，不會像 `RateLimitingOptions` 那樣在缺漏時自動補上預設值**
+- **`appsettings` 實際填入的起始值（本次直接決定，不再留待實作階段）**：`MaxConcurrentAdmittedBuyers = 50`（呼應 `docs/project-scope.md` 第 5 節效能驗證基準「500 併發搶購同一場次 50 張票」的量級，同時放行約與票數同等的買家進入結帳流程，是合理的起始猜測）、`AdmissionTtl = 5 分鐘`（介於既有訂單持有時間 10 分鐘的一半，足夠瀏覽/選位/送出，又不會讓名額閒置過久）、`PollingInterval = 5 秒`（背景服務推進的節奏，與前一版 Risks 段落原本就用作例示的數字一致，改為正式決定值）、前端排隊狀態輪詢間隔比照同為 `5 秒`（維持與後端推進節奏同數量級，見決策 6／buyer-web-ui spec）。這些數字是「基礎」等級的起始猜測、不是最終調優值，比照 `RateLimitingOptions` 的 `PermitLimit = 20` 同一種「先求可運作、可依上線後測試結果調整」的定位，記錄於此供實作直接採用，不需要再回頭決定
+
+**4. 排隊入場檢查與「標記完成」須與座位/庫存鎖定同一交易，由 `OrderService.PlaceOrderAsync` 協調，不放在 `CreateOrderHandler`**
+- 現況：`OrderService.PlaceOrderAsync`（`src/ProjectC.Application/Orders/OrderService.cs:151` 起）才是實際開啟 `IUnitOfWork.BeginTransactionAsync` 與取得座位/票種悲觀鎖（`GetForUpdateAsync`）的地方；`CreateOrderHandler.Handle`（`src/ProjectC.Application/Orders/CreateOrderHandler.cs`）是純記憶體同步邏輯，建構子只注入 `IDateTimeProvider`，沒有 repository、沒有交易能力，且是在鎖已取得之後才被呼叫。先前版本把排隊檢查寫在 `CreateOrderHandler`，與既有程式碼結構不符，也無法在同一交易內完成「重新確認資格 → 鎖定座位/庫存 → 標記完成」，會產生檢查與實際扣減之間的競態窗口（例如檢查當下 `Admitted` 有效，但背景服務同一時間將其標為 `Expired`，鎖定與建單仍照常進行）
+- 修正為：「活動是否開啟熱門搶購模式」＋「該會員是否已被排隊入場」的檢查職責維持在 Application 層（跨 `Event` 與 `PurchaseQueueEntry` 兩個 Entity，依 CLAUDE.md 規範不下放 Domain），但由 `OrderService.PlaceOrderAsync` 在既有交易內執行，而非 `CreateOrderHandler`：
+  1. 既有的、交易前的 `orderEvent = await _eventRepository.GetByIdAsync(...)`（`OrderService.cs:138`）維持不變，繼續供 `MaxTicketsPerOrder` 檢查使用（此為既有邏輯，本次不修改其一致性等級）；但 `IsQueueModeEnabled` 的判斷 **MUST NOT** 沿用這個交易前、未加鎖的讀取結果——`orderEvent` 讀取之後、交易實際開始執行之間可能有明顯時間差，Admin 若在此空檔切換熱門搶購模式，會讓整筆交易在錯誤的模式假設下執行到底（見下方「Queue Mode 切換的線性化時點」）
+  2. **Queue Mode 切換的線性化時點**：在既有 `BeginTransactionAsync` 交易內、開始任何座位/票種鎖定之前，新增 `IEventRepository.GetForUpdateAsync(eventId)`（比照既有 `GetForUpdateAsync` 命名慣例）以 `FOR UPDATE` 重新鎖定並讀取該活動，**以這次鎖定後讀到的 `IsQueueModeEnabled` 值作為本次建立訂單唯一採信的依據**，取代步驟 1 的未鎖定值。這個鎖定同時也是與 Admin 的 `PATCH /api/admin/events/{id}/queue-mode` 之間的線性化點：`SetEventQueueModeHandler` 的 `SaveChangesAsync` 對同一筆 `Event` 列的 `UPDATE` 本身就需要取得該列的寫入鎖，若此時 `OrderService.PlaceOrderAsync` 已持有 `FOR UPDATE` 鎖尚未提交，Admin 的切換請求會被資料庫阻塞至前者交易結束（commit 或 rollback）為止；反之若 Admin 的切換已提交在先，`PlaceOrderAsync` 的 `GetForUpdateAsync` 一定會讀到切換後的最新值。兩種情境都不會出現「用切換前後某個中間值執行到底」的情形，`SetEventQueueModeHandler` 本身不需要任何額外修改即可達成此效果（一般 EF Core `SaveChangesAsync` 對變更列本身就會取得列鎖）
+  - **EF Core tracking identity 問題與兩層防護**：這是審查過程中發現、修正前設計未處理的問題——`EventRepository.GetByIdAsync`（`src/ProjectC.Infrastructure/Persistence/Repositories/EventRepository.cs:15-16`）目前是一般 tracking query，沒有 `.AsNoTracking()`；若交易前的 `orderEvent` 讀取讓該筆 `Event` 被 `DbContext` 的 identity map 追蹤住，同一個 `DbContext`（同一次 HTTP request scope）在交易內對同一主鍵再查一次，EF Core 的 tracking query 預設行為是直接回傳/重用已追蹤的那個實例，不會用新查到的資料覆寫其屬性值——`GetForUpdateAsync` 若也是 tracking query，就可能回傳鎖定前的舊快照，讓「線性化」整個失效。本次採兩層防護，任一層失守另一層仍能兜住：
+    1. **`GetForUpdateAsync(eventId)` 本身 MUST 宣告為 no-tracking**（`_dbContext.Events.AsNoTracking().FromSqlInterpolated($"SELECT * FROM \"Events\" WHERE \"Id\" = {eventId} FOR UPDATE").SingleOrDefaultAsync(...)`，或等價寫法）。這是主要防線也是充分條件：`OrderService` 在本次流程中只讀取 `IsQueueModeEnabled`，從不修改 `Event` 本身（不像 `TicketType.Reserve()`／`EventSeat.Hold()` 需要 tracking 才能讓 `SaveChangesAsync` 偵測到變更並存回），所以沒有理由要求 `GetForUpdateAsync` 的結果被追蹤；EF Core 的 no-tracking 查詢**不會**做 identity resolution、每次都直接對資料庫下 SQL 並 materialize 全新物件，完全不受同一 `DbContext` 內任何其他查詢（不論該查詢是否 tracking）事先追蹤了什麼影響——`FOR UPDATE` 鎖是資料庫層的鎖定語意，與 EF Core 端的 tracking/no-tracking 選擇彼此獨立，兩者可以自由組合。只要這個方法本身是 no-tracking，步驟 1 的 `orderEvent` 讀取即使維持 tracking 也不影響本次的正確性
+    2. **次要防護（belt-and-suspenders，非必要但保留）：`EventRepository.GetByIdAsync` 也一併改為 `.AsNoTracking()`**，比照本專案 `TicketTypeRepository.GetByIdAsync`（`src/ProjectC.Infrastructure/Persistence/Repositories/TicketTypeRepository.cs:15-19`）因完全相同理由已採用的既有解法（程式碼裡有明確註解說明這正是同一類 identity-resolution 陷阱的既定修法）。已確認 `IEventRepository.GetByIdAsync` 目前另外 4 個呼叫端（`GetEventSeatsHandler`、`GetTicketTypesHandler`、`CreateTicketTypeHandler`、`OrderService.cs:219`）皆為純讀取，`Event.CreateTicketType`／`CreateCountBasedTicketType` 都是回傳新 `TicketType` 的工廠方法、不改變 `Event` 自身，因此把 `GetByIdAsync` 一併改為 no-tracking 對既有行為無副作用。保留這一層的理由：即使將來某次修改不慎讓 `GetForUpdateAsync` 的 no-tracking 宣告被移除（例如複製既有 `TicketTypeRepository.GetForUpdateAsync` 的 tracking 寫法時漏改），這層仍能獨立擋下同一個問題，不必依賴單一防線
+  3. 若鎖定後讀到 `IsQueueModeEnabled = true`：對該會員在該活動的 `PurchaseQueueEntry` 取得 `IPurchaseQueueRepository.GetForUpdateAsync(eventId, memberId)`（依唯一索引鎖定單筆，非背景服務用的整批查詢）——**這個 repository 方法只依 `Status IN (Waiting, Admitted)` 過濾並鎖定，不負責時間判定**（不比較 `AdmissionExpiresAtUtc`）；`OrderService.PlaceOrderAsync` 拿到鎖定後的紀錄後，自行以 `AdmissionExpiresAtUtc > now` 判斷是否**重新確認**（不是沿用建立訂單請求進來前的查詢結果）合格；不符合（狀態非 `Admitted`，或已逾時）則回傳失敗，不繼續鎖定座位/票種、不呼叫 `CreateOrderHandler.Handle`。**`OrderService` 判斷「已逾時」時 MUST NOT 順手呼叫該紀錄的 `Expire()` 落地寫入**——排隊紀錄的狀態落地寫入統一交由背景服務（`PurchaseQueueAdmissionService`）與加入排隊流程（`JoinPurchaseQueueHandler` 的自我修復，見決策 3）兩處負責，`OrderService` 只讀取判斷、不寫入，維持「誰負責落地寫入」單一化，避免第三個地方也能寫這個狀態機造成競爭來源分散；讓一筆已逾時但尚未被背景服務標記的紀錄暫時停留在 `Admitted`（直到下一輪背景 tick 或該會員自己重新加入排隊時被清理）是可接受的，因為「有效名額」的計算本來就是時間推導、不依賴 `Status` 欄位是否已同步寫成 `Expired`（見決策 3）
+  4. 座位/票種鎖定與 `CreateOrderHandler.Handle` 維持現有流程不變
+  5. 建立訂單成功後，在同一交易內呼叫該筆 `PurchaseQueueEntry.Complete()`，與 `_orderRepository.Add(...)` 一起在同一次 `transaction.CommitAsync` 提交
+- **這個鎖定對每一筆訂單都會執行，不論該活動是否真的開啟熱門搶購模式**：唯有先取得鎖、讀到權威值後才知道是否要走排隊分支，若只在「先前已知可能是 true」時才補鎖，仍會漏掉「讀到 false 之後 Admin 才切成 true」的情境（買家因此完全繞過排隊）。這代表每筆 `POST /api/orders` 都會多一次對 `Event` 列的短暫 `FOR UPDATE` 鎖，即使該活動從未使用排隊功能——這是本次為求正確性刻意接受的固定成本，鎖定範圍極小（單一活動列，鎖定時間僅交易期間），且與既有「座位/票種也是先 no-tracking 讀取、再於交易內鎖定重讀」的既定模式（見 `OrderService.cs:60-61` 既有註解）一致，只是把同一手法延伸套用到 `Event`
+- **鎖定順序與死鎖風險**：本次固定的鎖定順序為 `Event → PurchaseQueueEntry（單一會員該筆）→ EventSeat → TicketType`；背景服務對某活動的 tick 只鎖定 `PurchaseQueueEntry` 表（篩選範圍見決策 3），不涉及 `Event`／`EventSeat`／`TicketType`，因此背景服務與 `OrderService.PlaceOrderAsync` 之間對 `PurchaseQueueEntry` 表的鎖爭用只會是「等待」而非「循環等待」；`SetEventQueueModeHandler` 只涉及 `Event` 單一列，不會與其他鎖同時持有多個資料表的鎖，不構成死鎖的第三方。整個系統中，只有 `OrderService.PlaceOrderAsync` 這一個路徑會依序持有這四種鎖，其餘路徑最多只涉及其中一種，符合「固定順序取鎖」的既有慣例（`seat-reservation`）
+- **有效名額的立即釋放語意（見決策 3 的「有效名額」定義）**：`Complete()` 讓該筆紀錄的 `Status` 從 `Admitted` 變為 `Completed`，依決策 3 定義「有效名額 = COUNT(Status = 'Admitted' AND ...)」，`Completed` 紀錄不再計入，名額在交易提交的當下即釋放給下一輪背景推進，**不是**「延遲到 `AdmissionExpiresAtUtc` 才釋放」——先前版本「不立即釋放名額」的描述是錯誤的，容易讓實作者誤解成需要額外的延遲釋放機制，本次修正為明確的「狀態離開 `Admitted` 即不計入名額」單一規則，競態安全性由決策 3／4 的悲觀鎖與同交易重新確認保證，不依賴延遲釋放
+- **排隊資格不足使用新的 `ErrorType.QueueAdmissionRequired`（HTTP 403），不重用既有的通用 `ErrorType.Forbidden`**：既有 `ErrorType.Forbidden` 已用於多種不同業務語意（`OrderService.cs:296` 非本人訂單、`GetTicketQrCodeHandler.cs:39` 非本人票券、`LoginHandler.cs:52` 帳號停用），`ProblemDetails.Title` 目前直接輸出 `error.Type.ToString()`，若排隊資格不足也重用 `Forbidden`，前端會無法僅靠回應內容穩定區分「需先排隊」與其他 403 情境，只能依賴呼叫的是哪個端點做隱性假設。新增獨立的 `ErrorType.QueueAdmissionRequired`，在 `ResultExtensions.CreateProblemResult` 的 switch 中同樣映射為 `StatusCodes.Status403Forbidden`（HTTP 狀態碼不變，與既有 403 語意一致），但 `Title` 會是穩定的 `"QueueAdmissionRequired"` 字串，前端依此（而非泛用的 403 狀態碼或需解析 `Detail` 文字）判斷是否導向排隊等待畫面，不需另外擴充 `ProblemDetails.Extensions`
+- 不要求前端在 `PlaceOrderRequest` 中額外帶入 queue token／entry id：`OrderService` 直接以 `MemberId` + 訂單所屬 `EventId` 反查排隊紀錄，`PlaceOrderRequest` 的既有欄位不需變動
+
+**5. 前端「區域隨選快速下單」與排隊狀態的關係，比照一般選位/計數購買，不另外設計獨立規則**
+- 既有 `buyer-web-ui` 能力的「區域隨選快速下單」是選位操作的另一種互動方式（一次選多個座位並直接送出），本質仍是送出 `POST /api/orders`，因此排隊狀態對它的限制與一般選位/計數購買完全一致：`Waiting` 時停用（含區域隨選的操作入口），`Admitted` 時開放；後端的排隊資格檢查（決策 4）本來就會擋下任何未取得入場資格的下單請求，不論前端是透過一般選位、計數購買或區域隨選送出
+- 不需要為區域隨選另立一套排隊規則或另一組 Scenario 語意，只需在 UI 層確保排隊等待畫面顯示期間，區域隨選的操作入口與一般選位一樣被停用（避免顯示可操作但實際會被 403 擋下的按鈕，造成體驗不一致）
+
+**6. 錯誤契約補充：404／409 情境與回應內容**
+- `POST /api/events/{id}/queue/entries`、`GET /api/events/{id}/queue/entries/me`：`id` 對應活動不存在時，回傳 `404 Not Found`（`ErrorType.NotFound`），比照既有查詢類端點的既定慣例
+- `POST /api/events/{id}/queue/entries` 對 `IsQueueModeEnabled = false` 的活動呼叫加入排隊：回傳 `409 Conflict`（`ErrorType.Conflict`）——語意上是「目前活動狀態不允許此操作」，比照既有「座位已被鎖定」等既有 Conflict 用法，不使用 `Validation`（並非請求格式錯誤）
+- `PATCH /api/admin/events/{id}/queue-mode`：`enabled` 缺漏或非 boolean 由 FluentValidation 攔截回傳 `400`；活動不存在回傳 `404`；非 `Admin` 或未登入由既有 `[Authorize(Policy = AuthorizationPolicies.AdminOnly)]` 機制在 Result 層之前擋下，回傳 `403`（框架既有行為，不經過 `ErrorType`）
+  - **`SetEventQueueModeRequest` 的 `Enabled` 屬性 MUST 宣告為 `bool?`（nullable），不得用 `bool`**：若宣告為 `bool`，ASP.NET Core model binding 對 `{}`（完全缺漏 `enabled` 欄位）與 `{ "enabled": false }`（明確指定關閉）兩種請求 Body 都會繫結出同一個預設值 `false`，導致 FluentValidation 無法區分「缺漏」與「明確關閉」，也就無法實現「缺漏 MUST 回傳 400」的要求。宣告為 `bool?` 後，`{}` 會繫結為 `null`，Validator 用 `RuleFor(x => x.Enabled).NotNull()` 即可準確攔截缺漏情境；型別完全錯誤（例如 `{ "enabled": "false" }`，字串而非 boolean）則在 model binding 階段就會失敗，由 `[ApiController]` 既有的自動 400 回應機制處理，不會進入 Handler
+- 排隊狀態查詢回應內容（`GET /api/events/{id}/queue/entries/me`）欄位定義：`status`（`NotJoined` / `Waiting` / `Admitted` / `Expired`，前端據此決定畫面）、`waitingCount`（僅 `Waiting` 時有值，其餘為 `null`）、`queueModeEnabled`（`bool`，反映查詢當下該活動的 `Event.IsQueueModeEnabled`，見決策 7）——`Completed` 不會出現在 `status` 中，因為查詢邏輯只回傳「目前紀錄」（決策 3 選取規則），一筆進行中或剛逾時的紀錄才有查詢意義，`Completed` 代表該次排隊已完成其任務（已用於成功下單），對後續查詢不再有效用途，此時應視同「尚未加入排隊」（因為唯一性約束已允許重新加入）
+
+**7. 排隊端點的授權範圍：任何已登入會員皆可使用，不限角色，會員身份一律取自 JWT**
+- 本專案角色只有 `MemberRole.Member`／`MemberRole.Admin`（`src/ProjectC.Domain/Members/MemberRole.cs`）兩種；既有 `POST /api/orders`（`OrdersController`）僅標註 `[Authorize]`，不限制角色，代表現況本來就允許 `Admin` 角色的帳號比照一般會員下單，本次新增的排隊端點（`POST /api/events/{id}/queue/entries`、`GET /api/events/{id}/queue/entries/me`）比照既有 `OrdersController` 的既定慣例，同樣只標註 `[Authorize]`、不額外限制角色——若刻意排除 `Admin` 角色，會是本次變更引入一個既有下單流程原本沒有的新限制，不在本次範疇內，也未見任何業務需求要求如此
+- `PurchaseQueueEntry.MemberId` 一律從 JWT Claims（`User.GetMemberId()`，既有既定寫法）取得，不接受請求 Body 或 Query String 傳入其他會員 Id 覆寫——查詢端點路徑為 `/me`，語意上就是「查詢我自己」，只回傳呼叫者本人的排隊紀錄，不支援查詢或代入他人身份
+- 開關熱門搶購模式的 `PATCH /api/admin/events/{id}/queue-mode` 維持既有 `AdminOnly` policy 限制不變（見決策 2），與買家排隊端點的授權範圍分屬不同端點、不同判斷依據，不互相影響
+
+## Risks / Trade-offs
+
+- [Risk] Fixed Window 限流在窗口交界處可能允許短暫超量請求 → Mitigation：屬已知取捨，基礎防護已足夠；未來如需更嚴謹可換 Sliding Window，同套件內切換、遷移成本低
+- [Risk] 背景服務輪詢間隔（決策 3 已定案 `PollingInterval = 5 秒`）造成排隊名額釋放有延遲，玩家體感等待時間比理論值略長 → Mitigation：符合「基礎」排隊機制的定位，間隔可透過設定調整；即時推播式（例如 Redis pub/sub 驅動）留待 Phase 3
+- [Risk] 目前假設單一 `api` container；若未來水平擴充，多實例同時處理同一活動的 tick 需要依賴 DB 悲觀鎖序列化，正確性不受影響但輪詢延遲會疊加 → Mitigation：現行 Docker Compose 部署為單一 `api` 服務，此風險暫不影響現況，記錄於此供未來擴充時參考
+- [Risk] `MaxConcurrentAdmittedBuyers` 與 admission TTL 設太寬鬆則防護形同虛設、太嚴格則排隊體感過慢 → Mitigation：設計為可設定值而非寫死，具體預設值於 tasks 實作階段依測試結果微調
+- [Risk] 僅以會員 Id 分區的請求頻率限制，無法防禦大量申請帳號後平均分散請求的機器人（每個帳號各自都在額度內）——本次的限流與排隊機制屬於「基礎」防護，鎖定的是「單一帳號高頻重複呼叫」與「未排隊直接搶進下單」這兩種最常見的腳本手法，不是完整的反機器人方案（例如不含裝置指紋、行為分析、CAPTCHA） → Mitigation：`docs/project-scope.md` 已將「動態驗證碼（CAPTCHA）」等進階行為驗證列為 Could，此風險留待該範圍評估，本次不視為阻擋項
+- [Risk] 為了正確判斷 Queue Mode 切換的線性化時點（決策 4），每一筆 `POST /api/orders` 都新增一次對 `Event` 列的 `FOR UPDATE` 鎖，即使該活動從未啟用排隊功能也一樣 → Mitigation：鎖定範圍是單一活動列、鎖定時間僅交易期間，與既有座位/票種的「no-tracking 預查 + 交易內鎖定重讀」手法一致，屬於刻意接受的固定成本；若未來量測到這是效能瓶頸，可考慮改用 `Event.RowVersion`（樂觀鎖）搭配交易內重讀比對版本號，但屬於超出本次「基礎」範疇的優化，暫不採用
+
+## Migration Plan
+
+- 新增 EF Core migration：`Event` 新增 `IsQueueModeEnabled`（`bool`，預設 `false`，對既有活動不影響行為）；新增 `PurchaseQueueEntry` 資料表，含複合索引 `(EventId, Status, JoinedAtUtc, Id)` 與 `(EventId, MemberId)` 的 partial unique index（`WHERE Status IN ('Waiting', 'Admitted')`，見決策 3）
+- Rate limiting 為純 middleware 設定，無需 migration；套用即生效，需在 `appsettings` 提供合理預設值（`PermitLimit`／`Window`），避免上線當下對正常使用者造成誤傷
+- 部署順序：先套用 migration → 部署新版 API（`IsQueueModeEnabled` 預設關閉，排隊機制對現有活動處於休眠狀態，不影響現行下單流程）→ 需要時由 Admin 針對個別活動開啟
+- Rollback：關閉個別活動的 `IsQueueModeEnabled` 即可停用排隊檢查；如需完全回滾，migration down 移除新表與欄位，排隊紀錄為過程性資料，不影響訂單/票券等核心資料
+
+## Open Questions
+
+- 「熱門搶購模式」未來是否需要依剩餘庫存比例自動觸發，或維持 Admin 手動開關即可——本次先以手動開關上線，待實際使用回饋後再評估
+- `MaxConcurrentAdmittedBuyers`／`AdmissionTtl`／`PollingInterval`（含前端輪詢間隔）的起始值已在決策 3 直接定案（`50`／`5 分鐘`／`5 秒`），此處不再是待決問題；唯一保留的後續問題是這些起始值上線後是否需要依實際負載測試或使用回饋調整——不影響本次實作，調整只需改設定值，不需改程式碼或 spec
