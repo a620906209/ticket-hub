@@ -2,6 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { FormInstance } from 'element-plus'
+import { ApiError } from '../../api/httpClient'
 import { useAuthStore } from '../../stores/auth'
 import { emailRules, requiredRule } from '../../utils/validators'
 import { toErrorMessage } from '../../utils/errors'
@@ -37,6 +38,12 @@ async function handleSubmit(): Promise<void> {
       await router.push('/')
     }
   } catch (error) {
+    // 登入請求頻率限制：顯示友善提示，不直接顯示後端原始 ProblemDetails.title 字串
+    // （login-rate-limiting design.md 決策 5）。
+    if (error instanceof ApiError && error.status === 429) {
+      errorMessage.value = '登入嘗試過於頻繁，請稍後再試'
+      return
+    }
     errorMessage.value = toErrorMessage(error, '登入失敗，請確認帳號密碼是否正確')
   } finally {
     submitting.value = false

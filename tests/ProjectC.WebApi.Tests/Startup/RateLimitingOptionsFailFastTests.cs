@@ -24,6 +24,14 @@ public class RateLimitingOptionsFailFastTests
         ["RateLimiting:WindowSeconds"] = windowSeconds.ToString(),
     };
 
+    private static Dictionary<string, string?> BaseConfigurationWithLoginRateLimiting(int loginPermitLimit, int loginWindowSeconds)
+    {
+        var configuration = BaseConfiguration(permitLimit: 20, windowSeconds: 60);
+        configuration["LoginRateLimiting:PermitLimit"] = loginPermitLimit.ToString();
+        configuration["LoginRateLimiting:WindowSeconds"] = loginWindowSeconds.ToString();
+        return configuration;
+    }
+
     private static bool ContainsOptionsValidationException(Exception exception)
     {
         var current = exception;
@@ -52,6 +60,30 @@ public class RateLimitingOptionsFailFastTests
             builder.UseEnvironment("Testing");
             builder.ConfigureAppConfiguration((_, configBuilder) =>
                 configBuilder.AddInMemoryCollection(BaseConfiguration(permitLimit, windowSeconds)));
+        });
+
+        var act = () => factory.Server;
+
+        act.Should().Throw<Exception>()
+            .Where(e => e is OptionsValidationException || ContainsOptionsValidationException(e));
+    }
+
+    // login-rate-limiting spec LRL-008：LoginRateLimitingOptions 同樣沒有 ValidateOnStart()，Program.cs
+    // 在 app.Build() 後強制解析一次 IOptions<LoginRateLimitingOptions>，理由與上面的 RateLimitingOptions
+    // 完全相同（見 login-rate-limiting design.md 決策 3）。LRL-007（缺漏時採用預設值）見
+    // LoginRateLimitingOptionsTests（Application.Tests，直接驗證 C# 層級預設值）。
+    [Theory]
+    [InlineData(0, 60)]
+    [InlineData(-1, 60)]
+    [InlineData(5, 0)]
+    [InlineData(5, -1)]
+    public void CreatingHost_WithNonPositiveLoginRateLimitingValues_ThrowsOptionsValidationException(int loginPermitLimit, int loginWindowSeconds)
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Testing");
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+                configBuilder.AddInMemoryCollection(BaseConfigurationWithLoginRateLimiting(loginPermitLimit, loginWindowSeconds)));
         });
 
         var act = () => factory.Server;
