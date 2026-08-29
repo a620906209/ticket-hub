@@ -6,6 +6,7 @@ using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
+using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
@@ -22,6 +23,7 @@ public class OrderServiceTests
         public FakeSeatMapRepository SeatMapRepository { get; } = new();
         public FakeTicketTypeRepository TicketTypeRepository { get; } = new();
         public FakeOrderRepository OrderRepository { get; } = new();
+        public FakePurchaseQueueRepository PurchaseQueueRepository { get; } = new();
         public FakeTicketRepository TicketRepository { get; } = new();
         public FakeUnitOfWork UnitOfWork { get; } = new();
         public FakeDateTimeProvider DateTimeProvider { get; } = new() { UtcNow = Now };
@@ -33,6 +35,7 @@ public class OrderServiceTests
             EventRepository,
             SeatMapRepository,
             OrderRepository,
+            PurchaseQueueRepository,
             UnitOfWork,
             new PlaceOrderRequestValidator(),
             DateTimeProvider,
@@ -421,6 +424,80 @@ public class OrderServiceTests
         var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
+    }
+
+    // ---- 熱門搶購模式排隊資格檢查（rate-limiting-queue design.md 決策 4，ticket-purchase spec TP-ORDER-011~014） ----
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeEnabledAndCallerIsAdmittedAndNotExpired_SucceedsAndCompletesQueueEntry()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        @event.EnableQueueMode();
+        var buyerId = Guid.NewGuid();
+        var entry = new PurchaseQueueEntry(Guid.NewGuid(), @event.Id, buyerId, Now.AddMinutes(-10));
+        entry.Admit(Now.AddMinutes(-5), Now.AddMinutes(5));
+        fixture.PurchaseQueueRepository.Data.Add(entry);
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(buyerId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.OrderRepository.Data.Should().ContainSingle(o => o.Id == result.Value);
+        // PQ-COMPLETE-001：同一交易內將排隊紀錄標記為 Completed，名額即時釋放。
+        entry.Status.Should().Be(PurchaseQueueEntryStatus.Completed);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeEnabledAndCallerHasNoAdmission_ReturnsQueueAdmissionRequiredAndDoesNotLockAnything()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        @event.EnableQueueMode();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.QueueAdmissionRequired);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+        eventSeat.GetStatus(fixture.DateTimeProvider.UtcNow).Should().Be(EventSeatStatus.Available, "未取得入場資格時不應鎖定任何座位");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeDisabled_SucceedsWithoutCheckingQueueEntry()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        // @event.IsQueueModeEnabled 預設為 false，不呼叫 EnableQueueMode()。
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _ = @event;
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenAdmissionExpiresExactlyAtCheckTime_ReturnsQueueAdmissionRequiredAndDoesNotExpireEntry()
+    {
+        // TP-ORDER-014：即使請求送出當下資格仍有效，仍以系統檢查當下的最新狀態為準；
+        // OrderService MUST NOT 呼叫 Expire()——落地寫入統一交由背景服務／自我修復流程負責（design.md 決策 4）。
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        @event.EnableQueueMode();
+        var buyerId = Guid.NewGuid();
+        var entry = new PurchaseQueueEntry(Guid.NewGuid(), @event.Id, buyerId, Now.AddMinutes(-10));
+        entry.Admit(Now.AddMinutes(-5), Now);
+        fixture.PurchaseQueueRepository.Data.Add(entry);
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(buyerId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.QueueAdmissionRequired);
+        entry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted, "OrderService 只讀取判斷，不落地寫入 Expire()");
+        fixture.OrderRepository.Data.Should().BeEmpty();
     }
 
     // ---- ConfirmOrderAsync / CancelOrderAsync ----

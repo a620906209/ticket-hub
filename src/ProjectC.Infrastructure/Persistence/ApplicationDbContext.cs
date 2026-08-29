@@ -4,6 +4,7 @@ using ProjectC.Domain.Authentication;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
+using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
@@ -31,6 +32,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<PurchaseQueueEntry> PurchaseQueueEntries => Set<PurchaseQueueEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

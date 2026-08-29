@@ -7,4 +7,5 @@ public enum ErrorType
     Conflict,
     Unauthorized,
     Forbidden,
+    QueueAdmissionRequired,
 }

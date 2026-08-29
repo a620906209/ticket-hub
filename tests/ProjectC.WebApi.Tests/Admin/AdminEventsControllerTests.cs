@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
+using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Members;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Venues.CreateSeatMap;
@@ -209,5 +210,114 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var response = await client.GetAsync("/api/admin/events");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    // ---- PATCH /api/admin/events/{id}/queue-mode（rate-limiting-queue design.md 決策 2／6，
+    // purchase-queue spec PQ-ADMIN-001~007；PQ-ADMIN-004／006／007 同時驗證 tasks.md 12.10 的
+    // SetEventQueueModeRequest.Enabled（bool?）model binding 行為） ----
+
+    private static Task<HttpResponseMessage> PatchQueueModeAsync(HttpClient client, Guid eventId, object body)
+        => client.PatchAsJsonAsync($"/api/admin/events/{eventId}/queue-mode", body);
+
+    private async Task<bool> ReadIsQueueModeEnabledAsync(Guid eventId)
+    {
+        var client = _factory.CreateClient();
+        var response = await client.GetAsync("/api/events");
+        var events = await response.Content.ReadFromJsonAsync<List<EventDto>>();
+        return events!.Single(e => e.Id == eventId).IsQueueModeEnabled;
+    }
+
+    [Fact]
+    public async Task SetQueueMode_AsAdminWithEnabledTrue_Returns204AndEnablesQueueMode()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+
+        var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = true });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SetQueueMode_AsAdminWithEnabledFalseAfterEnabling_Returns204AndDisablesQueueMode()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        await PatchQueueModeAsync(adminClient, eventId, new { enabled = true });
+
+        var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = false });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SetQueueMode_AsNonAdminMember_Returns403AndDoesNotChangeState()
+    {
+        var memberClient = _factory.CreateClient();
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(memberClient);
+        memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+
+        var response = await PatchQueueModeAsync(memberClient, eventId, new { enabled = true });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SetQueueMode_WithoutAuthentication_Returns401AndDoesNotChangeState()
+    {
+        var anonymousClient = _factory.CreateClient();
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+
+        var response = await PatchQueueModeAsync(anonymousClient, eventId, new { enabled = true });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SetQueueMode_WithMissingEnabledField_Returns400AndDoesNotChangeState()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+
+        var response = await PatchQueueModeAsync(adminClient, eventId, new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "Enabled 為 bool?，完全缺漏欄位 MUST 繫結為 null 並被 NotNull() 攔截，不得誤判為明確關閉");
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SetQueueMode_ForNonExistentEvent_Returns404()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+
+        var response = await PatchQueueModeAsync(adminClient, Guid.NewGuid(), new { enabled = true });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task SetQueueMode_WithEnabledAsWrongJsonType_Returns400AndDoesNotChangeState()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+
+        var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = "false" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, "enabled 為字串而非 boolean 時，model binding 階段就應該失敗");
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
     }
 }

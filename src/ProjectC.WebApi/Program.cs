@@ -1,6 +1,9 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -14,6 +17,7 @@ using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Events.GetEvents;
+using ProjectC.Application.Events.SetEventQueueMode;
 using ProjectC.Application.Members.Activate;
 using ProjectC.Application.Members.Deactivate;
 using ProjectC.Application.Members.GetMyProfile;
@@ -24,6 +28,8 @@ using ProjectC.Application.Orders.GetOrderById;
 using ProjectC.Application.Orders.GetMyOrderDetail;
 using ProjectC.Application.Orders.GetMyOrders;
 using ProjectC.Application.Orders.GetOrders;
+using ProjectC.Application.PurchaseQueue.GetMyQueueStatus;
+using ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketQrCode;
 using ProjectC.Application.Tickets.GetTicketTypes;
@@ -36,6 +42,7 @@ using ProjectC.Application.Venues.GetVenues;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
+using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 using ProjectC.Infrastructure.Payments;
@@ -72,6 +79,7 @@ builder.Services.AddScoped<IEventSeatRepository, EventSeatRepository>();
 builder.Services.AddScoped<ITicketTypeRepository, TicketTypeRepository>();
 builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 builder.Services.AddScoped<ITicketRepository, TicketRepository>();
+builder.Services.AddScoped<IPurchaseQueueRepository, PurchaseQueueRepository>();
 
 // JwtOptions：啟動時驗證，SigningKey 等缺失直接讓應用程式啟動失敗（Fail Fast，見 design.md 決策 9）。
 builder.Services
@@ -108,6 +116,24 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<TicketSigning
 builder.Services.AddSingleton<ITicketSigningService, HmacTicketSigningService>();
 builder.Services.AddTransient<ITicketQrCodeGenerator, TicketQrCodeGenerator>();
 
+// RateLimitingOptions 有安全的預設值，不像 PurchaseQueueOptions 缺值就無法運作，不需要 ValidateOnStart；
+// 只能用 AddOptions<T>().Bind(...).ValidateDataAnnotations()——Configure<T>() 回傳 IServiceCollection，
+// 無法直接串接 ValidateDataAnnotations()（見 rate-limiting-queue design.md 決策 1）。
+builder.Services
+    .AddOptions<RateLimitingOptions>()
+    .Bind(builder.Configuration.GetSection(RateLimitingOptions.SectionName))
+    .ValidateDataAnnotations();
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<RateLimitingOptions>>().Value);
+
+// PurchaseQueueOptions：任一值缺漏或為 0／負數都會讓熱門搶購模式的活動功能完全失效，
+// 比照 JwtOptions/TicketSigningOptions 啟動時 fail-fast（見 design.md 決策 3）。
+builder.Services
+    .AddOptions<PurchaseQueueOptions>()
+    .Bind(builder.Configuration.GetSection(PurchaseQueueOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<PurchaseQueueOptions>>().Value);
+
 builder.Services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
 builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();
 builder.Services.AddTransient<ITokenService, JwtTokenService>();
@@ -136,6 +162,9 @@ builder.Services.AddScoped<GetMyOrdersHandler>();
 builder.Services.AddScoped<GetMyOrderDetailHandler>();
 builder.Services.AddScoped<GetTicketQrCodeHandler>();
 builder.Services.AddScoped<RedeemTicketHandler>();
+builder.Services.AddScoped<SetEventQueueModeHandler>();
+builder.Services.AddScoped<JoinPurchaseQueueHandler>();
+builder.Services.AddScoped<GetMyQueueStatusHandler>();
 
 // Testing 環境（見 CustomWebApplicationFactory.UseEnvironment("Testing")）不啟動真實背景服務，
 // 否則所有既有 WebApi 整合測試都會連帶啟動一個對著自己 Testcontainers 資料庫跑的清理服務
@@ -143,6 +172,7 @@ builder.Services.AddScoped<RedeemTicketHandler>();
 if (!builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddHostedService<ExpiredOrderCleanupService>();
+    builder.Services.AddHostedService<PurchaseQueueAdmissionService>();
 }
 
 builder.Services.AddScoped<RegisterMemberHandler>();
@@ -181,7 +211,59 @@ builder.Services
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(AuthorizationPolicies.AdminOnly, policy => policy.RequireRole("Admin"));
 
+// 兩個獨立命名的 Fixed Window policy，分區鍵皆為會員 Id，各自累計、不共用計數
+// （rate-limiting-queue design.md 決策 1）。
+builder.Services.AddRateLimiter(rateLimiterOptions =>
+{
+    rateLimiterOptions.AddPolicy("place-order", httpContext => CreateMemberPartition(httpContext));
+    rateLimiterOptions.AddPolicy("confirm-order", httpContext => CreateMemberPartition(httpContext));
+
+    rateLimiterOptions.OnRejected = async (context, cancellationToken) =>
+    {
+        int? retryAfterSeconds = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+            ? (int)retryAfter.TotalSeconds
+            : null;
+
+        if (retryAfterSeconds is { } seconds)
+        {
+            context.HttpContext.Response.Headers["Retry-After"] = seconds.ToString();
+        }
+
+        var problemDetails = new ProblemDetails
+        {
+            Status = StatusCodes.Status429TooManyRequests,
+            Title = "TooManyRequests",
+            Extensions = { ["traceId"] = context.HttpContext.TraceIdentifier },
+        };
+
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        await context.HttpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
+    };
+
+    return;
+
+    static RateLimitPartition<string> CreateMemberPartition(HttpContext httpContext)
+    {
+        var options = httpContext.RequestServices.GetRequiredService<RateLimitingOptions>();
+        var partitionKey = httpContext.User.GetMemberId().ToString();
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = options.PermitLimit,
+            Window = TimeSpan.FromSeconds(options.WindowSeconds),
+            QueueLimit = 0,
+        });
+    }
+});
+
 var app = builder.Build();
+
+// RateLimitingOptions 沒有 ValidateOnStart()，這裡強制在啟動時觸發一次 IOptions<T>.Value 解析，
+// 讓 DataAnnotations 驗證確實在應用程式啟動過程中執行，不延遲到第一個進入端點的 HTTP 請求
+// （rate-limiting-queue design.md 決策 1）。MUST 解析 unwrap 後的 RateLimitingOptions（而不只是
+// IOptions<RateLimitingOptions> 這個 wrapper 本身）——只取得 wrapper 不會觸發 .Value 存取，
+// 驗證就不會真的執行；line 126 註冊的 Singleton 工廠內部才會呼叫 .Value。
+app.Services.GetRequiredService<RateLimitingOptions>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -196,6 +278,7 @@ app.UseHttpsRedirection();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 

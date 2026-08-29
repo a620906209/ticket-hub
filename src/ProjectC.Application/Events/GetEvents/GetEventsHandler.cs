@@ -23,7 +23,8 @@ public sealed class GetEventsHandler
                 e.SeatMapId,
                 e.Description,
                 e.PosterUrl,
-                e.MaxTicketsPerOrder))
+                e.MaxTicketsPerOrder,
+                e.IsQueueModeEnabled))
             .ToList();
     }
 }

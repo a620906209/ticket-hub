@@ -8,4 +8,5 @@ public sealed record EventDto(
     Guid SeatMapId,
     string? Description,
     string? PosterUrl,
-    int? MaxTicketsPerOrder);
+    int? MaxTicketsPerOrder,
+    bool IsQueueModeEnabled);

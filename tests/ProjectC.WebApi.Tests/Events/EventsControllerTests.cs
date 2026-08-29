@@ -64,6 +64,8 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var events = await response.Content.ReadFromJsonAsync<List<EventDto>>();
         events.Should().Contain(e => e.Id == eventId);
+        // TP-BROWSE-001：每筆活動附帶 IsQueueModeEnabled，新建立的活動預設關閉。
+        events!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeFalse();
     }
 
     [Fact]
