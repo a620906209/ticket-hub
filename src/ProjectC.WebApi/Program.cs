@@ -125,6 +125,15 @@ builder.Services
     .ValidateDataAnnotations();
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<RateLimitingOptions>>().Value);
 
+// LoginRateLimitingOptions：與 RateLimitingOptions 分開的獨立設定類別，分區鍵語意不同（來源 IP vs
+// 已登入會員 Id），數值也刻意設得更嚴格（login-rate-limiting design.md 決策 2）；同樣有安全預設值，
+// 不需要 ValidateOnStart，寫法逐行比照上面的 RateLimitingOptions。
+builder.Services
+    .AddOptions<LoginRateLimitingOptions>()
+    .Bind(builder.Configuration.GetSection(LoginRateLimitingOptions.SectionName))
+    .ValidateDataAnnotations();
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<LoginRateLimitingOptions>>().Value);
+
 // PurchaseQueueOptions：任一值缺漏或為 0／負數都會讓熱門搶購模式的活動功能完全失效，
 // 比照 JwtOptions/TicketSigningOptions 啟動時 fail-fast（見 design.md 決策 3）。
 builder.Services
@@ -211,12 +220,14 @@ builder.Services
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(AuthorizationPolicies.AdminOnly, policy => policy.RequireRole("Admin"));
 
-// 兩個獨立命名的 Fixed Window policy，分區鍵皆為會員 Id，各自累計、不共用計數
-// （rate-limiting-queue design.md 決策 1）。
+// place-order/confirm-order 是分區鍵為會員 Id 的獨立命名 Fixed Window policy，各自累計、不共用計數
+// （rate-limiting-queue design.md 決策 1）；login 呼叫當下使用者尚未通過驗證，改以來源 IP 分區
+// （login-rate-limiting design.md 決策 1）。三個 policy 各自獨立計數，皆共用下方同一個 OnRejected。
 builder.Services.AddRateLimiter(rateLimiterOptions =>
 {
     rateLimiterOptions.AddPolicy("place-order", httpContext => CreateMemberPartition(httpContext));
     rateLimiterOptions.AddPolicy("confirm-order", httpContext => CreateMemberPartition(httpContext));
+    rateLimiterOptions.AddPolicy("login", httpContext => CreateIpPartition(httpContext));
 
     rateLimiterOptions.OnRejected = async (context, cancellationToken) =>
     {
@@ -254,6 +265,21 @@ builder.Services.AddRateLimiter(rateLimiterOptions =>
             QueueLimit = 0,
         });
     }
+
+    // 登入端點呼叫當下使用者尚未通過驗證，沒有會員 Id 可用，改以來源 IP 分區
+    // （login-rate-limiting design.md 決策 1、3）。
+    static RateLimitPartition<string> CreateIpPartition(HttpContext httpContext)
+    {
+        var options = httpContext.RequestServices.GetRequiredService<LoginRateLimitingOptions>();
+        var partitionKey = LoginRateLimiterPartitioning.GetPartitionKey(httpContext);
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = options.PermitLimit,
+            Window = TimeSpan.FromSeconds(options.WindowSeconds),
+            QueueLimit = 0,
+        });
+    }
 });
 
 var app = builder.Build();
@@ -264,6 +290,10 @@ var app = builder.Build();
 // IOptions<RateLimitingOptions> 這個 wrapper 本身）——只取得 wrapper 不會觸發 .Value 存取，
 // 驗證就不會真的執行；line 126 註冊的 Singleton 工廠內部才會呼叫 .Value。
 app.Services.GetRequiredService<RateLimitingOptions>();
+
+// LoginRateLimitingOptions 同樣沒有 ValidateOnStart()，理由與上面的 RateLimitingOptions 相同
+// （login-rate-limiting design.md 決策 3）。
+app.Services.GetRequiredService<LoginRateLimitingOptions>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

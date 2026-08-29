@@ -21,7 +21,7 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 - **THEN** 系統導回使用者原本嘗試存取的頁面（例如導回原本瀏覽的活動詳情頁，可繼續選位）
 
 ### Requirement: 買家可透過介面註冊與登入
-系統 SHALL 提供註冊頁與登入頁，呼叫既有 `member-management`／`authentication` API 完成會員註冊與登入；登入成功後 SHALL 將角色為一般會員者導向買家端首頁。
+系統 SHALL 提供註冊頁與登入頁，呼叫既有 `member-management`／`authentication` API 完成會員註冊與登入；登入成功後 SHALL 將角色為一般會員者導向買家端首頁。登入 API 因請求頻率限制拒絕（`429 Too Many Requests`）而失敗時，系統 SHALL 顯示友善提示訊息（例如「登入嘗試過於頻繁，請稍後再試」），不得直接顯示後端回應的原始 `ProblemDetails.title` 字串（例如 `"TooManyRequests"`），不套用「登入失敗顯示錯誤訊息」情境的一般錯誤處理。
 
 #### Scenario: 註冊成功
 - **WHEN** 使用者在註冊頁填寫有效的 Email／密碼並送出
@@ -34,6 +34,10 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 #### Scenario: 登入失敗顯示錯誤訊息
 - **WHEN** 使用者輸入錯誤密碼送出登入
 - **THEN** 系統顯示登入失敗的錯誤訊息，停留在登入頁
+
+#### Scenario: LRL-009 登入因請求頻率限制被拒絕
+- **WHEN** 使用者送出登入請求，後端因該來源 IP 已超過請求頻率限制而回傳 `429 Too Many Requests`
+- **THEN** 系統顯示「登入嘗試過於頻繁，請稍後再試」的友善提示訊息，不顯示原始 `title` 字串，停留在登入頁
 
 ### Requirement: 買家可瀏覽活動列表與座位可售狀態
 系統 SHALL 提供活動列表頁與活動詳情頁，呼叫既有 `event-catalog`／`ticket-purchase` API 顯示活動基本資訊與座位可售狀態（Available／Held／Sold），不需要登入即可瀏覽。活動詳情頁 SHALL 並排顯示活動資訊（含海報圖片與說明文字，若 Admin 建立活動時有填寫）與座位選擇區；座位依分區分組顯示。此狀態為頁面載入或手動重新整理當下查詢 API 取得的結果，非伺服器推播的即時更新（本輪不引入 WebSocket／SignalR）。

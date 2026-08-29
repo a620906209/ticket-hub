@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ProjectC.Application.Authentication.Login;
 using ProjectC.Application.Authentication.Logout;
 using ProjectC.Application.Authentication.PasswordReset;
@@ -43,6 +44,7 @@ public class AuthController : ControllerBase
         return result.ToActionResult(id => StatusCode(StatusCodes.Status201Created, new { id }));
     }
 
+    [EnableRateLimiting("login")]
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequest request, CancellationToken cancellationToken)
     {
