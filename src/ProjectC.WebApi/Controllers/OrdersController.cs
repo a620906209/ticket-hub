@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.GetMyOrderDetail;
 using ProjectC.Application.Orders.GetMyOrders;
@@ -42,6 +43,7 @@ public class OrdersController : ControllerBase
     }
 
     [HttpPost]
+    [EnableRateLimiting("place-order")]
     public async Task<IActionResult> PlaceOrder(PlaceOrderRequest request, CancellationToken cancellationToken)
     {
         var result = await _orderService.PlaceOrderAsync(User.GetMemberId(), request, cancellationToken);
@@ -49,6 +51,7 @@ public class OrdersController : ControllerBase
     }
 
     [HttpPost("{id:guid}/confirm")]
+    [EnableRateLimiting("confirm-order")]
     public async Task<IActionResult> ConfirmOrder(Guid id, CancellationToken cancellationToken)
     {
         var result = await _orderService.ConfirmOrderAsync(id, User.GetMemberId(), cancellationToken);

@@ -1,5 +1,6 @@
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
+using ProjectC.Domain.Events;
 using ProjectC.Domain.Payments;
 using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
@@ -12,15 +13,17 @@ namespace ProjectC.Infrastructure.Tests.TestSupport;
 /// （OrderService 建構子曾在 ticket-issuance-and-redemption 這次變更中改過一次）。</summary>
 public static class OrderServiceTestFactory
 {
-    public static OrderService Create(ApplicationDbContext dbContext, IPaymentGateway? paymentGateway = null)
+    public static OrderService Create(
+        ApplicationDbContext dbContext, IPaymentGateway? paymentGateway = null, IEventRepository? eventRepository = null)
     {
         var dateTimeProvider = new SystemDateTimeProvider();
         return new OrderService(
             new TicketTypeRepository(dbContext),
             new EventSeatRepository(dbContext),
-            new EventRepository(dbContext),
+            eventRepository ?? new EventRepository(dbContext),
             new SeatMapRepository(dbContext),
             new OrderRepository(dbContext),
+            new PurchaseQueueRepository(dbContext),
             new UnitOfWork(dbContext),
             new PlaceOrderRequestValidator(),
             dateTimeProvider,

@@ -5,11 +5,13 @@ import ElementPlus from 'element-plus'
 import EventDetailPage from './EventDetailPage.vue'
 import * as eventsApi from '../../api/events'
 import * as ordersApi from '../../api/orders'
+import * as queueApi from '../../api/queue'
 import { ApiError } from '../../api/httpClient'
-import type { EventSeat, EventSummary, TicketType } from '../../types/apiResponses'
+import type { EventSeat, EventSummary, QueueStatus, TicketType } from '../../types/apiResponses'
 
 vi.mock('../../api/events')
 vi.mock('../../api/orders')
+vi.mock('../../api/queue')
 
 const pushMock = vi.fn()
 vi.mock('vue-router', () => ({
@@ -65,6 +67,7 @@ function buildEvent(overrides: Partial<EventSummary> = {}): EventSummary {
     description: null,
     posterUrl: null,
     maxTicketsPerOrder: null,
+    isQueueModeEnabled: false,
     ...overrides,
   }
 }
@@ -79,6 +82,10 @@ function buildSeatTicketType(overrides: Partial<TicketType> = {}): TicketType {
 
 function buildCountTicketType(overrides: Partial<TicketType> = {}): TicketType {
   return { id: 'tt-count-1', zoneCode: '站立區', price: 500, requiresSeat: false, availableQuantity: 10, ...overrides }
+}
+
+function buildQueueStatus(overrides: Partial<QueueStatus> = {}): QueueStatus {
+  return { status: 'NotJoined', waitingCount: null, queueModeEnabled: true, ...overrides }
 }
 
 function mountPage() {
@@ -612,6 +619,159 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
     await input.setValue(5)
 
     expect((input.element as HTMLInputElement).value).toBe('1')
+  })
+})
+
+describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
+  function joinQueueButton(wrapper: ReturnType<typeof mount>) {
+    const button = wrapper.findAll('button').find((b) => b.text() === '加入排隊')
+    if (!button) throw new Error('找不到「加入排隊」按鈕')
+    return button
+  }
+
+  beforeEach(() => {
+    mockIsAuthenticated = true
+    pushMock.mockReset()
+    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventSeats).mockReset()
+    vi.mocked(eventsApi.getTicketTypes).mockReset()
+    vi.mocked(ordersApi.placeOrder).mockReset()
+    vi.mocked(queueApi.getMyQueueStatus).mockReset()
+    vi.mocked(queueApi.joinQueue).mockReset()
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('BW-QUEUE-001：進入熱門搶購模式活動且尚未加入排隊，顯示加入排隊操作、不開放選位', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus)
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'NotJoined' }))
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 0 }))
+    vi.mocked(queueApi.joinQueue).mockResolvedValue({ id: 'entry-1' })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('加入排隊')
+    expect(wrapper.find('.seat-btn').exists()).toBe(false)
+
+    await joinQueueButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(queueApi.joinQueue).toHaveBeenCalledWith('event-1')
+    expect(wrapper.text()).toContain('排隊中')
+  })
+
+  it('BW-QUEUE-002：排隊中顯示等待畫面與前方等待人數，停用選位/計數/區域隨選，並定期輪詢狀態', async () => {
+    vi.useFakeTimers()
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 3 }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('排隊中')
+    expect(wrapper.text()).toContain('目前前方還有 3 人等待')
+    expect(wrapper.find('.seat-btn').exists()).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text() === '自動選位並送出訂單')).toBe(false)
+
+    expect(queueApi.getMyQueueStatus).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(queueApi.getMyQueueStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('BW-QUEUE-003：排隊狀態由 Waiting 轉為 Admitted 後，停止輪詢並開放選位與下單', async () => {
+    vi.useFakeTimers()
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus)
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 1 }))
+      .mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('排隊中')
+
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(wrapper.text()).not.toContain('排隊中')
+    expect(wrapper.find('.seat-btn').exists()).toBe(true)
+
+    const callCountAfterAdmitted = vi.mocked(queueApi.getMyQueueStatus).mock.calls.length
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(queueApi.getMyQueueStatus).toHaveBeenCalledTimes(callCountAfterAdmitted)
+  })
+
+  it('BW-QUEUE-004：下單時排隊資格已逾時（403 + QueueAdmissionRequired），導回排隊等待畫面，不清空已選座位、不重新整理座位票種資料', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus)
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Admitted' }))
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 2 }))
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('下單失敗')
+    expect(wrapper.text()).toContain('排隊中')
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
+    expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(1)
+  })
+
+  it('BW-QUEUE-005：下單因請求頻率限制被拒絕（429），顯示提示、不清空已選內容、不重新整理資料', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('請求過於頻繁')
+    expect(wrapper.text()).toContain('已選 1 個座位')
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
+  })
+
+  it('BW-QUEUE-006：其他語意的 403（title 不是 QueueAdmissionRequired）沿用一般失敗處理，不導向排隊等待畫面', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(403, { status: 403, title: 'Forbidden', detail: '非本人操作' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    // 沿用一般失敗處理：顯示錯誤（訊息內容取自 ApiError 本身，不是排隊專屬文案）、清空已選座位、重新整理資料。
+    expect(wrapper.text()).toContain('非本人操作')
+    expect(wrapper.text()).toContain('已選 0 個座位')
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+  })
+
+  it('BW-TOGGLE-001：排隊等待期間 Queue Mode 被關閉，下一次輪詢的 queueModeEnabled 為 false 時，停止輪詢並開放正常購票', async () => {
+    vi.useFakeTimers()
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus)
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 1, queueModeEnabled: true }))
+      .mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 1, queueModeEnabled: false }))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('排隊中')
+
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(wrapper.text()).not.toContain('排隊中')
+    expect(wrapper.find('.seat-btn').exists()).toBe(true)
+
+    const callCountAfterDisabled = vi.mocked(queueApi.getMyQueueStatus).mock.calls.length
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(queueApi.getMyQueueStatus).toHaveBeenCalledTimes(callCountAfterDisabled)
   })
 })
 

@@ -22,6 +22,9 @@ public static class ResultExtensions
             ErrorType.Validation => StatusCodes.Status400BadRequest,
             ErrorType.Unauthorized => StatusCodes.Status401Unauthorized,
             ErrorType.Forbidden => StatusCodes.Status403Forbidden,
+            // Title 沿用下方 error.Type.ToString()，天然就是穩定的 "QueueAdmissionRequired" 字串，
+            // 前端據此（而非泛用 403）判斷是否導向排隊等待畫面（rate-limiting-queue design.md 決策 4）。
+            ErrorType.QueueAdmissionRequired => StatusCodes.Status403Forbidden,
             ErrorType.NotFound => StatusCodes.Status404NotFound,
             ErrorType.Conflict => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,

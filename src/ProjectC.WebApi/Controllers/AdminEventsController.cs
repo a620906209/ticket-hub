@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
+using ProjectC.Application.Events.SetEventQueueMode;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.WebApi.Common;
 
@@ -15,15 +16,18 @@ public class AdminEventsController : ControllerBase
     private readonly CreateEventHandler _createEventHandler;
     private readonly CreateTicketTypeHandler _createTicketTypeHandler;
     private readonly GetAdminEventsHandler _getAdminEventsHandler;
+    private readonly SetEventQueueModeHandler _setEventQueueModeHandler;
 
     public AdminEventsController(
         CreateEventHandler createEventHandler,
         CreateTicketTypeHandler createTicketTypeHandler,
-        GetAdminEventsHandler getAdminEventsHandler)
+        GetAdminEventsHandler getAdminEventsHandler,
+        SetEventQueueModeHandler setEventQueueModeHandler)
     {
         _createEventHandler = createEventHandler;
         _createTicketTypeHandler = createTicketTypeHandler;
         _getAdminEventsHandler = getAdminEventsHandler;
+        _setEventQueueModeHandler = setEventQueueModeHandler;
     }
 
     [HttpPost]
@@ -45,5 +49,12 @@ public class AdminEventsController : ControllerBase
     {
         var result = await _createTicketTypeHandler.HandleAsync(eventId, request, cancellationToken);
         return result.ToActionResult(id => StatusCode(StatusCodes.Status201Created, new { id }));
+    }
+
+    [HttpPatch("{id:guid}/queue-mode")]
+    public async Task<IActionResult> SetQueueMode(Guid id, SetEventQueueModeRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _setEventQueueModeHandler.HandleAsync(id, request, cancellationToken);
+        return result.ToActionResult();
     }
 }

@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getEvents, getEventSeats, getTicketTypes } from '../../api/events'
 import { placeOrder } from '../../api/orders'
 import type { PlaceOrderSelection } from '../../api/orders'
+import { getMyQueueStatus, joinQueue } from '../../api/queue'
 import { ApiError } from '../../api/httpClient'
 import { useAuthStore } from '../../stores/auth'
-import type { EventSeat, EventSummary, TicketType } from '../../types/apiResponses'
+import type { EventSeat, EventSummary, QueueStatus, TicketType } from '../../types/apiResponses'
 import type { SelectedSeat } from '../../types/ui'
 import { computeHeldUntilUtc } from '../../utils/orderHold'
 import { toErrorMessage } from '../../utils/errors'
 import { formatCurrency } from '../../utils/currency'
+import QueueWaitingPanel from '../../components/QueueWaitingPanel.vue'
+
+// 與後端 PurchaseQueueOptions.PollingIntervalSeconds 同數量級的起始值（design.md 決策 3）。
+const QUEUE_POLL_INTERVAL_MS = 5000
 
 const route = useRoute()
 const router = useRouter()
@@ -24,6 +29,30 @@ const selectedSeats = ref<SelectedSeat[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
+
+// 熱門搶購模式排隊狀態（design.md 決策 6／buyer-web-ui spec）。
+const queueStatus = ref<QueueStatus | null>(null)
+const joiningQueue = ref(false)
+let queuePollTimer: ReturnType<typeof setTimeout> | null = null
+let isRefreshingQueueStatus = false
+
+// 一旦已經查詢過排隊狀態，以每次輪詢回應當下的 queueModeEnabled 為準（比活動列表當初讀到的
+// isQueueModeEnabled 更新），才能正確反映「等待期間 Admin 關閉熱門搶購模式」（BW-TOGGLE-001）。
+const isQueueModeActive = computed(() => queueStatus.value?.queueModeEnabled ?? event.value?.isQueueModeEnabled ?? false)
+// 未登入時不呈現排隊機制，比照既有座位選位「未登入僅顯示登入提示」的既定行為；
+// 排隊端點本身也要求已登入（見 buyer-web-ui spec BW-QUEUE-001 起始條件「已登入買家」）。
+const showQueueWaiting = computed(
+  () => authStore.isAuthenticated && queueStatus.value?.status === 'Waiting' && isQueueModeActive.value,
+)
+const showJoinPrompt = computed(
+  () =>
+    authStore.isAuthenticated &&
+    isQueueModeActive.value &&
+    (queueStatus.value === null || queueStatus.value.status === 'NotJoined' || queueStatus.value.status === 'Expired'),
+)
+const canPurchase = computed(
+  () => !authStore.isAuthenticated || !isQueueModeActive.value || queueStatus.value?.status === 'Admitted',
+)
 
 // 只納入座位制票種：純計數票種的 zoneCode 是自由顯示名稱，可能剛好跟某個座位分區同名，
 // 若也放進這個 Map 可能覆寫掉真正的座位分區對照，導致座位選購組出「RequiresSeat = false
@@ -91,6 +120,7 @@ function handleCountChange(ticketType: TicketType, rawValue: number | undefined)
     router.push({ path: '/login', query: { redirect: route.fullPath } })
     return
   }
+  if (!canPurchase.value) return
   countQuantities[ticketType.id] = rawValue ?? 0
 }
 
@@ -115,6 +145,7 @@ function toggleSeat(seat: EventSeat): void {
     router.push({ path: '/login', query: { redirect: route.fullPath } })
     return
   }
+  if (!canPurchase.value) return
   if (seat.status !== 'Available') return
 
   if (isSelected(seat)) {
@@ -168,6 +199,7 @@ async function handleQuickPick(): Promise<void> {
     router.push({ path: '/login', query: { redirect: route.fullPath } })
     return
   }
+  if (!canPurchase.value) return
   if (quickPickCount.value <= 0) return
 
   errorMessage.value = ''
@@ -201,6 +233,67 @@ async function handleQuickPick(): Promise<void> {
   await handleSubmit()
 }
 
+function stopQueuePolling(): void {
+  if (queuePollTimer !== null) {
+    clearTimeout(queuePollTimer)
+    queuePollTimer = null
+  }
+}
+
+// 改用遞迴 setTimeout（而非 setInterval）：下一次輪詢一律排在「上一次請求完成之後」才安排，避免
+// 請求耗時超過輪詢間隔時多個請求重疊送出、回應順序顛倒導致較舊的 Waiting 回應覆蓋較新的 Admitted
+// 回應、誤將已結束的輪詢重新啟動。
+function startQueuePolling(): void {
+  if (queuePollTimer !== null) return
+  queuePollTimer = setTimeout(() => {
+    queuePollTimer = null
+    void refreshQueueStatus()
+  }, QUEUE_POLL_INTERVAL_MS)
+}
+
+// 查詢排隊狀態並依回應決定是否輪詢：queueModeEnabled 為 false（Admin 於等待期間關閉）或狀態轉為
+// Admitted 時 SHALL 停止輪詢、關閉排隊等待畫面（BW-TOGGLE-001／BW-QUEUE-003）；仍為 Waiting 才輪詢。
+// isRefreshingQueueStatus 防止呼叫端（例如 handleJoinQueue）與排程中的輪詢同時觸發重疊請求。
+async function refreshQueueStatus(): Promise<void> {
+  if (isRefreshingQueueStatus) return
+  isRefreshingQueueStatus = true
+  try {
+    try {
+      queueStatus.value = await getMyQueueStatus(eventId)
+    } catch (error) {
+      errorMessage.value = toErrorMessage(error, '查詢排隊狀態失敗')
+      return
+    }
+
+    if (!queueStatus.value.queueModeEnabled || queueStatus.value.status !== 'Waiting') {
+      stopQueuePolling()
+      return
+    }
+
+    startQueuePolling()
+  } finally {
+    isRefreshingQueueStatus = false
+  }
+}
+
+async function handleJoinQueue(): Promise<void> {
+  if (!authStore.isAuthenticated) {
+    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    return
+  }
+
+  joiningQueue.value = true
+  errorMessage.value = ''
+  try {
+    await joinQueue(eventId)
+    await refreshQueueStatus()
+  } catch (error) {
+    errorMessage.value = toErrorMessage(error, '加入排隊失敗')
+  } finally {
+    joiningQueue.value = false
+  }
+}
+
 async function loadData(): Promise<void> {
   loading.value = true
   errorMessage.value = ''
@@ -214,6 +307,13 @@ async function loadData(): Promise<void> {
     event.value = events.find((e) => e.id === eventId) ?? null
     seats.value = seatResult
     ticketTypes.value = ticketTypeResult
+
+    if (authStore.isAuthenticated && event.value?.isQueueModeEnabled) {
+      await refreshQueueStatus()
+    } else {
+      stopQueuePolling()
+      queueStatus.value = null
+    }
   } catch (error) {
     errorMessage.value = toErrorMessage(error, '載入活動資訊失敗')
   } finally {
@@ -264,6 +364,20 @@ async function handleSubmit(): Promise<void> {
       router.push({ path: '/login', query: { redirect: route.fullPath } })
       return
     }
+    // 排隊資格不足（未入場或已逾時）：導回排隊等待畫面重新查詢狀態，不清空已選內容、不刷新座位/
+    // 票種資料——這不代表座位或庫存資料有變動（buyer-web-ui spec BW-QUEUE-004，MUST 同時檢查
+    // status 與 title 兩者，title 不符時落入下方一般失敗處理，見 BW-QUEUE-006）。
+    if (error instanceof ApiError && error.status === 403 && error.problem?.title === 'QueueAdmissionRequired') {
+      errorMessage.value = '排隊資格已逾時或尚未入場，請重新等待排隊'
+      await refreshQueueStatus()
+      return
+    }
+    // 請求頻率限制：顯示提示但不清空已選內容、不刷新資料——這代表發送過快，不是資料已變動
+    // （buyer-web-ui spec BW-QUEUE-005）。
+    if (error instanceof ApiError && error.status === 429) {
+      errorMessage.value = '請求過於頻繁，請稍後再試'
+      return
+    }
     // 其餘失敗（座位被搶、計數庫存於送出當下已變動、後端其他驗證失敗）一律清空並刷新，
     // 不依錯誤類型分流（design.md 決策 8）。
     // 注意：loadData() 一開始會清空 errorMessage，所以錯誤訊息必須在 loadData() 之後才設定，
@@ -280,6 +394,7 @@ async function handleSubmit(): Promise<void> {
 }
 
 onMounted(loadData)
+onUnmounted(stopQueuePolling)
 </script>
 
 <template>
@@ -311,6 +426,20 @@ onMounted(loadData)
             title="請先登入才能選位或購買計數票種"
             style="margin-bottom: 16px"
           />
+
+          <QueueWaitingPanel v-if="showQueueWaiting" :waiting-count="queueStatus?.waitingCount ?? null" />
+
+          <template v-else-if="showJoinPrompt">
+            <el-alert
+              type="warning"
+              :closable="false"
+              title="這個活動目前為熱門搶購模式，請先加入排隊"
+              style="margin-bottom: 16px"
+            />
+            <el-button type="primary" :loading="joiningQueue" @click="handleJoinQueue">加入排隊</el-button>
+          </template>
+
+          <template v-else>
           <p v-if="maxTicketsPerOrder !== null" class="limit-hint">每筆訂單限購 {{ maxTicketsPerOrder }} 張</p>
 
           <div class="quick-pick">
@@ -374,13 +503,14 @@ onMounted(loadData)
             <p>已選 {{ selectedSeats.length }} 個座位、{{ countTotal }} 張計數票券，總金額 {{ formatCurrency(totalPrice) }}</p>
             <el-button
               type="primary"
-              :disabled="selectedSeats.length === 0 && countTotal === 0"
+              :disabled="!canPurchase || (selectedSeats.length === 0 && countTotal === 0)"
               :loading="submitting"
               @click="handleSubmit"
             >
               送出訂單
             </el-button>
           </div>
+          </template>
         </section>
       </div>
     </template>

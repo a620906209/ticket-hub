@@ -105,6 +105,9 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<bool>("IsQueueModeEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<int?>("MaxTicketsPerOrder")
                         .HasColumnType("integer");
 
@@ -264,6 +267,45 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.HasIndex("TicketTypeId");
 
                     b.ToTable("OrderItems", (string)null);
+                });
+
+            modelBuilder.Entity("ProjectC.Domain.PurchaseQueue.PurchaseQueueEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AdmissionExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("AdmittedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("JoinedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("MemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("EventId", "MemberId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" IN ('Waiting', 'Admitted')");
+
+                    b.HasIndex("EventId", "Status", "JoinedAtUtc", "Id");
+
+                    b.ToTable("PurchaseQueueEntries", (string)null);
                 });
 
             modelBuilder.Entity("ProjectC.Domain.Tickets.Ticket", b =>
@@ -452,6 +494,21 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TicketTypeId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ProjectC.Domain.PurchaseQueue.PurchaseQueueEntry", b =>
+                {
+                    b.HasOne("ProjectC.Domain.Events.Event", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ProjectC.Domain.Members.Member", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ProjectC.Domain.Tickets.Ticket", b =>

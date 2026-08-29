@@ -15,6 +15,7 @@ public sealed class Event
     public int? MaxTicketsPerOrder { get; }
     public Guid? CreatedByMemberId { get; }
     public DateTime? CreatedAtUtc { get; }
+    public bool IsQueueModeEnabled { get; private set; }
 
     public Event(
         Guid id,
@@ -74,4 +75,8 @@ public sealed class Event
     /// <summary>建立純計數（不綁座位）票種，不需要座位圖，庫存以 availableQuantity 為初始可售總量。</summary>
     public TicketType CreateCountBasedTicketType(string zoneCode, decimal price, int availableQuantity)
         => new(Guid.NewGuid(), Id, zoneCode, price, availableQuantity);
+
+    public void EnableQueueMode() => IsQueueModeEnabled = true;
+
+    public void DisableQueueMode() => IsQueueModeEnabled = false;
 }

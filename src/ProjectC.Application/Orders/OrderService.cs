@@ -4,6 +4,7 @@ using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
+using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
@@ -16,6 +17,7 @@ public sealed class OrderService
     private readonly IEventRepository _eventRepository;
     private readonly ISeatMapRepository _seatMapRepository;
     private readonly IOrderRepository _orderRepository;
+    private readonly IPurchaseQueueRepository _purchaseQueueRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IValidator<PlaceOrderRequest> _validator;
     private readonly IDateTimeProvider _dateTimeProvider;
@@ -29,6 +31,7 @@ public sealed class OrderService
         IEventRepository eventRepository,
         ISeatMapRepository seatMapRepository,
         IOrderRepository orderRepository,
+        IPurchaseQueueRepository purchaseQueueRepository,
         IUnitOfWork unitOfWork,
         IValidator<PlaceOrderRequest> validator,
         IDateTimeProvider dateTimeProvider,
@@ -41,6 +44,7 @@ public sealed class OrderService
         _eventRepository = eventRepository;
         _seatMapRepository = seatMapRepository;
         _orderRepository = orderRepository;
+        _purchaseQueueRepository = purchaseQueueRepository;
         _unitOfWork = unitOfWork;
         _validator = validator;
         _dateTimeProvider = dateTimeProvider;
@@ -150,6 +154,32 @@ public sealed class OrderService
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
+        // Queue Mode 切換的線性化時點：重新鎖定並讀取 Event，以鎖定後讀到的 IsQueueModeEnabled 為唯一
+        // 採信依據，不得沿用上面交易前、未加鎖的 orderEvent（rate-limiting-queue design.md 決策 4）。
+        // 這個鎖定對每筆訂單都會執行，不論該活動是否曾被判斷為未開啟排隊。鎖定順序固定為
+        // Event → PurchaseQueueEntry → EventSeat → TicketType。
+        var lockedEvent = await _eventRepository.GetForUpdateAsync(distinctEventIds[0], cancellationToken);
+        if (lockedEvent is null)
+        {
+            return Result<Guid>.Failure(Error.NotFound($"Event '{distinctEventIds[0]}' was not found."));
+        }
+
+        PurchaseQueueEntry? queueEntry = null;
+        if (lockedEvent.IsQueueModeEnabled)
+        {
+            // 只依 Status 過濾並鎖定，不比較 AdmissionExpiresAtUtc；OrderService 自行以時間重新確認資格。
+            queueEntry = await _purchaseQueueRepository.GetForUpdateAsync(lockedEvent.Id, buyerId, cancellationToken);
+            var isAdmitted = queueEntry is { Status: PurchaseQueueEntryStatus.Admitted } &&
+                queueEntry.AdmissionExpiresAtUtc > _dateTimeProvider.UtcNow;
+            if (!isAdmitted)
+            {
+                // MUST NOT 呼叫 Expire()：狀態落地寫入統一交由背景服務／JoinPurchaseQueueHandler 自我修復
+                // 負責，OrderService 只讀取判斷（design.md 決策 4）。
+                return Result<Guid>.Failure(
+                    Error.QueueAdmissionRequired($"Event '{lockedEvent.Id}' requires purchase queue admission."));
+            }
+        }
+
         // 鎖定順序（design.md 決策 3 固定規則）：先鎖座位，後鎖票種；純計數訂單沒有任何座位時，
         // MUST NOT 呼叫 GetForUpdateAsync(空清單)（該方法對空清單拋 ArgumentException）。
         var eventSeatIds = request.Selections.Where(s => s.EventSeatId.HasValue).Select(s => s.EventSeatId!.Value).ToList();
@@ -251,6 +281,10 @@ public sealed class OrderService
         {
             return Result<Guid>.Failure(result.Error!);
         }
+
+        // 有效名額的立即釋放語意：Complete() 讓名額在交易提交的當下即釋放，不延遲到 AdmissionExpiresAtUtc
+        // 才釋放（design.md 決策 4）。
+        queueEntry?.Complete();
 
         _orderRepository.Add(result.Value!);
         await transaction.CommitAsync(cancellationToken);

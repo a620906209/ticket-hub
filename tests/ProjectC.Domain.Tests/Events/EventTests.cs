@@ -120,4 +120,35 @@ public class EventTests
 
         act.Should().Throw<ArgumentException>();
     }
+
+    // ---- 熱門搶購模式開關（rate-limiting-queue design.md 決策 2） ----
+
+    [Fact]
+    public void Constructor_DefaultsIsQueueModeEnabledToFalse()
+    {
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid());
+
+        @event.IsQueueModeEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void EnableQueueMode_SetsIsQueueModeEnabledToTrue()
+    {
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid());
+
+        @event.EnableQueueMode();
+
+        @event.IsQueueModeEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DisableQueueMode_AfterEnabled_SetsIsQueueModeEnabledToFalse()
+    {
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid());
+        @event.EnableQueueMode();
+
+        @event.DisableQueueMode();
+
+        @event.IsQueueModeEnabled.Should().BeFalse();
+    }
 }

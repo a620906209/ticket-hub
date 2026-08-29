@@ -10,6 +10,15 @@ export interface EventSummary {
   description: string | null
   posterUrl: string | null
   maxTicketsPerOrder: number | null
+  isQueueModeEnabled: boolean
+}
+
+// 對應 GET /api/events/{id}/queue/entries/me；status："NotJoined" / "Waiting" / "Admitted" / "Expired"
+// （見 rate-limiting-queue design.md 決策 6）。
+export interface QueueStatus {
+  status: string
+  waitingCount: number | null
+  queueModeEnabled: boolean
 }
 
 export interface EventSeat {

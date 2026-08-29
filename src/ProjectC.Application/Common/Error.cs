@@ -16,4 +16,5 @@ public sealed class Error
     public static Error Conflict(string message) => new(ErrorType.Conflict, message);
     public static Error Unauthorized(string message) => new(ErrorType.Unauthorized, message);
     public static Error Forbidden(string message) => new(ErrorType.Forbidden, message);
+    public static Error QueueAdmissionRequired(string message) => new(ErrorType.QueueAdmissionRequired, message);
 }
