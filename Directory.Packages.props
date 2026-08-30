@@ -33,6 +33,9 @@
          雖然本專案營收規模符合免費條件，但仍需額外註冊授權金鑰才能消除 build 警告，測試用途不值得這道手續。 -->
     <PackageVersion Include="ZXing.Net" Version="0.16.11" />
     <PackageVersion Include="SixLabors.ImageSharp" Version="2.1.11" />
+    <!-- 分析器 -->
+    <PackageVersion Include="SonarAnalyzer.CSharp" Version="9.18.0.83559" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="8.0.0" />
   </ItemGroup>
 
 </Project>
