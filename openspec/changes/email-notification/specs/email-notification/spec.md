@@ -1,7 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: 訂單確認成功後通知買家票券已產出
-系統 SHALL 在買家訂單確認（付款成功、電子票券產出）之後，透過 `IEmailNotificationService` 通知該訂單的買家。通知內容 SHALL 包含買家的註冊 Email、活動名稱、訂單 Id、以及本次訂單確認流程所對應的總票券張數（依訂單內所有項目的 `Quantity` 加總；座位制項目每筆固定張數為 1，計數制項目每筆可能為多張，兩者加總即為總票券張數——這個固定張數規則由 `ticket-ordering` 能力保證，本能力不重複驗證）。訂單 MUST 至少含一個項目、每個項目的 `Quantity` MUST 至少為 1（既有 `Order`/`OrderItem` 建構子不變量保證），故總票券張數 MUST 至少為 1，不存在「總張數為 0」的情況；買家 Email 由既有會員註冊流程保證為非空值，通知內容 MUST NOT 出現空白或 null 的收件信箱。通知 MUST 在訂單確認交易成功提交之後才觸發，不得在交易提交前發出（避免通知了尚未真正確認成功的訂單）。
+系統 SHALL 在買家訂單確認（付款成功、電子票券產出）之後，透過 `IEmailNotificationService` 通知該訂單的買家。通知內容 SHALL 包含買家的註冊 Email、活動名稱、訂單 Id、以及本次訂單確認流程所對應的總票券張數（依訂單內所有項目的 `Quantity` 加總；座位制項目每筆固定張數為 1，計數制項目每筆可能為多張，兩者加總即為總票券張數——這個固定張數規則由 `ticket-ordering` 能力保證，本能力不重複驗證）。訂單 MUST 至少含一個項目、每個項目的 `Quantity` MUST 至少為 1（既有 `Order`/`OrderItem` 建構子不變量保證），故總票券張數 MUST 至少為 1，不存在「總張數為 0」的情況；買家 Email 由既有會員註冊流程保證為非空值，通知內容 MUST NOT 出現空白或 null 的收件信箱。本能力只驗證買家 Email 為非空值，不另外驗證其格式是否符合 RFC（例如是否含 `@`、網域格式是否合法）——格式驗證留給未來若串接真實 Email 服務供應商時再處理；即使 `Member.Email` 是非空但格式不合法的值，仍視為有效資料傳給 `IEmailNotificationService`，log 記錄時是否遮蔽由「通知 log 不得記錄未遮蔽的完整 Email」這條 Requirement 的規則決定。通知 MUST 在訂單確認交易成功提交之後才觸發，不得在交易提交前發出（避免通知了尚未真正確認成功的訂單）。
+
+本能力不新增任何獨立的對外入口；通知流程完全依附於既有 `ticket-purchase` 能力「確認訂單」端點已完成的登入驗證與買家身分驗證（非訂單買家本人呼叫 MUST 被拒絕，見 `ticket-purchase` 能力 Requirement「買家確認自己所屬的 Pending 訂單」）、以及 `ticket-ordering` 能力的訂單狀態與座位歸屬驗證——只有這些既有驗證與交易提交全部成功之後，才會查詢買家 `Member.Email` 並觸發通知；任何未通過上述驗證的呼叫（例如未登入、非買家本人、訂單不存在、訂單狀態或歸屬驗證失敗）都落在下方「訂單確認失敗不觸發通知」Scenario 涵蓋的範圍內，MUST NOT 查詢買家 Email 或呼叫 `IEmailNotificationService`。
+
+本次通知能力的正式實作為 Mock（`MockEmailNotificationService`）：只記錄遮蔽後的結構化 log，不架設真實 SMTP 伺服器，也不會實際投遞 Email 給買家；真實 Email 投遞能力不屬於本 change 範圍（見 Non-Goals）。
 
 #### Scenario: 訂單確認成功觸發通知
 - **WHEN** 買家的訂單確認（付款、座位確售、票券產出）全部成功並完成交易提交
@@ -16,8 +20,8 @@
 - **THEN** 通知的票券張數 SHALL 為所有項目 `Quantity` 的加總，而非項目筆數
 
 #### Scenario: 訂單確認失敗不觸發通知
-- **WHEN** 訂單確認因任何原因失敗（例如付款被拒絕、座位已逾期、訂單已非 Pending 狀態）
-- **THEN** 系統 MUST NOT 呼叫 `IEmailNotificationService`
+- **WHEN** 訂單確認因任何原因失敗（例如未登入、非訂單買家本人呼叫、付款被拒絕、座位已逾期、訂單已非 Pending 狀態、訂單不存在）
+- **THEN** 系統 MUST NOT 呼叫 `IEmailNotificationService`，也 MUST NOT 查詢買家 `Member.Email`
 
 ### Requirement: 通知失敗不影響訂單確認結果
 系統 SHALL 將通知發送視為訂單確認流程的 best-effort 副作用；通知流程未能完成時，MUST NOT 導致訂單確認回報給買家的結果變成失敗——訂單此時已經確認付款成功、票券已經產出，這是既成事實，不因通知系統的問題而回滾或回報錯誤。`IEmailNotificationService` 介面唯一可觀察的失敗訊號是拋出例外（介面回傳 `Task`，不是 `Result` 型別）；這裡所稱「通知失敗」，SHALL 涵蓋通知資料組裝失敗（例如重新查詢訂單/活動/會員資料失敗、或資料缺漏而拋出例外）與呼叫 `IEmailNotificationService` 時拋出例外兩種情況，兩者皆 SHALL 被記錄（結構化 log，至少含訂單 Id 與例外本身），但 MUST NOT 重試、MUST NOT 讓例外往外傳播至呼叫端。

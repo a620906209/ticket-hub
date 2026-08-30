@@ -34,26 +34,26 @@
 ## 6. 測試
 
 - [ ] 6.1 `MockEmailNotificationService` 單元測試（`ProjectC.Infrastructure.Tests`，不需要 Testcontainers，比照 `HmacTicketSigningServiceTests`/`TicketQrCodeGeneratorTests` 的既有無 DB 測試慣例；使用可收集記錄的測試 `ILogger`，例如自訂 `ListLogger<T> : ILogger<T>` 或既有測試共用的 logger spy）：
-  - [ ] 6.1.1 `AlwaysSucceed = true` → 呼叫完成不拋出例外，且 logger 收到一筆結構化 log，其具名欄位（`ToEmail`/`EventTitle`/`OrderId`/`TicketCount`）等於呼叫時傳入的參數（`OrderId`/`EventTitle`/`TicketCount` 完整比對；`ToEmail` 比對 `EmailMasker.Mask` 後的格式，驗證遮蔽邏輯確實套用，不是原樣輸出）
-  - [ ] 6.1.2 `AlwaysSucceed = false` → 呼叫拋出例外
-  - [ ] 6.1.3 `AlwaysSucceed = true` → logger 記錄的 `ToEmail` 欄位 MUST NOT 等於傳入的完整 Email（驗證確實被遮蔽，不是巧合通過 6.1.1 的格式比對）
+  - [ ] 6.1.1 `AlwaysSucceed = true` → 呼叫完成不拋出例外，且 logger 收到一筆結構化 log，其具名欄位（`ToEmail`/`EventTitle`/`OrderId`/`TicketCount`）等於呼叫時傳入的參數（`OrderId`/`EventTitle`/`TicketCount` 完整比對；`ToEmail` 比對 `EmailMasker.Mask` 後的格式，驗證遮蔽邏輯確實套用，不是原樣輸出）（對應 spec.md Scenario「通知服務記錄含收件信箱欄位的結構化 log 時遮蔽該欄位」，同時驗證 Requirement「訂單確認成功後通知買家票券已產出」對通知內容欄位的描述；「不拋出例外」這部分驗證的是 design.md 決策 4 `AlwaysSucceed` 開關的實作契約，不對應獨立 Scenario）
+  - [ ] 6.1.2 `AlwaysSucceed = false` → 呼叫拋出例外（非直接對應某個 spec.md Scenario；驗證 design.md 決策 4 `AlwaysSucceed` 開關本身的實作契約，是 6.4.4／6.4.5／6.4.6 等整合測試能可靠模擬「通知失敗」的前提）
+  - [ ] 6.1.3 `AlwaysSucceed = true` → logger 記錄的 `ToEmail` 欄位 MUST NOT 等於傳入的完整 Email（驗證確實被遮蔽，不是巧合通過 6.1.1 的格式比對）（對應 spec.md Scenario「通知服務記錄含收件信箱欄位的結構化 log 時遮蔽該欄位」）
   - [ ] 6.1.4 `AlwaysSucceed = false` → 拋出的例外之 `Message` MUST NOT 包含傳入的完整 `toEmail` 字串（對應 spec.md Scenario「通知服務拋出例外時，例外訊息本身不得包含未遮蔽的完整 Email」，驗證 1.1 介面契約在唯一實作上確實被遵守）
 - [ ] 6.2 `EmailMasker.Mask` 單元測試（`ProjectC.Infrastructure.Tests`，不需要 DB）：
-  - [ ] 6.2.1 一般 Email（例如 `buyer@example.com`）→ 回傳 `b***@example.com`
-  - [ ] 6.2.2 local part 只有 1 字元（例如 `a@example.com`）→ 回傳 `a***@example.com`，不拋出例外
+  - [ ] 6.2.1 一般 Email（例如 `buyer@example.com`）→ 回傳 `b***@example.com`（對應 spec.md Scenario「通知服務記錄含收件信箱欄位的結構化 log 時遮蔽該欄位」——該 Scenario 只規定「MUST NOT 是完整 Email」，實際遮蔽格式由 design.md 決策 5 定義，此處驗證兩者一致）
+  - [ ] 6.2.2 local part 只有 1 字元（例如 `a@example.com`）→ 回傳 `a***@example.com`，不拋出例外（對應 spec.md Scenario「通知服務記錄含收件信箱欄位的結構化 log 時遮蔽該欄位」，驗證合法 Email 的邊界情況仍套用同一遮蔽格式）
   - [ ] 6.2.3 `null`／空字串／純 whitespace／不含 `@` 的輸入（各自一個測試案例）→ 回傳固定字串 `"[redacted]"`，不拋出例外（對應 spec.md Scenario「收件信箱格式不合法或為空時，遮蔽動作本身不拋出例外」）
-  - [ ] 6.2.4 `@` 前後任一段為空字串或含兩個以上 `@` 的邊界輸入（各自一個測試案例：`a@`、`@example.com`、`a@@example.com`）→ 回傳固定字串 `"[redacted]"`，不拋出例外、不得產生 `a***@` 這種缺 domain 的錯誤輸出（對應 design.md 決策 5「合法 Email」定義收斂後的邊界情況，第二輪外部審查抓到）
-  - [ ] 6.2.5 `@` 前後任一段非空字串但 trim 後為純 whitespace 的邊界輸入（各自一個測試案例：`a@ `、` @example.com`）→ 回傳固定字串 `"[redacted]"`，不拋出例外（對應 design.md 決策 5「合法 Email」定義第三輪收斂——只檢查字串長度非 0 不足以排除純 whitespace 的 local/domain part）
+  - [ ] 6.2.4 `@` 前後任一段為空字串或含兩個以上 `@` 的邊界輸入（各自一個測試案例：`a@`、`@example.com`、`a@@example.com`）→ 回傳固定字串 `"[redacted]"`，不拋出例外、不得產生 `a***@` 這種缺 domain 的錯誤輸出（對應 spec.md Scenario「收件信箱格式不合法或為空時，遮蔽動作本身不拋出例外」——第二輪修訂後 WHEN 子句已明確涵蓋這些邊界；亦對應 design.md 決策 5「合法 Email」定義收斂後的邊界情況，第二輪外部審查抓到）
+  - [ ] 6.2.5 `@` 前後任一段非空字串但 trim 後為純 whitespace 的邊界輸入（各自一個測試案例：`a@ `、` @example.com`）→ 回傳固定字串 `"[redacted]"`，不拋出例外（對應 spec.md Scenario「收件信箱格式不合法或為空時，遮蔽動作本身不拋出例外」——第三輪修訂後 WHEN 子句已明確涵蓋此邊界；亦對應 design.md 決策 5「合法 Email」定義第三輪收斂——只檢查字串長度非 0 不足以排除純 whitespace 的 local/domain part）
 - [ ] 6.3 `TicketIssuedNotificationContentFactory.Create` 單元測試（`ProjectC.Infrastructure.Tests` 或 `ProjectC.Application` 對應的測試專案，純記憶體物件，不需要 DB；`Member`/`Event` 用既有的 `Member.Register(...)`／`Event` 公開建構方式在記憶體中組出）：
-  - [ ] 6.3.1 `order` 為 `null` → 丟出 `InvalidOperationException`，訊息含 `orderId`
-  - [ ] 6.3.2 `@event` 為 `null` → 丟出 `InvalidOperationException`，訊息含 `orderId`
-  - [ ] 6.3.3 `buyer` 為 `null` → 丟出 `InvalidOperationException`，訊息含 `orderId`
-  - [ ] 6.3.4 `buyer.Email` 為空字串或純 whitespace → 丟出 `InvalidOperationException`，訊息含 `orderId`
-  - [ ] 6.3.5 合法輸入 → 回傳的 `TicketIssuedNotificationContent` 各欄位正確，`TicketCount` 為所有 `OrderItem.Quantity` 加總
+  - [ ] 6.3.1 `order` 為 `null` → 丟出 `InvalidOperationException`，訊息含 `orderId`（對應 spec.md Scenario「通知服務拋出例外，訂單確認仍回報成功」中「組裝通知資料時拋出例外」的情境；Factory 丟出的例外落在 `ConfirmOrderAsync` 的 `catch (Exception)` 分支，見 design.md 決策 2、3）
+  - [ ] 6.3.2 `@event` 為 `null` → 丟出 `InvalidOperationException`，訊息含 `orderId`（對應 spec.md Scenario「通知服務拋出例外，訂單確認仍回報成功」中「組裝通知資料時拋出例外」的情境，同 6.3.1）
+  - [ ] 6.3.3 `buyer` 為 `null` → 丟出 `InvalidOperationException`，訊息含 `orderId`（對應 spec.md Scenario「通知服務拋出例外，訂單確認仍回報成功」中「組裝通知資料時拋出例外」的情境，同 6.3.1）
+  - [ ] 6.3.4 `buyer.Email` 為空字串或純 whitespace → 丟出 `InvalidOperationException`，訊息含 `orderId`（對應 spec.md Scenario「通知服務拋出例外，訂單確認仍回報成功」中「組裝通知資料時拋出例外」的情境，同 6.3.1；同時對應 Requirement「訂單確認成功後通知買家票券已產出」對「通知內容 MUST NOT 出現空白或 null 的收件信箱」的要求）
+  - [ ] 6.3.5 合法輸入 → 回傳的 `TicketIssuedNotificationContent` 各欄位正確，`TicketCount` 為所有 `OrderItem.Quantity` 加總（對應 spec.md Scenario「訂單確認成功觸發通知」與「混合座位制與計數制票種的訂單，票券張數為加總」——驗證 Factory 組裝出的內容正確性，是 6.4.1／6.4.2 整合測試背後的單元層級保證）
 - [ ] 6.4 `OrderService.ConfirmOrderAsync` 通知行為整合測試（`ProjectC.Infrastructure.Tests`，Testcontainers，用 `OrderServiceTestFactory.Create(dbContext, emailNotificationService: spy)` 注入 `SpyEmailNotificationService`）：
   - [ ] 6.4.1 訂單確認成功 → `SpyEmailNotificationService.Calls` 恰有一筆，內容為該買家 Email、活動名稱、訂單 Id、正確票券張數，且 `ConfirmOrderAsync` 回傳結果 `IsSuccess` 為 `true`（同時對應 Scenario「訂單確認成功觸發通知」與 Scenario「通知服務成功，行為不受影響」——後者驗證的是「通知正常送出時，訂單確認結果與通知服務不存在時完全一致」，用同一組 Arrange/Act 就能同時斷言兩者，不需要重複的測試方法）
   - [ ] 6.4.2 訂單同時含座位制與計數制項目 → 通知的票券張數為所有項目 `Quantity` 加總（對應 Scenario「混合座位制與計數制票種的訂單，票券張數為加總」）
-  - [ ] 6.4.3 訂單確認失敗（例如非買家本人呼叫、訂單已逾時）→ `SpyEmailNotificationService.Calls` 為空（對應 Scenario「訂單確認失敗不觸發通知」）
+  - [ ] 6.4.3 訂單確認失敗（例如**非買家本人呼叫**、訂單已逾時）→ `SpyEmailNotificationService.Calls` 為空（對應 Scenario「訂單確認失敗不觸發通知」；「非買家本人呼叫」這個案例同時驗證 spec.md Requirement 1 新增段落的授權邊界——通知流程完全依附既有 `ticket-purchase` 的買家身分驗證，本身不構成新的未授權入口，不需要額外測試案例）
   - [ ] 6.4.4 `SpyEmailNotificationService.ExceptionToThrow` 設定為一般 `Exception` 後呼叫確認 → `ConfirmOrderAsync` 回傳結果 `IsSuccess` 仍為 `true`，且測試用的 `ILogger<OrderService>`（用可收集記錄的測試 logger 取代 `NullLogger`）收到一筆 `LogLevel.Error`、訊息包含該 `OrderId`、`Exception` 為 `SpyEmailNotificationService.ExceptionToThrow` 設定的例外（對應 Scenario「通知服務拋出例外，訂單確認仍回報成功」）
   - [ ] 6.4.5 驗證呼叫端自身 token 觸發的取消：測試建立一個**未取消**的 `CancellationTokenSource`（`cts`），把 `cts.Token` 傳給 `ConfirmOrderAsync`；設定 `SpyEmailNotificationService.OnNotifyAsync = async ct => { cts.Cancel(); ct.ThrowIfCancellationRequested(); }`（**不**使用 `ExceptionToThrow`，見 5.2.2 的例外順序定義）——`ChangeOrderStatusAsync` 交易內的所有 DB 操作在呼叫當下 `cts` 都還沒被取消，所以會正常完成、正常 commit；只有進入 post-commit 的通知步驟、Spy 真正被呼叫時，`cts` 才被取消並拋出綁定該 token 的 `OperationCanceledException`（外部審查抓到：若在呼叫 `ConfirmOrderAsync` 之前就先取消 token 再傳入，`ChangeOrderStatusAsync` 內部的 DB 操作會提早因為取消而中止，測試根本不會走到 post-commit 通知這一段，測到的會是「交易流程本身被取消」，不是本 Scenario 要驗證的「post-commit 通知階段的呼叫端取消」）→ `ConfirmOrderAsync` 回傳結果 `IsSuccess` 仍為 `true`，且測試用的 `ILogger<OrderService>` MUST NOT 收到任何 `LogLevel.Error` 的紀錄（對應 spec.md Scenario「呼叫端取消請求不視為通知失敗」，驗證 3.4.1 的 `when` 分支確實不記錄為 Error）
   - [ ] 6.4.6 `SpyEmailNotificationService.ExceptionToThrow` 設定為「用另一個、與 `ConfirmOrderAsync` 呼叫傳入的 token 無關的獨立 `CancellationTokenSource`」觸發的 `OperationCanceledException`（`ConfirmOrderAsync` 本身傳入 `CancellationToken.None` 或未取消的 token）→ `ConfirmOrderAsync` 回傳結果 `IsSuccess` 仍為 `true`，但測試用的 `ILogger<OrderService>` **SHALL** 收到一筆 `LogLevel.Error` 紀錄（對應 spec.md Scenario「非呼叫端觸發的取消例外仍視為通知失敗」；區別於 6.4.5，驗證 3.4.1 的 `when` 條件真的有在篩選，不是無條件放行所有 `OperationCanceledException`）
