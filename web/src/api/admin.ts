@@ -3,6 +3,7 @@ import type {
   AdminEventSummary,
   OrderDetail,
   OrderSummary,
+  SalesReport,
   SeatMapDetail,
   VenueDetail,
   VenueSummary,
@@ -71,4 +72,8 @@ export function getSeatMapById(venueId: string, seatMapId: string): Promise<Seat
 
 export function getAdminEvents(): Promise<AdminEventSummary[]> {
   return authorizedRequest('/admin/events')
+}
+
+export function getEventSalesReport(eventId: string): Promise<SalesReport> {
+  return authorizedRequest(`/admin/events/${eventId}/sales-report`)
 }
