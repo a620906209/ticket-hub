@@ -178,6 +178,13 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
           </div>
         </template>
       </el-table-column>
+      <el-table-column label="操作" width="110">
+        <template #default="{ row }">
+          <router-link :to="{ name: 'admin-sales-report', params: { eventId: row.id } }">
+            <el-button size="small">銷售報表</el-button>
+          </router-link>
+        </template>
+      </el-table-column>
     </el-table>
 
     <h2>建立票種</h2>

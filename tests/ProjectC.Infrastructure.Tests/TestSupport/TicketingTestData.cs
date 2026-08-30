@@ -46,4 +46,16 @@ public static class TicketingTestData
 
     public static async Task<EventSeat> ReloadAsync(ApplicationDbContext dbContext, Guid eventSeatId, CancellationToken ct = default)
         => await dbContext.EventSeats.AsNoTracking().SingleAsync(es => es.Id == eventSeatId, ct);
+
+    /// <summary>建立純計數（不綁座位）票種，不需要座位圖，供不需要座位細節的測試情境使用。</summary>
+    public static async Task<Guid> SeedCountBasedTicketTypeAsync(
+        ApplicationDbContext dbContext, Guid eventId, decimal price = 300m, int availableQuantity = 100, CancellationToken ct = default)
+    {
+        var @event = await dbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId, ct);
+        var ticketType = @event.CreateCountBasedTicketType("VIP", price, availableQuantity);
+        dbContext.TicketTypes.Add(ticketType);
+        await dbContext.SaveChangesAsync(ct);
+
+        return ticketType.Id;
+    }
 }

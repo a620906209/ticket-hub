@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Events.SetEventQueueMode;
+using ProjectC.Application.Orders.GetEventSalesReport;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.WebApi.Common;
 
@@ -17,17 +18,20 @@ public class AdminEventsController : ControllerBase
     private readonly CreateTicketTypeHandler _createTicketTypeHandler;
     private readonly GetAdminEventsHandler _getAdminEventsHandler;
     private readonly SetEventQueueModeHandler _setEventQueueModeHandler;
+    private readonly GetEventSalesReportHandler _getEventSalesReportHandler;
 
     public AdminEventsController(
         CreateEventHandler createEventHandler,
         CreateTicketTypeHandler createTicketTypeHandler,
         GetAdminEventsHandler getAdminEventsHandler,
-        SetEventQueueModeHandler setEventQueueModeHandler)
+        SetEventQueueModeHandler setEventQueueModeHandler,
+        GetEventSalesReportHandler getEventSalesReportHandler)
     {
         _createEventHandler = createEventHandler;
         _createTicketTypeHandler = createTicketTypeHandler;
         _getAdminEventsHandler = getAdminEventsHandler;
         _setEventQueueModeHandler = setEventQueueModeHandler;
+        _getEventSalesReportHandler = getEventSalesReportHandler;
     }
 
     [HttpPost]
@@ -56,5 +60,12 @@ public class AdminEventsController : ControllerBase
     {
         var result = await _setEventQueueModeHandler.HandleAsync(id, request, cancellationToken);
         return result.ToActionResult();
+    }
+
+    [HttpGet("{eventId:guid}/sales-report")]
+    public async Task<IActionResult> GetSalesReport(Guid eventId, CancellationToken cancellationToken)
+    {
+        var result = await _getEventSalesReportHandler.HandleAsync(eventId, cancellationToken);
+        return result.ToActionResult(Ok);
     }
 }

@@ -42,7 +42,7 @@
 - 前端 RWD（手機瀏覽器支援）
 
 **Should（提升體驗，Phase 2，非上線阻塞項）**
-- 主辦方銷售報表（即時或準即時，僅支援活動進行中/結束後查詢，不含歷史趨勢分析）
+- 主辦方銷售報表（即時或準即時，活動建立後即可查詢，不限制活動開始時間，不含歷史趨勢分析；規劃詳見 `openspec/changes/sales-report/`，2026-08-30 盤點時修正本節措辭與實際規劃一致——原「僅支援活動進行中/結束後查詢」會擋掉開賣中、尚未到開始時間的最需要看報表期間，語意不合理，已改為不設時間門檻）
 - Rate limiting / 基礎排隊機制（與「API 防搶票機器人」共用同一套機制）——**已完成實作並合併至 master**（`Microsoft.AspNetCore.RateLimiting` 分區限流 + `PurchaseQueueEntry` 排隊機制，見 `openspec/changes/archive/2026-08-29-rate-limiting-queue/`）
 - Email 通知（`INotificationService` 介面，票券產出後通知買家）
 - 登入 Rate limiting（防暴力破解）——**已完成實作並合併至 master**（以來源 IP 為分區鍵的獨立 `login` policy，共用 `Microsoft.AspNetCore.RateLimiting` 既定機制，見 `openspec/changes/archive/2026-08-30-login-rate-limiting/`）
@@ -103,7 +103,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 
 **資料保留與歷史查詢**
 - 訂單資料不做自動清除，僅邏輯狀態變更（不刪除）
-- 銷售報表僅支援活動進行中/結束後的即時查詢，歷史趨勢分析列入 Won't
+- 銷售報表為活動建立後即可查詢的即時查詢，不限制活動開始時間，歷史趨勢分析列入 Won't
 
 ---
 

@@ -1,11 +1,14 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Events.GetEvents;
+using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Members;
+using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
@@ -319,5 +322,99 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, "enabled 為字串而非 boolean 時，model binding 階段就應該失敗");
         (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+    }
+
+    // ---- GET /api/admin/events/{eventId}/sales-report（sales-report tasks.md 4.3） ----
+
+    [Fact]
+    public async Task GetSalesReport_AsAdmin_Returns200()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+
+        var response = await adminClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task GetSalesReport_AsNonAdminMember_Returns403()
+    {
+        var email = AuthTestHelper.NewEmail();
+        var client = _factory.CreateClient();
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(client, email);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+
+        var response = await client.GetAsync($"/api/admin/events/{Guid.NewGuid()}/sales-report");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task GetSalesReport_WithoutToken_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/admin/events/{Guid.NewGuid()}/sales-report");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task GetSalesReport_ForNonExistentEvent_Returns404()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+
+        var response = await adminClient.GetAsync($"/api/admin/events/{Guid.NewGuid()}/sales-report");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetSalesReport_WithPaidOrder_ReturnsCorrectlySerializedJsonBody()
+    {
+        // 補上 DTO → ASP.NET JSON serialization 的整合驗證（Application 層測試只驗證 C# 物件本身，
+        // 沒有經過真正的 HTTP 序列化路徑；用 JsonDocument 直接檢查駝峰命名的欄位是否存在，
+        // 比反序列化回同一個 C# 型別更能抓到「欄位名稱不是駝峰」這類問題，因為反序列化預設對
+        // 屬性名稱大小寫不敏感，PascalCase 誤寫也會反序列化成功、測不出來）。
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient, zoneCode: "A");
+        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var ticketTypeResponse = await adminClient.PostAsJsonAsync(
+            $"/api/admin/events/{eventId}/ticket-types",
+            new CreateTicketTypeRequest("A", 500m));
+        var ticketTypeId = await ReadCreatedIdAsync(ticketTypeResponse);
+
+        var publicClient = _factory.CreateClient();
+        var seatsResponse = await publicClient.GetAsync($"/api/events/{eventId}/seats");
+        var eventSeatId = (await seatsResponse.Content.ReadFromJsonAsync<List<EventSeatDto>>())!.Single(s => s.ZoneCode == "A").EventSeatId;
+
+        var buyerClient = _factory.CreateClient();
+        var buyerTokens = await AuthTestHelper.RegisterAndLoginAsync(buyerClient);
+        buyerClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", buyerTokens.AccessToken);
+        var orderResponse = await buyerClient.PostAsJsonAsync(
+            "/api/orders",
+            new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeatId, ticketTypeId)]));
+        var orderId = await ReadCreatedIdAsync(orderResponse);
+        await buyerClient.PostAsync($"/api/orders/{orderId}/confirm", null);
+
+        var response = await adminClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+
+        root.GetProperty("totalRevenue").GetDecimal().Should().Be(500m);
+        root.GetProperty("totalTicketsSold").GetInt32().Should().Be(1);
+        root.GetProperty("unclassifiedItemCount").GetInt32().Should().Be(0);
+        root.GetProperty("unclassifiedTicketsSold").GetInt32().Should().Be(0);
+        root.GetProperty("unclassifiedRevenue").GetDecimal().Should().Be(0m);
+        var byTicketType = root.GetProperty("byTicketType");
+        byTicketType.GetArrayLength().Should().Be(1);
+        var detail = byTicketType[0];
+        detail.GetProperty("ticketTypeId").GetGuid().Should().Be(ticketTypeId);
+        detail.GetProperty("zoneCode").GetString().Should().Be("A");
+        detail.GetProperty("requiresSeat").GetBoolean().Should().BeTrue();
+        detail.GetProperty("quantitySold").GetInt32().Should().Be(1);
+        detail.GetProperty("revenue").GetDecimal().Should().Be(500m);
     }
 }

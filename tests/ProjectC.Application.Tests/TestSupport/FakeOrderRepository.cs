@@ -27,4 +27,12 @@ public sealed class FakeOrderRepository : IOrderRepository
     public Task ReloadAsync(Order order, CancellationToken cancellationToken) => Task.CompletedTask;
 
     public void Add(Order order) => Data.Add(order);
+
+    // OrderItem 的公開建構子要求 TicketTypeId 為非 null Guid，無法透過正常 Domain API 從 Data 反推出
+    // TicketTypeId = null 或指向其他活動票種的分組；這個方法不嘗試從 Data 推導，改由測試直接設定要回傳的
+    // 投影結果（design.md 決策 8），資料庫端真正的分組行為交給 Infrastructure Testcontainers 整合測試驗證。
+    public IReadOnlyList<OrderItemSalesGroup> PaidItemSalesGroups { get; set; } = [];
+
+    public Task<IReadOnlyList<OrderItemSalesGroup>> GetPaidItemSalesByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
+        => Task.FromResult(PaidItemSalesGroups);
 }

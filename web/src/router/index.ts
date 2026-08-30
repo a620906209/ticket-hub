@@ -16,6 +16,7 @@ import AdminEventListPage from '../pages/admin/EventListPage.vue'
 import AdminEventCreatePage from '../pages/admin/EventCreatePage.vue'
 import AdminOrderListPage from '../pages/admin/AdminOrderListPage.vue'
 import AdminOrderDetailPage from '../pages/admin/AdminOrderDetailPage.vue'
+import AdminSalesReportPage from '../pages/admin/AdminSalesReportPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -47,6 +48,7 @@ const router = createRouter({
         { path: 'venues', name: 'admin-venues', component: AdminVenueListPage },
         { path: 'events', name: 'admin-events', component: AdminEventListPage },
         { path: 'events/new', name: 'admin-event-create', component: AdminEventCreatePage },
+        { path: 'events/:eventId/sales-report', name: 'admin-sales-report', component: AdminSalesReportPage },
         { path: 'orders', name: 'admin-orders', component: AdminOrderListPage },
         { path: 'orders/:id', name: 'admin-order-detail', component: AdminOrderDetailPage },
       ],

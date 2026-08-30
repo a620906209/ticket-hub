@@ -41,4 +41,16 @@ public class OrderRepository : IOrderRepository
         => _dbContext.Entry(order).ReloadAsync(cancellationToken);
 
     public void Add(Order order) => _dbContext.Orders.Add(order);
+
+    public async Task<IReadOnlyList<OrderItemSalesGroup>> GetPaidItemSalesByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
+        => await _dbContext.Orders
+            .Where(o => o.EventId == eventId && o.Status == OrderStatus.Paid)
+            .SelectMany(o => o.Items)
+            .GroupBy(item => item.TicketTypeId)
+            .Select(g => new OrderItemSalesGroup(
+                g.Key,
+                g.Count(),
+                g.Sum(i => i.Quantity),
+                g.Sum(i => i.Quantity * i.UnitPrice)))
+            .ToListAsync(cancellationToken);
 }
