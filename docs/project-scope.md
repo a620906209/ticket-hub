@@ -44,7 +44,7 @@
 **Should（提升體驗，Phase 2，非上線阻塞項）**
 - 主辦方銷售報表（即時或準即時，活動建立後即可查詢，不限制活動開始時間，不含歷史趨勢分析）——**已完成實作並合併至 master**（單一活動總營收/總售出張數/依票種明細，見 `openspec/changes/archive/2026-08-30-sales-report/`；2026-08-30 盤點時同步修正本節「僅支援活動進行中/結束後查詢」的原措辭，避免擋掉開賣中、尚未到開始時間的最需要看報表期間）
 - Rate limiting / 基礎排隊機制（與「API 防搶票機器人」共用同一套機制）——**已完成實作並合併至 master**（`Microsoft.AspNetCore.RateLimiting` 分區限流 + `PurchaseQueueEntry` 排隊機制，見 `openspec/changes/archive/2026-08-29-rate-limiting-queue/`）
-- Email 通知（概念上的 `INotificationService` 介面，票券產出後通知買家；本文件只描述能力範疇，不綁定具體類別名稱——實際命名見 `email-notification` change 的 design.md 決策 1，該 change 採用更精確的 `IEmailNotificationService`）
+- Email 通知（概念上的 `INotificationService` 介面，票券產出後通知買家；本文件只描述能力範疇，不綁定具體類別名稱——實際命名見 `email-notification` change 的 design.md 決策 1，該 change 採用更精確的 `IEmailNotificationService`）——**已完成實作並合併至 master**（僅 Mock 實作：結構化 log 記錄遮蔽後的通知內容，不架設真實 SMTP、不提供真實寄信能力，見 `openspec/changes/archive/2026-08-31-email-notification/`；Phase 2 至此全數完成）
 - 登入 Rate limiting（防暴力破解）——**已完成實作並合併至 master**（以來源 IP 為分區鍵的獨立 `login` policy，共用 `Microsoft.AspNetCore.RateLimiting` 既定機制，見 `openspec/changes/archive/2026-08-30-login-rate-limiting/`）
 - 監控（Serilog + Seq，本地容器化，對應 CLAUDE.md 結構化 log 規範）**［待確認］**
 
