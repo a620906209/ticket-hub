@@ -1,0 +1,175 @@
+root = true
+
+# All C# files
+[*.cs]
+
+#### Core EditorConfig Options ####
+
+indent_style = space
+indent_size = 4
+tab_width = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+#### .NET Coding Conventions ####
+
+dotnet_separate_import_directive_groups = false
+dotnet_sort_system_directives_first = true
+
+#### Naming Conventions ####
+
+dotnet_naming_rule.interfaces_should_be_begins_with_i.severity = suggestion
+dotnet_naming_rule.interfaces_should_be_begins_with_i.symbols = interface
+dotnet_naming_rule.interfaces_should_be_begins_with_i.style = begins_with_i
+
+dotnet_naming_rule.types_should_be_pascal_case.severity = suggestion
+dotnet_naming_rule.types_should_be_pascal_case.symbols = types
+dotnet_naming_rule.types_should_be_pascal_case.style = pascal_case
+
+dotnet_naming_rule.non_field_members_should_be_pascal_case.severity = suggestion
+dotnet_naming_rule.non_field_members_should_be_pascal_case.symbols = non_field_members
+dotnet_naming_rule.non_field_members_should_be_pascal_case.style = pascal_case
+
+dotnet_naming_symbols.interface.applicable_kinds = interface
+dotnet_naming_symbols.interface.applicable_accessibilities = public, internal, private, protected, protected_internal, private_protected
+dotnet_naming_symbols.interface.required_modifiers =
+
+dotnet_naming_symbols.types.applicable_kinds = class, struct, interface, enum
+dotnet_naming_symbols.types.applicable_accessibilities = public, internal, private, protected, protected_internal, private_protected
+dotnet_naming_symbols.types.required_modifiers =
+
+dotnet_naming_symbols.non_field_members.applicable_kinds = property, event, method
+dotnet_naming_symbols.non_field_members.applicable_accessibilities = public, internal, private, protected, protected_internal, private_protected
+dotnet_naming_symbols.non_field_members.required_modifiers =
+
+dotnet_naming_style.pascal_case.required_prefix =
+dotnet_naming_style.pascal_case.required_suffix =
+dotnet_naming_style.pascal_case.word_separator =
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+dotnet_naming_style.begins_with_i.required_prefix = I
+dotnet_naming_style.begins_with_i.required_suffix =
+dotnet_naming_style.begins_with_i.word_separator =
+dotnet_naming_style.begins_with_i.capitalization = pascal_case
+
+#### C# Coding Conventions ####
+
+csharp_prefer_braces = true:silent
+csharp_prefer_simple_default_expression = true:suggestion
+csharp_prefer_simple_using_statement = true:suggestion
+csharp_style_namespace_declarations = file_scoped:suggestion
+csharp_style_expression_bodied_methods = false:silent
+csharp_style_expression_bodied_constructors = false:silent
+csharp_style_expression_bodied_operators = false:silent
+csharp_style_expression_bodied_properties = true:silent
+csharp_style_expression_bodied_indexers = true:silent
+csharp_style_expression_bodied_accessors = true:silent
+csharp_style_throw_expression = true:suggestion
+csharp_style_prefer_null_check_over_type_check = true:suggestion
+csharp_style_prefer_index_operator = true:suggestion
+csharp_style_prefer_range_operator = true:suggestion
+csharp_style_implicit_object_creation_when_type_is_apparent = true:suggestion
+csharp_style_prefer_tuple_swap = true:suggestion
+
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_between_method_call_parameter_list_parentheses = false
+csharp_space_between_method_declaration_parameter_list_parentheses = false
+
+#### SonarAnalyzer Security Rules (Critical) ####
+#### 資安規則 - 強制執行
+
+# SQL Injection via string concatenation
+dotnet_diagnostic.S2077.severity = error
+
+# EF Core LINQ injection (FromSql with string interpolation)
+dotnet_diagnostic.S6419.severity = error
+
+# Hardcoded password / secrets
+dotnet_diagnostic.S2092.severity = error
+
+# Hardcoded IP addresses
+dotnet_diagnostic.S1313.severity = warning
+
+# Insecure deserialization (ObjectInputStream, BinaryFormatter)
+dotnet_diagnostic.S3330.severity = error
+
+# XXE vulnerability
+dotnet_diagnostic.S5131.severity = error
+
+# Using weak cryptography (MD5, SHA1)
+dotnet_diagnostic.S4790.severity = error
+
+# LDAP injection
+dotnet_diagnostic.S2078.severity = error
+
+# XPath injection
+dotnet_diagnostic.S3649.severity = error
+
+# Log injection
+dotnet_diagnostic.S5148.severity = warning
+
+# CORS misconfiguration
+dotnet_diagnostic.S5122.severity = error
+
+#### SonarAnalyzer Code Quality Rules ####
+#### 代碼品質規則
+
+# Cognitive complexity (too complex logic)
+dotnet_diagnostic.S3776.severity = warning
+
+# Duplicate code blocks
+dotnet_diagnostic.S1144.severity = warning
+
+# Unused parameters
+dotnet_diagnostic.S1172.severity = warning
+
+# Dead code (unreachable)
+dotnet_diagnostic.S1751.severity = warning
+
+# TODO comments left in code
+dotnet_diagnostic.S1135.severity = warning
+
+#### Microsoft.CodeAnalysis.NetAnalyzers Security Rules ####
+
+# Avoid hardcoded strings (async void in event handlers)
+dotnet_diagnostic.CA1711.severity = warning
+
+# P/Invoke string marshaling
+dotnet_diagnostic.CA2101.severity = error
+
+# Do not pass literals as localized parameters
+dotnet_diagnostic.CA1303.severity = warning
+
+# Avoid unsealed attributes
+dotnet_diagnostic.CA1813.severity = warning
+
+# Mark assemblies with AssemblyVersionAttribute
+dotnet_diagnostic.CA1016.severity = warning
+
+#### Performance Rules ####
+
+# Use string.IsNullOrEmpty
+dotnet_diagnostic.CA1820.severity = suggestion
+
+# Avoid calling properties that clone value for known immutable types
+dotnet_diagnostic.CA1819.severity = warning
+
+# Avoid excessive parameters on generic types
+dotnet_diagnostic.CA1502.severity = warning
+
+#### Usage Rules ####
+
+# Do not raise reserved exception types
+dotnet_diagnostic.CA2201.severity = warning
+
+# Do not dispose objects multiple times
+dotnet_diagnostic.CA1816.severity = warning
+
+# Do not concatenate strings inside loops
+dotnet_diagnostic.CA1830.severity = warning

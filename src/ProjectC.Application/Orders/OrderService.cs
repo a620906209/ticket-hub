@@ -1,8 +1,11 @@
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Notifications;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
@@ -24,6 +27,9 @@ public sealed class OrderService
     private readonly CreateOrderHandler _createOrderHandler;
     private readonly ConfirmOrderHandler _confirmOrderHandler;
     private readonly CancelOrderHandler _cancelOrderHandler;
+    private readonly IEmailNotificationService _emailNotificationService;
+    private readonly IApplicationDbContext _dbContext;
+    private readonly ILogger<OrderService> _logger;
 
     public OrderService(
         ITicketTypeRepository ticketTypeRepository,
@@ -37,7 +43,10 @@ public sealed class OrderService
         IDateTimeProvider dateTimeProvider,
         CreateOrderHandler createOrderHandler,
         ConfirmOrderHandler confirmOrderHandler,
-        CancelOrderHandler cancelOrderHandler)
+        CancelOrderHandler cancelOrderHandler,
+        IEmailNotificationService emailNotificationService,
+        IApplicationDbContext dbContext,
+        ILogger<OrderService> logger)
     {
         _ticketTypeRepository = ticketTypeRepository;
         _eventSeatRepository = eventSeatRepository;
@@ -51,6 +60,9 @@ public sealed class OrderService
         _createOrderHandler = createOrderHandler;
         _confirmOrderHandler = confirmOrderHandler;
         _cancelOrderHandler = cancelOrderHandler;
+        _emailNotificationService = emailNotificationService;
+        _dbContext = dbContext;
+        _logger = logger;
     }
 
     public async Task<Result<Guid>> PlaceOrderAsync(Guid buyerId, PlaceOrderRequest request, CancellationToken cancellationToken)
@@ -292,8 +304,45 @@ public sealed class OrderService
         return Result<Guid>.Success(result.Value!.Id);
     }
 
-    public Task<Result> ConfirmOrderAsync(Guid orderId, Guid requestingBuyerId, CancellationToken cancellationToken)
-        => ChangeOrderStatusAsync(orderId, requestingBuyerId, _confirmOrderHandler.Handle, cancellationToken);
+    public async Task<Result> ConfirmOrderAsync(Guid orderId, Guid requestingBuyerId, CancellationToken cancellationToken)
+    {
+        var result = await ChangeOrderStatusAsync(orderId, requestingBuyerId, _confirmOrderHandler.Handle, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return result;
+        }
+
+        try
+        {
+            var order = await _orderRepository.GetByIdAsync(orderId, cancellationToken);
+            var @event = order is null ? null : await _eventRepository.GetByIdAsync(order.EventId, cancellationToken);
+            var buyer = order is null ? null : await _dbContext.Members.FirstOrDefaultAsync(m => m.Id == order.BuyerId, cancellationToken);
+            var content = TicketIssuedNotificationContentFactory.Create(orderId, order, @event, buyer);
+
+            await _emailNotificationService.NotifyTicketsIssuedAsync(
+                content.ToEmail, content.EventTitle, content.OrderId, content.TicketCount, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 只有「這次呼叫傳入的 cancellationToken 本身被觸發」才視為呼叫端主動取消（例如連線中斷），
+            // 不記錄為 Error——比照既有 ExpiredOrderCleanupService 對 OperationCanceledException 的既有
+            // 處理慣例。任何其他來源的 OperationCanceledException（例如 Email provider 自己的 timeout、
+            // provider 內部用了另一個 token）不滿足這個 when 條件，會繼續往下落入 catch (Exception)，
+            // 視為真正的通知失敗記錄下來（見 email-notification design.md 決策 2）。訂單確認結果此時已經
+            // 確定為成功，直接放行，不重新拋出。
+        }
+        catch (Exception exception)
+        {
+            // 這個 catch 同時涵蓋「重新查詢 Order/Event/Member 失敗或缺漏」（含上面 Factory 丟出的
+            // InvalidOperationException）與「呼叫通知服務本身失敗」兩種情況（見 design.md 決策 3），
+            // log 訊息刻意不區分兩者——多加一層判斷失敗發生在查詢或寄送哪個階段，對「best-effort、
+            // 記錄後即放行」這個語意沒有額外價值，例外本身（含 Factory 丟出的明確訊息）加上
+            // {OrderId} 已足以讓人之後手動追查。
+            _logger.LogError(exception, "Failed to prepare or send ticket-issued notification for order {OrderId}.", orderId);
+        }
+
+        return result;
+    }
 
     public Task<Result> CancelOrderAsync(Guid orderId, Guid requestingBuyerId, CancellationToken cancellationToken)
         => ChangeOrderStatusAsync(orderId, requestingBuyerId, WrapSync(_cancelOrderHandler.Handle), cancellationToken);

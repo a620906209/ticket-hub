@@ -24,6 +24,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ProjectC.Infrastructure\ProjectC.Infrastructure.csproj" />
+    <!-- 只為了 6.4.8：驗證 ExpiredOrderCleanupService（ProjectC.WebApi.BackgroundServices）背景清理的
+         實際 DI wiring 會解析到帶有 SpyEmailNotificationService 的 OrderService，而不是重新實作一份
+         同樣邏輯（見 email-notification tasks.md 6.4.8）。 -->
+    <ProjectReference Include="..\..\src\ProjectC.WebApi\ProjectC.WebApi.csproj" />
   </ItemGroup>
 
 </Project>

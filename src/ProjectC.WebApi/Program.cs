@@ -41,11 +41,13 @@ using ProjectC.Application.Venues.GetSeatMapById;
 using ProjectC.Application.Venues.GetVenueById;
 using ProjectC.Application.Venues.GetVenues;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Notifications;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
 using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
+using ProjectC.Infrastructure.Notifications;
 using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.Infrastructure.Persistence.Repositories;
@@ -101,6 +103,12 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<OrderCleanupO
 builder.Services.Configure<MockPaymentGatewayOptions>(builder.Configuration.GetSection(MockPaymentGatewayOptions.SectionName));
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<MockPaymentGatewayOptions>>().Value);
 builder.Services.AddSingleton<IPaymentGateway, MockPaymentGateway>();
+
+// MockEmailNotificationServiceOptions 有安全的預設值（AlwaysSucceed = true），比照 MockPaymentGatewayOptions
+// 不需要 ValidateOnStart（見 email-notification design.md 決策 4）。
+builder.Services.Configure<MockEmailNotificationServiceOptions>(builder.Configuration.GetSection(MockEmailNotificationServiceOptions.SectionName));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<MockEmailNotificationServiceOptions>>().Value);
+builder.Services.AddSingleton<IEmailNotificationService, MockEmailNotificationService>();
 
 // TicketSigningOptions：比照 JwtOptions 啟動時 fail-fast 驗證，簽章金鑰缺失或過弱直接讓應用程式啟動失敗
 // （見 design.md 決策 3）；再比照 AuthOptions/OrderCleanupOptions/MockPaymentGatewayOptions 解包成

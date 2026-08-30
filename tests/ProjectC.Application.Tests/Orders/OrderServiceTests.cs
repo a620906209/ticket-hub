@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using ProjectC.Application.Common;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
@@ -28,6 +29,8 @@ public class OrderServiceTests
         public FakeUnitOfWork UnitOfWork { get; } = new();
         public FakeDateTimeProvider DateTimeProvider { get; } = new() { UtcNow = Now };
         public FakePaymentGateway PaymentGateway { get; } = new(PaymentResult.Succeeded);
+        public FakeApplicationDbContext DbContext { get; } = new();
+        public FakeEmailNotificationService EmailNotificationService { get; } = new();
 
         public OrderService CreateOrderService() => new(
             TicketTypeRepository,
@@ -41,7 +44,10 @@ public class OrderServiceTests
             DateTimeProvider,
             new CreateOrderHandler(DateTimeProvider),
             new ConfirmOrderHandler(DateTimeProvider, PaymentGateway, TicketRepository),
-            new CancelOrderHandler(DateTimeProvider));
+            new CancelOrderHandler(DateTimeProvider),
+            EmailNotificationService,
+            DbContext,
+            NullLogger<OrderService>.Instance);
 
         public (Event Event, SeatMap SeatMap, EventSeat EventSeat, TicketType TicketType) SeedEventWithSeatAndTicketType(
             string seatZoneCode = "A", string ticketTypeZoneCode = "A")
