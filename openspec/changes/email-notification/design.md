@@ -4,7 +4,9 @@
 
 `IPaymentGateway`/`MockPaymentGateway`（`ProjectC.Domain.Payments`/`ProjectC.Infrastructure.Payments`）是本專案既有、唯一一個「用 Mock 展示外部服務介面抽象化」的前例，`MockPaymentGatewayOptions.AlwaysSucceed` 提供切換成功/失敗的設定。本次 `IEmailNotificationService`/`MockEmailNotificationService` 比照同一套模式。
 
-`ILogger<T>` 目前只在 `ProjectC.WebApi.BackgroundServices`（`ExpiredOrderCleanupService`）使用過，Application 層完全沒有引入過。`ProjectC.Application.csproj` 目前只明確宣告 `Microsoft.EntityFrameworkCore`、`FluentValidation` 兩個 `PackageReference`，`Microsoft.Extensions.Logging.Abstractions` 目前僅透過 EF Core 的 transitive dependency 間接可用——**外部審查抓到**：不應該讓 Application 層對 `ILogger<T>` 的直接依賴，靠著「EF Core 恰好帶進來」這個間接關係存在，這在套件升級後可能失效、也讓 csproj 看不出真正的依賴意圖。本次會在 `ProjectC.Application.csproj` 明確新增這個 `PackageReference`（並在 `Directory.Packages.props` 新增對應 `PackageVersion`，版本對齊目前專案使用的 .NET 10 / `Microsoft.Extensions.*` 系列），這不是 `ProjectReference`，也不會讓 Application 依賴 ASP.NET Core。
+`ILogger<T>` 目前只在 `ProjectC.WebApi.BackgroundServices`（`ExpiredOrderCleanupService`）使用過，Application 層完全沒有引入過。`ProjectC.Application.csproj` 目前只明確宣告 `Microsoft.EntityFrameworkCore`、`FluentValidation` 兩個 `PackageReference`，`Microsoft.Extensions.Logging.Abstractions` 目前僅透過 EF Core 的 transitive dependency 間接可用——**外部審查抓到**：不應該讓 Application 層對 `ILogger<T>` 的直接依賴，靠著「EF Core 恰好帶進來」這個間接關係存在，這在套件升級後可能失效、也讓 csproj 看不出真正的依賴意圖。本次會在 `ProjectC.Application.csproj` 明確新增這個 `PackageReference`（並在 `Directory.Packages.props` 新增對應 `PackageVersion`），這不是 `ProjectReference`，也不會讓 Application 依賴 ASP.NET Core。
+
+**外部審查抓到**：「版本對齊 .NET 10」這個描述不夠明確，實作前必須釘選具體版本號，不能等到動手寫程式時才臨時決定。本專案 `Directory.Packages.props` 目前已經把同屬 .NET 10 家族、隨 runtime 一起發布的套件（`Microsoft.EntityFrameworkCore`／`Microsoft.EntityFrameworkCore.Design`／`Microsoft.AspNetCore.OpenApi`／`Microsoft.AspNetCore.Authentication.JwtBearer`）全部釘在 `10.0.11`；`Microsoft.Extensions.Logging.Abstractions` 屬於同一個隨 .NET runtime 發布的套件家族，版本號跟著 runtime 走，實作時 SHOULD 比照這個既有慣例釘選 `10.0.11`——但這只是「跟現有套件版本一致」的合理預設，實作者仍 MUST 在新增 `PackageReference` 前，用 `docker compose exec api dotnet add package Microsoft.Extensions.Logging.Abstractions --version 10.0.11` 或查詢 NuGet 確認這個版本號實際存在、可還原，不能不驗證就直接抄這個數字。
 
 ## Goals / Non-Goals
 
@@ -56,6 +58,8 @@ public static class TicketIssuedNotificationContentFactory
     }
 }
 ```
+
+**這個 Factory 的定位是「post-commit 通知資料的防呆組裝器」，不是一般領域規則驗證器**：它只負責「這幾筆重新查回來的資料夠不夠格組成一份通知內容」，不重新驗證任何業務規則。票券張數的計算方式（`Sum(i => i.Quantity)`）只是把既有語意重新表達一次，座位項目 `Quantity` 固定為 1、計數項目可能為多張這條規則本身仍由 `ticket-ordering`／`ConfirmOrderHandler` 既有流程保證與驗證，本 Factory 不重複驗證、也不是這條規則的權威來源。`Enumerable.Sum(IEnumerable<int>)` 在總和超過 `int.MaxValue` 時會丟出 `OverflowException`——這是目前唯一在正常商業情境下不會發生、但理論上可能觸發的失敗模式；不需要為此改用 `long` 或另外防呆，因為這次呼叫本身就在 `ConfirmOrderAsync` 既有的 `try` 區塊內（見下方決策 2 程式碼範例），`OverflowException` 會自然落入既有的 `catch (Exception exception)` 分支被記錄，不影響訂單確認結果，行為與其他資料組裝失敗一致。
 
 這個函式是 `public static`（不依賴 DbContext、不需要 `InternalsVisibleTo`——本專案目前沒有這個慣例，見 tasks.md 6.3 的單元測試可以直接用 `Member.Register(...)`/`Event` 的既有公開建構方式在記憶體中組出 `null`/合法資料兩種情況，不需要碰資料庫），讓「資料缺失」這個失敗模式有明確、可單元測試的訊息與行為，同時仍然落在 `ConfirmOrderAsync` 的同一個 `catch (Exception exception)` 分支（`InvalidOperationException` 也是 `Exception`），行為上跟「通知服務本身失敗」一致——不需要在 `catch` 內額外分支處理。
 
@@ -120,16 +124,23 @@ CLAUDE.md 禁止的是空 `catch` 或「僅 log 後不處理而導致靜默失�
 **外部審查抓到**：先前草稿主張「Email 不是密碼/Token，不算機敏資訊，不需要遮蔽」——這個判斷與 CLAUDE.md 錯誤處理與例外規範明確衝突：「Log 規範：...且**不得記錄敏感資訊**（密碼、token、**個資**需遮蔽）」，`Member.Email` 是個人資料，不因為它同時也是登入識別碼就豁免遮蔽義務（既有 JWT claims 內含 Email 是簽發給使用者自己瀏覽器的憑證，跟寫進伺服器端 log 檔案的曝險層級不同，不能類比）。
 改為：`MockEmailNotificationService` 傳給 logger 的 `{ToEmail}` 使用遮蔽格式（例如 `a***@example.com`：保留網域與收件人第一個字元），而不是完整 Email；`IEmailNotificationService` 介面本身與呼叫端（`OrderService`）仍然傳遞、驗證完整 Email——遮蔽只發生在 `MockEmailNotificationService` 要寫入 log 的那一步，不影響介面契約或測試對「完整 Email 有沒有正確傳入介面」的驗證（見 tasks.md 6.1.1）。
 
-**外部審查抓到**：遮蔽格式只示範了「正常 Email」（`local@domain`，local part 至少 2 字元）這一種輸入，沒有定義邊界輸入的行為；若遮蔽函式用天真的字串切割（例如直接取 `local[0]` 加後續字元），遇到 `a@example.com`（local part 只有 1 字元）、不含 `@` 的不合法字串、`null`/空字串時，可能自己因為 substring/index 操作拋出例外——這會讓「記錄通知失敗」這個 best-effort 動作本身變成新的失敗來源，本末倒置。遮蔽函式（`ProjectC.Infrastructure.Notifications` 內的一個小型 helper，例如 `EmailMasker.Mask(string email)`）的契約明確定義為：
-- 合法 Email（`local@domain`，`local` 長度 ≥ 1）：保留 `local` 的第一個字元 + `***` + `@domain`（`local` 只有 1 字元時，`a@example.com` → `a***@example.com`，跟多字元情況行為一致，不需要特殊分支）
-- `email` 為 `null`／空字串／純 whitespace／不含 `@`（不合法格式）：一律回傳固定字串 `"[redacted]"`，不嘗試對這些輸入做字串切割
+**外部審查抓到**：遮蔽格式只示範了「正常 Email」（`local@domain`，local part 至少 2 字元）這一種輸入，沒有定義邊界輸入的行為；若遮蔽函式用天真的字串切割（例如直接取 `local[0]` 加後續字元），遇到 `a@example.com`（local part 只有 1 字元）、不含 `@` 的不合法字串、`null`/空字串時，可能自己因為 substring/index 操作拋出例外——這會讓「記錄通知失敗」這個 best-effort 動作本身變成新的失敗來源，本末倒置。
+
+**第二輪外部審查再抓到**：「合法 Email（`local@domain`，`local` 長度 ≥ 1）」這個定義本身仍有缺口——只檢查「`local` 非空」不足以判斷合法性，`a@`（`local="a"`、`domain` 為空）、`@example.com`（`local` 為空）、`a@@example.com`（有兩個 `@`）這三種輸入若只用 `IndexOf('@')` 之類的天真實作，仍可能被誤判為「可遮蔽的合法 Email」，產生 `a***@` 這種明顯錯誤的輸出。遮蔽函式（`ProjectC.Infrastructure.Notifications` 內的一個小型 helper，例如 `EmailMasker.Mask(string email)`）的「合法」定義明確收斂為：
+
+- **合法**：輸入剛好包含**一個** `@` 字元，且 `@` 前後兩段（local part、domain part）**各自 trim 前後 whitespace 後都至少包含一個非 whitespace 字元**——保留 local part 的第一個字元（未 trim 的原始字元）+ `***` + `@` + domain part（`local` 只有 1 字元時行為相同，`a@example.com` → `a***@example.com`，不需要特殊分支）
+- **不合法**（以下任一種）：`null`／空字串／純 whitespace／不含 `@`／含兩個以上 `@`（例如 `a@@example.com`）／`@` 前面是空字串或 trim 後為空字串（例如 `@example.com`、` @example.com`）／`@` 後面是空字串或 trim 後為空字串（例如 `a@`、`a@ `）——一律回傳固定字串 `"[redacted]"`，不嘗試對這些輸入做字串切割
 - 遮蔽函式本身 MUST NOT 對任何輸入拋出例外（`Mask` 方法內部不需要、也不應該有會拋例外的路徑）
-- 大小寫／前後 whitespace 不特別處理（不影響遮蔽格式，也不是本次要驗證的商業邏輯）
+- 除了上述「local/domain part trim 後是否為空」這項合法性判斷外，大小寫／整體輸入前後的 whitespace 不特別處理（例如合法輸入不會額外做大小寫正規化，輸出時 local part 的第一個字元也直接取原始字元，不先 trim；這只影響合法性「判斷」，不影響輸出「格式」，也不是本次要驗證的商業邏輯）
+
+**第三輪外部審查再抓到**：以上規則只規範了 `MockEmailNotificationService` 自己寫 log 時要遮蔽 `{ToEmail}` 這個具名欄位，沒有規範「`IEmailNotificationService` 拋出的例外訊息本身」——`OrderService.ConfirmOrderAsync`（決策 2）的 `catch (Exception exception)` 分支是直接把整個 `exception` 物件交給 `_logger.LogError(exception, ...)`，`OrderService` 不會、也不應該對例外訊息內容另外做字串解析與遮蔽（那既不可靠，也不是本次要處理的一般性問題）；如果 `IEmailNotificationService` 的某個實作在拋出例外時把完整 Email 塞進 `Exception.Message`（例如 `throw new InvalidOperationException($"Failed to send to {toEmail}")`），這個未遮蔽的 Email 就會繞過 `EmailMasker`、直接流進 `OrderService` 的失敗 log，違反本決策「log 不得記錄未遮蔽完整 Email」的規則。
+
+改為：把這個責任明確放在「拋出例外的那一方」，而不是要求 `OrderService` 反過來清洗每個例外訊息——`IEmailNotificationService`（`ProjectC.Domain.Notifications`）的介面契約（XML doc）明確規定：實作拋出例外時，例外訊息 MUST NOT 包含完整、未遮蔽的收件 Email（見 tasks.md 1.1）；`MockEmailNotificationService`（`AlwaysSucceed = false` 時拋出的例外，見 tasks.md 2.2）遵守這個契約，例外訊息只描述「模擬寄送失敗」本身，不帶任何 Email 相關內容，並有對應測試驗證（tasks.md 6.1.4）。
 
 ## Risks / Trade-offs
 
 - **[風險] 通知呼叫失敗被吞掉例外後，除了 log 沒有任何其他方式讓人發現「這個買家沒收到通知」** → Mitigation：這是刻意的範圍取捨（見 Non-Goals），本次沒有通知歷史查詢功能；log 是唯一的可觀測性來源，屬於 Mock 展示 DIP 用途的合理簡化，真實寄信串接時才需要補上重試/告警機制（例如 Transactional Outbox + 背景 dispatcher，見下方最後一項風險）
 - **[風險] 決策 2 在交易提交後又發出三次讀取查詢（`Order`/`Event`/`Member`），對單筆訂單確認流程增加額外延遲** → Mitigation：三次查詢皆為單筆主鍵查詢（無 N+1），且發生在交易外（不持有任何鎖），對高併發搶購情境（座位鎖定/扣庫存）沒有影響；若未來效能量測顯示這是瓶頸，可考慮把通知改為背景佇列非同步處理，屬於超出本次範圍的優化
 - **[風險] Application 層首次引入 `ILogger<T>`，可能被誤解為「以後 Application 層都可以自由塞入橫切關注點」** → Mitigation：這是刻意記錄在本文件的單一決策（決策 2、3），不是全面性的架構調整；`ILogger` 只用於這一處「best-effort 副作用失敗記錄」的情境，不代表 Application 層從此可以任意記錄業務邏輯的一般性 log
-- **[風險] `OrderService` 建構子依賴數量持續增加**（新增 `IEmailNotificationService`/`IApplicationDbContext`/`ILogger<OrderService>` 後達 15 個）→ Mitigation：`OrderService` 本身職責就是訂單流程協調器（PlaceOrder/Confirm/Cancel/背景取消），本次通知是 Confirm 的 post-commit side effect，繼續由它協調是合理的；但這代表它已接近需要拆分的邊界，本次是**最後一次**允許以「多塞幾個依賴」的方式擴充 `OrderService`——下一個會再往 `OrderService` 建構子加依賴的 change（例如通知重試、通知歷史、背景佇列 dispatcher），MUST NOT 繼續增加建構子參數，而是要把通知（或該次新增的關注點）拆成獨立的 application use case 或 outbox dispatcher。本次不做這個重構（CLAUDE.md Rule 2，不為假設性需求先做抽象），但把這條界線明確寫在這裡，避免未來每次都用「這次只多幾個依賴」的理由持續累積複雜度
+- **[風險] `OrderService` 建構子依賴數量持續增加**（新增 `IEmailNotificationService`/`IApplicationDbContext`/`ILogger<OrderService>` 後達 15 個）→ Mitigation：`OrderService` 本身職責就是訂單流程協調器（PlaceOrder/Confirm/Cancel/背景取消），本次通知是 Confirm 的 post-commit side effect，繼續由它協調是合理的；但這代表它已接近需要拆分的邊界，本次是**最後一次**允許以「多塞幾個依賴」的方式擴充 `OrderService`——下一個會再往 `OrderService` 建構子加依賴的 change（例如通知重試、通知歷史、背景佇列 dispatcher），MUST NOT 繼續增加建構子參數，而是要把通知（或該次新增的關注點）拆成獨立的 application use case 或 outbox dispatcher。本次不做這個重構（CLAUDE.md Rule 2，不為假設性需求先做抽象），但把這條界線明確寫在這裡，避免未來每次都用「這次只多幾個依賴」的理由持續累積複雜度。**這條界線也明確排除用 service locator 繞過的做法**：本次與未來都 MUST NOT 為了「看起來建構子參數變少」而改用 `IServiceProvider.GetRequiredService<...>()`，或包一個只是把一堆依賴塞進去、換個名字（例如 `OrderDependencies`）的聚合物件——那只是把依賴數量隱藏起來，沒有真正拆分職責，反而讓依賴關係從建構子簽章看不出來、也更難測試；目前直接注入雖然參數偏多，但依賴清楚、可測試，比用聚合物件或 service locator 掩蓋數量更好
 - **[長期可靠性取捨]** 目前「commit 後直接呼叫、失敗即吞」的做法，在通知服務本身不穩定時會直接遺失通知，且沒有補償機制。這是刻意的短期範圍控制（見 Non-Goals 的真實寄信），不是完整的通知架構；未來若要做到可靠通知，方向是 Transactional Outbox（訂單確認交易內連帶寫入一筆 outbox 紀錄）+ 背景 dispatcher（讀取 outbox、呼叫真實通知服務、支援 retry/dead-letter/監控），而不是在 request 內原地重試
