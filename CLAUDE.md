@@ -260,6 +260,16 @@
 
 ---
 
+## 防禦性檢查規則（Application / Repository 層程式碼變更適用）
+
+Application 層（Handler、`OrderService` 這類協調器）或 Repository 層的程式碼變更**全部完成、確定不會再改**之後、呼叫 `strict-reviewer` 之前，先套用 `.claude/skills/hardener/SKILL.md` 的檢查清單（參數驗證、Entity 存在性、狀態機驗證、`CancellationToken` 傳遞、並發處理、例外邊界、日誌遮蔽），確認這次變更的方法有沒有漏掉的防禦分支。
+
+- 只在任務的程式碼變更**全部完成**時套用一次，不要每改一個檔案就套用一次
+- 套用後如果因此又修改了程式碼，改完再呼叫 `strict-reviewer`；如果套用後確認既有程式碼已經符合檢查清單、沒有修改，不需要重複呼叫
+- 純 Domain Entity 內部方法、getter/setter、純計算邏輯不適用，見 Skill 文件的「適用範圍」
+
+---
+
 ## 維護性規則（所有 task 適用，非強制阻擋，但必須提醒）
 
 每次 task 完成後，主動告知以下項目的狀態：
