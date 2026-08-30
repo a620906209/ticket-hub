@@ -194,7 +194,12 @@ public sealed class OrderService
 
         // 鎖定順序（design.md 決策 3 固定規則）：先鎖座位，後鎖票種；純計數訂單沒有任何座位時，
         // MUST NOT 呼叫 GetForUpdateAsync(空清單)（該方法對空清單拋 ArgumentException）。
-        var eventSeatIds = request.Selections.Where(s => s.EventSeatId.HasValue).Select(s => s.EventSeatId!.Value).ToList();
+        // .Distinct() 比照下面 countingTicketTypeIds／ChangeOrderStatusAsync 既有的相同模式：
+        // GetForUpdateAsync 內部會對重複 id 去重後才查詢（EventSeatRepository.GetForUpdateAsync），
+        // 若這裡傳入未去重的清單，查回的筆數會比傳入的筆數少，讓下面的 Count 比對誤判為座位不存在
+        // （hardener 稽核抓到：目前 PlaceOrderRequestValidator 已擋掉重複 EventSeatId，這裡不會被觸發，
+        // 但這個保護在另一個檔案，這裡本身沒有防禦，跟檔案內其他四處同類型檢查的既有模式不一致）。
+        var eventSeatIds = request.Selections.Where(s => s.EventSeatId.HasValue).Select(s => s.EventSeatId!.Value).Distinct().ToList();
         var eventSeatsById = new Dictionary<Guid, EventSeat>();
         if (eventSeatIds.Count > 0)
         {
