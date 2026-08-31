@@ -46,7 +46,7 @@
 - Rate limiting / 基礎排隊機制（與「API 防搶票機器人」共用同一套機制）——**已完成實作並合併至 master**（`Microsoft.AspNetCore.RateLimiting` 分區限流 + `PurchaseQueueEntry` 排隊機制，見 `openspec/changes/archive/2026-08-29-rate-limiting-queue/`）
 - Email 通知（概念上的 `INotificationService` 介面，票券產出後通知買家；本文件只描述能力範疇，不綁定具體類別名稱——實際命名見 `email-notification` change 的 design.md 決策 1，該 change 採用更精確的 `IEmailNotificationService`）——**已完成實作並合併至 master**（僅 Mock 實作：結構化 log 記錄遮蔽後的通知內容，不架設真實 SMTP、不提供真實寄信能力，見 `openspec/changes/archive/2026-08-31-email-notification/`；Phase 2 至此全數完成）
 - 登入 Rate limiting（防暴力破解）——**已完成實作並合併至 master**（以來源 IP 為分區鍵的獨立 `login` policy，共用 `Microsoft.AspNetCore.RateLimiting` 既定機制，見 `openspec/changes/archive/2026-08-30-login-rate-limiting/`）
-- 監控（Serilog + Seq，本地容器化，對應 CLAUDE.md 結構化 log 規範）**［待確認］**
+- 監控（Serilog + Seq，本地容器化，對應 CLAUDE.md 結構化 log 規範）——**已完成實作並合併至 master**（結構化日誌 + 請求/背景服務關聯值（TraceId）+ Seq 本地容器化集中查詢，見 `openspec/changes/archive/2026-09-01-observability/`）
 
 **Could（技術深化，Phase 3，視剩餘時間精力擴充，暫不預排優先順序）**
 - Redis 分散式鎖 / Queue 排隊室（座位鎖定機制進階版）
@@ -116,7 +116,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 | 電子票券 | 本地產生 QR Code（QRCoder 套件），內容為 HMAC 簽章過的 Ticket ID 防偽造，不接第三方憑證/簽章服務，列為 Must |
 | 核銷 | Ticket 狀態切換 API（`PATCH /api/admin/tickets/{id}/redeem`，含可選簽章驗證）與現場掃碼前端頁面皆已完成，見 `redemption-scanner-ui`（原列 Could，已完成實作並合併） |
 | 部署 | 暫定本機 Docker Compose 展示，視情況加雲端環境（Azure App Service / Render 免費層）供履歷連結 **［待確認］** |
-| 監控 | 暫定 Serilog + Seq（本地容器化） **［待確認］** |
+| 監控 | Serilog + Seq（本地容器化），已完成實作並合併，見 `openspec/changes/archive/2026-09-01-observability/` |
 
 ---
 
@@ -169,7 +169,6 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 
 - Domain 層是否在建立 Event 時驗證票種數/座位數超過設定上限（見第 3 節）
 - 部署環境是否加雲端平台展示（見第 4 節）
-- 監控方案是否採用 Serilog + Seq（見第 4 節）
 - Could 項目（Redis 分散式鎖、多租戶管理介面、CAPTCHA 等）的實作優先順序，待 Phase 1、2 完成後再決定（見第 7 節）
 
 **已決策的現況對齊項目（2026-08-19 盤點後）**
