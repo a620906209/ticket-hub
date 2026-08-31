@@ -53,7 +53,7 @@
 - 多租戶主辦方管理介面（審核、切換）
 - 實名制驗證（姓名、身分證末四碼或手機號）
 - 動態驗證碼（CAPTCHA）
-- 現場核銷掃碼前端頁面
+- ~~現場核銷掃碼前端頁面~~——**已完成實作並合併至 master**（Admin 相機掃碼核銷 + 手動輸入備援，核銷 API 新增可選簽章驗證，見 `openspec/changes/archive/2026-08-31-redemption-scanner-ui/`）
 - 快取層（Redis 等，一般查詢 API 用）
 
 **Won't（明確排除，避免範疇擴散）**
@@ -114,7 +114,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 | 金流 | 完全自建 Mock Gateway（假成功/假失敗開關），設計為 `IPaymentGateway` 介面 + 假實作展示依賴反轉；第三方 sandbox（綠界/藍新）列入 Won't |
 | 通知 | 站內查看為 Must；Email 通知（概念上的 `INotificationService` 介面，實際命名見 `email-notification` change，採用 `IEmailNotificationService`）為 Should；簡訊列入 Won't |
 | 電子票券 | 本地產生 QR Code（QRCoder 套件），內容為 HMAC 簽章過的 Ticket ID 防偽造，不接第三方憑證/簽章服務，列為 Must |
-| 核銷 | 本次範疇僅做 Ticket 狀態切換 API（`PATCH /api/admin/tickets/{id}/redeem`），不含現場掃碼 App/頁面（掃碼前端頁面列入 Could） |
+| 核銷 | Ticket 狀態切換 API（`PATCH /api/admin/tickets/{id}/redeem`，含可選簽章驗證）與現場掃碼前端頁面皆已完成，見 `redemption-scanner-ui`（原列 Could，已完成實作並合併） |
 | 部署 | 暫定本機 Docker Compose 展示，視情況加雲端環境（Azure App Service / Render 免費層）供履歷連結 **［待確認］** |
 | 監控 | 暫定 Serilog + Seq（本地容器化） **［待確認］** |
 
