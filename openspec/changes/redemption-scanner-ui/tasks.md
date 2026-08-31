@@ -1,6 +1,11 @@
-## 0. 規格對齊（無程式碼變更）
+## 0. 規格對齊與 QR 驗章測試（`ProjectC.Infrastructure.Tests`）
 
-- [ ] 0.1 確認既有 `HmacTicketSigningService` 的單元測試已涵蓋 `null`／空字串／格式不符輸入安全回傳失敗且不拋例外（對應 specs `ticket-issuance` 場景 TICKET-ISSUANCE-QR-VERIFY-MALFORMED）；若既有測試已涵蓋則不需新增程式碼或測試，只需確認並在 PR 說明中註記，若未涵蓋才補上
+- [ ] 0.1 確認既有 `HmacTicketSigningService.TryVerify` 單元測試已涵蓋合法內容驗證成功並還原 Ticket ID
+  - 對應 AC: TICKET-ISSUANCE-QR-VERIFY-VALID（既有測試 `TryVerify_WhenContentSignedByThisService_ReturnsTrueAndRestoresTicketId` 已涵蓋，僅需在 PR 說明中註記確認）
+- [ ] 0.2 確認既有 `HmacTicketSigningService.TryVerify` 單元測試已涵蓋竄改後驗章失敗
+  - 對應 AC: TICKET-ISSUANCE-QR-VERIFY-TAMPERED（既有測試 `TryVerify_WhenContentTamperedByOneCharacter_ReturnsFalse` 已涵蓋，僅需在 PR 說明中註記確認）
+- [ ] 0.3 補齊 `HmacTicketSigningService.TryVerify` 格式不符輸入的單元測試：`null`、空字串、僅空白字元、缺少分隔符、多個 `.` 分隔符、前段非合法 `"D"` 格式 GUID、空簽章後段，皆安全回傳 `false` 且不拋例外
+  - 對應 AC: TICKET-ISSUANCE-QR-VERIFY-MALFORMED（既有測試僅涵蓋 `null`／空字串／單字元竄改，其餘情境需新增）
 
 ## 1. 後端：核銷 API 新增可選簽章驗證
 
@@ -28,7 +33,7 @@
 - [ ] 3.1 撰寫 `parseTicketIdFromQrContent(content: string)`：依 `ticket-issuance` 能力定義的精確格式驗證恰好一個 `.` 分隔符、前段為合法 `D` 格式 GUID（不分大小寫皆接受，內部正規化）、後段（簽章）非空字串；三者皆符合才回傳 `{ ticketId, signature }`，否則回傳「無法辨識」結果，不呼叫 API（design.md 決策 5）——備註：此為避免無效呼叫的前端檢查，非安全邊界
 - [ ] 3.2 撰寫 `parseTicketIdFromManualInput(value: string)`：trim 後只接受單一合法 GUID，不接受 `.` 或附加內容，不合法時回傳「Ticket ID 格式不正確」，不呼叫 API（design.md 決策 5）
 - [ ] 3.3 撰寫核銷呼叫的整合邏輯：`parseTicketIdFromQrContent`／`parseTicketIdFromManualInput` 的解析結果原封不動傳入 `redeemTicket(ticketId, signature)`（掃描路徑傳解析出的 `signature`，手動輸入路徑固定傳 `null`），並依回應對應結果：204 成功／409 已核銷過／404 查無此票／`error.status === 400 && error.problem?.title === 'InvalidTicketSignature'` 才判定為簽章無效（比照既有 `QueueAdmissionRequired` 的 `title` 判別寫法，`web/src/pages/buyer/EventDetailPage.vue:370`，不得只憑 400 狀態碼判斷）／其餘（含其他 400、5xx、網路例外）視為系統錯誤，不得歸類為查無此票或簽章無效，不自動重試（design.md 決策 4）
-- [ ] 3.4 單元測試：`parseTicketIdFromQrContent` 對合法格式、缺分隔符、非合法 GUID 前段、空簽章後段的輸入分別驗證結果——對應 AC: ADMIN-REDEEM-SCAN-UNRECOGNIZED
+- [ ] 3.4 單元測試：`parseTicketIdFromQrContent` 對合法格式、缺分隔符、多個 `.` 分隔符、非合法 GUID 前段、空簽章後段的輸入分別驗證結果（多個分隔符對應 design.md 決策 5「恰好一個 `.` 分隔符」要求，須回傳無法辨識而非誤判為可解析）——對應 AC: ADMIN-REDEEM-SCAN-UNRECOGNIZED
 - [ ] 3.5 單元測試：`parseTicketIdFromManualInput` 對合法 GUID、非法格式（含帶 `.` 的內容）分別驗證結果——對應 AC: ADMIN-REDEEM-MANUAL-INVALID-FORMAT
 - [ ] 3.6 單元測試（結果對應邏輯，mock `redeemTicket` 回應）：204／409／404／`InvalidTicketSignature` 400／其他 400／5xx／網路例外下分別產生正確的結果狀態，且「其他 400」與「5xx/網路例外」皆不得產生「查無此票」或「簽章無效」的結果——對應 AC: ADMIN-REDEEM-SCAN-SUCCESS, ADMIN-REDEEM-SCAN-CONFLICT, ADMIN-REDEEM-SCAN-NOT-FOUND, ADMIN-REDEEM-SCAN-INVALID-SIGNATURE, ADMIN-REDEEM-SCAN-SYSTEM-ERROR
 - [ ] 3.7 單元測試（端到端串接，mock `redeemTicket` 只驗證呼叫參數不驗證回應）：給定掃描字串 `{ticketId}.{signature}`，驗證 `redeemTicket` 被呼叫時的參數恰好是解析出的 `ticketId`／`signature`，未被中途轉換或遺漏——對應 AC: ADMIN-REDEEM-SCAN-DISPATCH（回應審查意見：先前只各自測試 parser 與「給定回應碼產生什麼結果」，沒有測試中間這段呼叫參數是否正確傳遞）
