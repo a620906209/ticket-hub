@@ -46,6 +46,22 @@ public class HmacTicketSigningServiceTests
         verified.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("   ")]
+    [InlineData("no-separator-here")]
+    [InlineData("3fa85f64-5717-4562-b3fc-2c963f66afa6.sig.extra")]
+    [InlineData("not-a-guid.someSignature")]
+    [InlineData("3fa85f64-5717-4562-b3fc-2c963f66afa6.")]
+    public void TryVerify_WhenContentIsMalformed_ReturnsFalseWithoutThrowing(string content)
+    {
+        var service = CreateService();
+
+        var verified = service.TryVerify(content, out var ticketId);
+
+        verified.Should().BeFalse();
+        ticketId.Should().Be(Guid.Empty);
+    }
+
     private static string TamperLastCharacter(string content)
     {
         var lastChar = content[^1];

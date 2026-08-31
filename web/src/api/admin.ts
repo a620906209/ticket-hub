@@ -77,3 +77,10 @@ export function getAdminEvents(): Promise<AdminEventSummary[]> {
 export function getEventSalesReport(eventId: string): Promise<SalesReport> {
   return authorizedRequest(`/admin/events/${eventId}/sales-report`)
 }
+
+export function redeemTicket(ticketId: string, signature: string | null): Promise<void> {
+  return authorizedRequest(`/admin/tickets/${ticketId}/redeem`, {
+    method: 'PATCH',
+    body: { signature },
+  })
+}

@@ -28,7 +28,7 @@ export function configureHttpClientAuth(getter: AccessTokenGetter): void {
 }
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   signal?: AbortSignal
   /** 略過 Authorization Header（登入/註冊等不需要既有 token 的請求） */

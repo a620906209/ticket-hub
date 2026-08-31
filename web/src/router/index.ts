@@ -17,6 +17,7 @@ import AdminEventCreatePage from '../pages/admin/EventCreatePage.vue'
 import AdminOrderListPage from '../pages/admin/AdminOrderListPage.vue'
 import AdminOrderDetailPage from '../pages/admin/AdminOrderDetailPage.vue'
 import AdminSalesReportPage from '../pages/admin/AdminSalesReportPage.vue'
+import RedemptionScannerPage from '../pages/admin/RedemptionScannerPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -51,6 +52,7 @@ const router = createRouter({
         { path: 'events/:eventId/sales-report', name: 'admin-sales-report', component: AdminSalesReportPage },
         { path: 'orders', name: 'admin-orders', component: AdminOrderListPage },
         { path: 'orders/:id', name: 'admin-order-detail', component: AdminOrderDetailPage },
+        { path: 'redeem', name: 'admin-redeem', component: RedemptionScannerPage },
       ],
     },
   ],

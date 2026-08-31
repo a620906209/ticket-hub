@@ -18,9 +18,9 @@ public class AdminTicketsController : ControllerBase
     }
 
     [HttpPatch("{id:guid}/redeem")]
-    public async Task<IActionResult> Redeem(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Redeem(Guid id, [FromBody] RedeemTicketRequest? request, CancellationToken cancellationToken)
     {
-        var result = await _redeemTicketHandler.HandleAsync(id, cancellationToken);
+        var result = await _redeemTicketHandler.HandleAsync(id, request?.Signature, cancellationToken);
         return result.ToActionResult();
     }
 }
