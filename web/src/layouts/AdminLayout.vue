@@ -18,6 +18,7 @@ async function handleLogout(): Promise<void> {
         <el-menu-item index="/admin/venues">場館管理</el-menu-item>
         <el-menu-item index="/admin/events">活動管理</el-menu-item>
         <el-menu-item index="/admin/orders">訂單管理</el-menu-item>
+        <el-menu-item index="/admin/redeem">票券核銷</el-menu-item>
       </el-menu>
       <el-button text @click="handleLogout">登出</el-button>
     </div>

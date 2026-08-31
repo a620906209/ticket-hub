@@ -25,6 +25,9 @@ public static class ResultExtensions
             // Title 沿用下方 error.Type.ToString()，天然就是穩定的 "QueueAdmissionRequired" 字串，
             // 前端據此（而非泛用 403）判斷是否導向排隊等待畫面（rate-limiting-queue design.md 決策 4）。
             ErrorType.QueueAdmissionRequired => StatusCodes.Status403Forbidden,
+            // Title 沿用下方 error.Type.ToString()，前端據此（而非泛用 400）判斷是否顯示
+            // 「簽章驗證失敗」，比照 QueueAdmissionRequired 的既有慣例（redemption-scanner-ui design.md 決策 2）。
+            ErrorType.InvalidTicketSignature => StatusCodes.Status400BadRequest,
             ErrorType.NotFound => StatusCodes.Status404NotFound,
             ErrorType.Conflict => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,

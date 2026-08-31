@@ -42,4 +42,22 @@ describe('router guard', () => {
 
     expect(router.currentRoute.value.name).toBe('login')
   })
+
+  // 對應 redemption-scanner-ui：/admin/redeem 沿用既有 /admin/* 共用守衛，不需另外的守衛邏輯
+  it('未登入直接開啟核銷頁面導向登入頁', async () => {
+    await router.push('/admin/redeem')
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/admin/redeem')
+  })
+
+  it('Admin 登入後可進入核銷頁面', async () => {
+    const authStore = useAuthStore()
+    authStore.accessToken = 'access-token'
+    authStore.member = { id: '1', email: 'a@example.com', displayName: 'A', role: 'Admin', isActive: true }
+
+    await router.push('/admin/redeem')
+
+    expect(router.currentRoute.value.name).toBe('admin-redeem')
+  })
 })

@@ -8,4 +8,5 @@ public enum ErrorType
     Unauthorized,
     Forbidden,
     QueueAdmissionRequired,
+    InvalidTicketSignature,
 }

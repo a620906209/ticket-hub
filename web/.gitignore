@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# mkcert 產生的本機開發憑證私鑰，僅限個人機器使用，不可進版控
+certs/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
