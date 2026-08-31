@@ -5,6 +5,10 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Serilog" Version="4.4.0" />
+    <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageVersion Include="Serilog.Settings.Configuration" Version="10.0.1" />
+    <PackageVersion Include="Serilog.Sinks.Seq" Version="9.1.0" />
     <PackageVersion Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
@@ -26,6 +30,7 @@
     <PackageVersion Include="MockQueryable.Moq" Version="10.0.8" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <PackageVersion Include="Testcontainers" Version="4.14.0" />
     <!-- 測試專用：驗證 TicketQrCodeGenerator 產出的 PNG 是否真的可解碼還原內容（不進 src，僅 Infrastructure.Tests 引用）。
          SixLabors.ImageSharp 釘選在 2.1.x（Apache 2.0，完全免授權金鑰）——3.x 起改用 Split License，
          雖然本專案營收規模符合免費條件，但仍需額外註冊授權金鑰才能消除 build 警告，測試用途不值得這道手續。 -->

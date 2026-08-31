@@ -3,6 +3,7 @@ using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.PurchaseQueue;
+using Serilog.Context;
 
 namespace ProjectC.WebApi.BackgroundServices;
 
@@ -33,25 +34,40 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            try
+            // TraceId scope 必須包住整個 try/catch（含週期層級失敗的 LogError），理由與
+            // ExpiredOrderCleanupService.ExecuteAsync 相同（實測發現，見該檔案註解）。
+            using (LogContext.PushProperty("TraceId", Guid.NewGuid().ToString()))
             {
-                await AdvanceQueueOnceAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Purchase queue admission cycle failed; will retry next interval.");
+                try
+                {
+                    await AdvanceQueueOnceCoreAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogError(exception, "Purchase queue admission cycle failed; will retry next interval.");
+                }
             }
 
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, _options.PollingIntervalSeconds)), stoppingToken);
         }
     }
 
-    /// <summary>供整合測試直接呼叫（不透過 DI 容器解析這個服務本身），公開一輪完整推進的邏輯。</summary>
+    /// <summary>供整合測試直接呼叫（不透過 DI 容器解析這個服務本身），公開一輪完整推進的邏輯，
+    /// 含這一輪專屬的 TraceId scope（與 <see cref="ExecuteAsync"/> 走的正式排程路徑各自獨立產生一個
+    /// 新值，語意一致：兩者都代表「一輪」，只是觸發來源不同）。</summary>
     public async Task AdvanceQueueOnceAsync(CancellationToken cancellationToken)
+    {
+        using (LogContext.PushProperty("TraceId", Guid.NewGuid().ToString()))
+        {
+            await AdvanceQueueOnceCoreAsync(cancellationToken);
+        }
+    }
+
+    private async Task AdvanceQueueOnceCoreAsync(CancellationToken cancellationToken)
     {
         IReadOnlyList<Guid> queueModeEventIds;
         using (var scanScope = _scopeFactory.CreateScope())

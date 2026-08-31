@@ -16,14 +16,39 @@ services:
       timeout: 5s
       retries: 10
 
+  seq:
+    # 釘選已驗證過的版本，避免未來 latest 更新後行為/設定要求（例如 SEQ_FIRSTRUN_* 環境變數）
+    # 無預警改變（實測時就踩過新版強制要求指定驗證方式的變動，見下方環境變數註解）。
+    image: datalust/seq:2026.1.17114
+    environment:
+      ACCEPT_EULA: "Y"
+      # 新版 Seq image 第一次啟動時強制要求二選一：SEQ_FIRSTRUN_ADMINPASSWORD 或
+      # SEQ_FIRSTRUN_NOAUTHENTICATION，否則直接啟動失敗（實測發現，非文件假設）；本機展示情境
+      # 不需要帳密驗證，比照 design.md 決策（不新增 Seq 帳號密碼驗證）明確選擇後者。
+      SEQ_FIRSTRUN_NOAUTHENTICATION: "True"
+    ports:
+      # Web 查詢介面；對外 port 衝突時，在你自己的 .env 設 SEQ_HOST_PORT 就好，不用改這個共用檔案。
+      # 綁定方式比照 db/api/web，不額外限制僅本機存取（本機開發展示情境，非公開部署，
+      # 見 observability spec.md「Seq 作為本機 Docker Compose 集中查詢平台」的存取權限範圍段落）。
+      - "${SEQ_HOST_PORT:-8081}:80"
+      # ingestion port（5341）刻意不對外映射，只有 api 透過 compose 網路內部連線寫入，
+      # 沒有從瀏覽器直接存取的需求，縮小對外暴露面（design.md 決策 5）。
+    # 不掛載 named volume：本機展示/開發用途，容器重建後歷史日誌清空即可，不需要跨重建保留
+    # （design.md 決策 6）。
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    # api 依賴 db 先通過健康檢查（真正接受連線）才啟動，避免啟動時連線失敗。
+    # api 依賴 db 先通過健康檢查（真正接受連線）才啟動，避免啟動時連線失敗；
+    # seq 不要求健康檢查通過才啟動 api——Seq sink 連線失敗不得阻塞應用程式啟動或請求處理
+    # （observability spec.md「Seq sink 連線失敗不得影響應用程式啟動或請求處理」），depends_on 只是
+    # 確保啟動順序、讓 seq 有機會先跑起來，不是 api 啟動的必要條件。
     depends_on:
       db:
         condition: service_healthy
+      seq:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://0.0.0.0:8080
@@ -36,6 +61,9 @@ services:
       Auth__RefreshTokenExpirationDays: ${AUTH_REFRESH_TOKEN_EXPIRATION_DAYS}
       Auth__PasswordResetTokenExpirationMinutes: ${AUTH_PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES}
       TicketSigning__SigningKey: ${TICKET_SIGNING_KEY}
+      # compose service name（非 localhost），純量設定鍵（非 Serilog:WriteTo 陣列），見 observability
+      # design.md 決策 1 附錄的實作修正——appsettings.json 預設空值不啟用 Seq sink，這裡才是真正的位址來源。
+      Seq__ServerUrl: http://seq:5341
       # 讓容器內的 Testcontainers 整合測試知道要把臨時容器加進哪個 compose 網路，
       # 才能跟 api 自己互連；固定寫死是因為下面 networks.default.name 也固定為同一個值。
       Testcontainers__ComposeNetworkName: projectc_default
