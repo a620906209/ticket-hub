@@ -13,20 +13,29 @@ namespace ProjectC.WebApi.BackgroundServices;
 /// </summary>
 public sealed class PurchaseQueueAdmissionService : BackgroundService
 {
+    // 涵蓋整輪推進的單一固定 key，不分活動（design.md 決策 1）。
+    private const string LeaderElectionLockKey = "purchase-queue-admission:lock";
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly PurchaseQueueOptions _options;
+    private readonly IDistributedLock _distributedLock;
+    private readonly DistributedLockOptions _lockOptions;
     private readonly ILogger<PurchaseQueueAdmissionService> _logger;
 
     public PurchaseQueueAdmissionService(
         IServiceScopeFactory scopeFactory,
         IDateTimeProvider dateTimeProvider,
         PurchaseQueueOptions options,
+        IDistributedLock distributedLock,
+        DistributedLockOptions lockOptions,
         ILogger<PurchaseQueueAdmissionService> logger)
     {
         _scopeFactory = scopeFactory;
         _dateTimeProvider = dateTimeProvider;
         _options = options;
+        _distributedLock = distributedLock;
+        _lockOptions = lockOptions;
         _logger = logger;
     }
 
@@ -40,7 +49,7 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
             {
                 try
                 {
-                    await AdvanceQueueOnceCoreAsync(stoppingToken);
+                    await AdvanceQueueOnceWithLeaderElectionAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -58,12 +67,42 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
 
     /// <summary>供整合測試直接呼叫（不透過 DI 容器解析這個服務本身），公開一輪完整推進的邏輯，
     /// 含這一輪專屬的 TraceId scope（與 <see cref="ExecuteAsync"/> 走的正式排程路徑各自獨立產生一個
-    /// 新值，語意一致：兩者都代表「一輪」，只是觸發來源不同）。</summary>
+    /// 新值，語意一致：兩者都代表「一輪」，只是觸發來源不同）。刻意不含取鎖邏輯，供既有
+    /// purchase-queue 測試沿用，避免意外依賴 Redis 連線（design.md 決策 6）。</summary>
     public async Task AdvanceQueueOnceAsync(CancellationToken cancellationToken)
     {
         using (LogContext.PushProperty("TraceId", Guid.NewGuid().ToString()))
         {
             await AdvanceQueueOnceCoreAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>正式輪詢路徑（<see cref="ExecuteAsync"/>）與本次所有涉及分散式鎖的整合測試的
+    /// 正確進入點：先嘗試取得本輪的 leader election 鎖，取得成功或 Redis 不可用（fail-open）時
+    /// 才執行既有的 <see cref="AdvanceQueueOnceAsync"/>；鎖已被其他實例持有時直接跳過本輪
+    /// （design.md 決策 4、6）。</summary>
+    public async Task AdvanceQueueOnceWithLeaderElectionAsync(CancellationToken cancellationToken)
+    {
+        var ttl = TimeSpan.FromSeconds(Math.Max(1, _options.PollingIntervalSeconds) * _lockOptions.LockTtlMultiplier);
+        var lockResult = await _distributedLock.TryAcquireAsync(LeaderElectionLockKey, ttl, cancellationToken);
+
+        if (lockResult.LockResult == LockResult.HeldByOther)
+        {
+            _logger.LogDebug("Skipping this purchase queue admission cycle; lock {LockKey} is held by another instance.", LeaderElectionLockKey);
+            return;
+        }
+
+        try
+        {
+            await AdvanceQueueOnceAsync(cancellationToken);
+        }
+        finally
+        {
+            // RedisUnavailable 代表本來就沒有真的鎖，跳過釋放（design.md 決策 6）。
+            if (lockResult.LockResult == LockResult.Acquired)
+            {
+                await _distributedLock.ReleaseAsync(LeaderElectionLockKey, lockResult.OwnerToken!, cancellationToken);
+            }
         }
     }
 

@@ -12,7 +12,12 @@ namespace ProjectC.WebApi.Tests.TestSupport;
 public class LoginRateLimitedWebApplicationFactory : WebApplicationFactory<Program>
 {
     public const int LoginPermitLimit = 3;
-    public const int LoginWindowSeconds = 2;
+    // 原本設為 2 秒，只在系統負載低時夠用；耗盡額度需要送出 LoginPermitLimit 次真實 HTTP+DB
+    // 請求（即使平行送出，仍需至少一次請求的實際延遲），系統負載較高時（例如同時有多個
+    // Testcontainers 整合測試套件在跑）單次請求延遲可能超過 2 秒，導致視窗提前重置、
+    // 測試預期的限流沒有觸發（實測重現過這個 flaky 失敗）。放寬到 10 秒建立更多真實延遲餘裕，
+    // 犧牲的代價只有 Login_AfterTheWindowResets_RequestsAreAllowedAgain 的 Task.Delay 變長。
+    public const int LoginWindowSeconds = 10;
 
     private readonly string _connectionString;
 

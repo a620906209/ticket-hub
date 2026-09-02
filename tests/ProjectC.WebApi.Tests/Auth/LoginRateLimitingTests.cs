@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -27,17 +28,24 @@ public class LoginRateLimitingTests : IClassFixture<LoginRateLimitTestDatabaseFi
     private static Task<HttpResponseMessage> AttemptLoginWithFakeCredentialsAsync(HttpClient client)
         => client.PostAsJsonAsync("/api/auth/login", new LoginRequest(AuthTestHelper.NewEmail(), "WrongPassword1"));
 
+    /// <summary>平行送出 N 次請求，而非循序 await——Fixed Window 限流器的額度計算不受到達順序影響，
+    /// 但循序 await 讓「耗盡額度所需的實際耗時」等於 N 次請求延遲的總和，在系統負載較高、
+    /// 單次請求延遲增加時，可能讓耗盡額度的過程本身就超過視窗秒數，導致視窗提前重置、
+    /// 測試預期的限流沒有觸發（實測發現：多個 Testcontainers 整合測試套件同時跑時會重現這個
+    /// flaky 失敗）。平行送出讓耗時趨近於單次請求延遲，而非隨 N 累加，從根因消除這個問題，
+    /// 不需要放寬視窗秒數（避免連帶拖慢依賴 Task.Delay(WindowSeconds) 的既有測試）。</summary>
+    private static Task<HttpResponseMessage[]> AttemptLoginsWithFakeCredentialsAsync(HttpClient client, int count)
+        => Task.WhenAll(Enumerable.Range(0, count).Select(_ => AttemptLoginWithFakeCredentialsAsync(client)));
+
     [Fact]
     public async Task Login_WithRequestsUnderTheLimit_AllSucceedWithoutBeingRateLimited()
     {
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
 
-        for (var i = 0; i < LoginRateLimitedWebApplicationFactory.LoginPermitLimit - 1; i++)
-        {
-            var response = await AttemptLoginWithFakeCredentialsAsync(client);
-            response.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
-        }
+        var responses = await AttemptLoginsWithFakeCredentialsAsync(client, LoginRateLimitedWebApplicationFactory.LoginPermitLimit - 1);
+
+        responses.Should().OnlyContain(response => response.StatusCode != HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
@@ -46,11 +54,9 @@ public class LoginRateLimitingTests : IClassFixture<LoginRateLimitTestDatabaseFi
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
 
-        for (var i = 0; i < LoginRateLimitedWebApplicationFactory.LoginPermitLimit; i++)
-        {
-            var response = await AttemptLoginWithFakeCredentialsAsync(client);
-            response.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
-        }
+        var responses = await AttemptLoginsWithFakeCredentialsAsync(client, LoginRateLimitedWebApplicationFactory.LoginPermitLimit);
+
+        responses.Should().OnlyContain(response => response.StatusCode != HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
@@ -59,10 +65,7 @@ public class LoginRateLimitingTests : IClassFixture<LoginRateLimitTestDatabaseFi
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
 
-        for (var i = 0; i < LoginRateLimitedWebApplicationFactory.LoginPermitLimit; i++)
-        {
-            await AttemptLoginWithFakeCredentialsAsync(client);
-        }
+        await AttemptLoginsWithFakeCredentialsAsync(client, LoginRateLimitedWebApplicationFactory.LoginPermitLimit);
 
         var exhaustedResponse = await AttemptLoginWithFakeCredentialsAsync(client);
         exhaustedResponse.StatusCode.Should().Be(HttpStatusCode.TooManyRequests, "時間窗重置前置條件：額度應已耗盡");
@@ -85,10 +88,8 @@ public class LoginRateLimitingTests : IClassFixture<LoginRateLimitTestDatabaseFi
         var email = AuthTestHelper.NewEmail();
         await AuthTestHelper.RegisterAsync(client, email);
 
-        for (var i = 0; i < LoginRateLimitedWebApplicationFactory.LoginPermitLimit; i++)
-        {
-            await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1"));
-        }
+        await Task.WhenAll(Enumerable.Range(0, LoginRateLimitedWebApplicationFactory.LoginPermitLimit)
+            .Select(_ => client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1"))));
 
         var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, AuthTestHelper.DefaultPassword));
 
@@ -104,10 +105,7 @@ public class LoginRateLimitingTests : IClassFixture<LoginRateLimitTestDatabaseFi
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
 
-        for (var i = 0; i < LoginRateLimitedWebApplicationFactory.LoginPermitLimit; i++)
-        {
-            await AttemptLoginWithFakeCredentialsAsync(client);
-        }
+        await AttemptLoginsWithFakeCredentialsAsync(client, LoginRateLimitedWebApplicationFactory.LoginPermitLimit);
 
         var response = await AttemptLoginWithFakeCredentialsAsync(client);
 

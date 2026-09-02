@@ -64,7 +64,12 @@ public class BackgroundServiceCycleLevelFailureTraceIdTests
         scopeFactory.Setup(f => f.CreateScope()).Throws(new InvalidOperationException("simulated scan-phase failure"));
 
         var service = new PurchaseQueueAdmissionService(
-            scopeFactory.Object, new SystemDateTimeProvider(), new PurchaseQueueOptions(), logger);
+            scopeFactory.Object,
+            new SystemDateTimeProvider(),
+            new PurchaseQueueOptions(),
+            new FakeDistributedLock(),
+            new DistributedLockOptions(),
+            logger);
 
         using var cts = new CancellationTokenSource();
         await service.StartAsync(cts.Token);

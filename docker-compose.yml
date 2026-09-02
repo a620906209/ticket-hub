@@ -36,6 +36,12 @@ services:
     # 不掛載 named volume：本機展示/開發用途，容器重建後歷史日誌清空即可，不需要跨重建保留
     # （design.md 決策 6）。
 
+  redis:
+    image: redis:7-alpine
+    # 不對外映射 port，只有 api 透過 compose 網路內部連線（purchase-queue-leader-election
+    # design.md Migration Plan）。
+    # 不掛載 volume：鎖為過程性資料，容器重建可清空即可，比照 seq 服務的既定取捨。
+
   api:
     build:
       context: .
@@ -48,6 +54,10 @@ services:
       db:
         condition: service_healthy
       seq:
+        condition: service_started
+      # redis 不要求健康檢查通過才啟動 api，理由與 seq 相同：Redis 連線失敗不得阻塞 API 啟動
+      # （purchase-queue-leader-election design.md Migration Plan／決策 4，fail-open）。
+      redis:
         condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Development
@@ -64,6 +74,9 @@ services:
       # compose service name（非 localhost），純量設定鍵（非 Serilog:WriteTo 陣列），見 observability
       # design.md 決策 1 附錄的實作修正——appsettings.json 預設空值不啟用 Seq sink，這裡才是真正的位址來源。
       Seq__ServerUrl: http://seq:5341
+      # compose service name（非 localhost），分散式鎖的 Redis 連線字串（purchase-queue-leader-election
+      # design.md Migration Plan）。
+      ConnectionStrings__Redis: "redis:6379"
       # 讓容器內的 Testcontainers 整合測試知道要把臨時容器加進哪個 compose 網路，
       # 才能跟 api 自己互連；固定寫死是因為下面 networks.default.name 也固定為同一個值。
       Testcontainers__ComposeNetworkName: projectc_default

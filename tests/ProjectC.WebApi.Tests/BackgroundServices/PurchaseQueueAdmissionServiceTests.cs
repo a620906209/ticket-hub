@@ -37,6 +37,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
                 AdmissionTtlSeconds = 300,
                 PollingIntervalSeconds = 5,
             },
+            new FakeDistributedLock(),
+            new DistributedLockOptions(),
             NullLogger<PurchaseQueueAdmissionService>.Instance);
 
     private async Task<Guid> SeedQueueModeEventAsync(ApplicationDbContext dbContext, bool isQueueModeEnabled = true)
@@ -297,6 +299,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
                 AdmissionTtlSeconds = 300,
                 PollingIntervalSeconds = 5,
             },
+            new FakeDistributedLock(),
+            new DistributedLockOptions(),
             NullLogger<PurchaseQueueAdmissionService>.Instance);
 
         await service.AdvanceQueueOnceAsync(CancellationToken.None);
