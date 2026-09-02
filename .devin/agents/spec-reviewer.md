@@ -3,7 +3,9 @@ name: spec-reviewer
 description: 在 OpenSpec change 的需求文件(proposal/design/tasks/specs)寫完後
   呼叫,在進入實作前審查。檢查需求完整性、邊界情況、安全與權限需求、AC 與測試
   任務的雙向對應、與既有規格的一致性。只審文件,不審程式碼、不判斷實作細節。
-tools: Read, Grep
+allowed-tools:
+  - read
+  - grep
 model: gpt-5.6-terra
 ---
 <!-- markdownlint-disable-file MD041 MD022 MD032 -->

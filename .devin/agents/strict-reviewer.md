@@ -4,9 +4,10 @@ description: 在任何程式碼變更完成後必須呼叫。嚴格審查 git �
   unstaged、untracked),檢查測試覆蓋、Clean Architecture 分層、EF Core、
   安全性、前端規範、命名與慣例。在容器內執行相關測試,回傳結構化結果,
   分離 blocking 問題、建議性問題與測試驗證狀態。
-tools: Read, Grep, Bash(git diff:*), Bash(git status:*),
-  Bash(docker compose exec api dotnet test:*),
-  Bash(docker compose exec web npm run test:*)
+allowed-tools:
+  - read
+  - grep
+  - exec
 model: gpt-5.6-terra
 ---
 
