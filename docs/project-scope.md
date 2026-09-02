@@ -49,7 +49,7 @@
 - 監控（Serilog + Seq，本地容器化，對應 CLAUDE.md 結構化 log 規範）——**已完成實作並合併至 master**（結構化日誌 + 請求/背景服務關聯值（TraceId）+ Seq 本地容器化集中查詢，見 `openspec/changes/archive/2026-09-01-observability/`）
 
 **Could（技術深化，Phase 3，視剩餘時間精力擴充，暫不預排優先順序）**
-- Redis 分散式鎖 / Queue 排隊室（座位鎖定機制進階版）
+- ~~Redis 分散式鎖~~——**Leader Election 部分已完成實作**（`purchase-queue-leader-election`，`openspec/changes/purchase-queue-leader-election/`，規劃階段經過多輪內部審查，spec-reviewer PASS）：`PurchaseQueueAdmissionService` 背景推進服務新增以 Redis `SET NX PX` + Lua compare-and-delete 實作的分散式鎖，多實例部署下每輪只讓一個實例真正執行推進；Redis 故障採 fail-open（照常執行並記錄 Warning）；`docker-compose.yml` 新增 `redis` 服務。新增 24＋2 項測試（單元／元件／服務層端到端，含 TTL 逾時重疊執行下的正確性、Redis 斷線後自動恢復互斥、應用程式啟動時 Redis 不可用仍可正常啟動等情境），4 個測試專案全數通過。實作完成、strict-reviewer PASS 後，人工複查另抓到 3 個 blocking 問題（AC↔測試追溯矩陣缺漏、PQLE-010 測試嚴謹度不足、新舊 spec 對「併發推進」保證範圍的字面矛盾）並已修正——spec-reviewer／strict-reviewer 的 PASS 判定不是天花板，仍需人工複查。尚未 archive、尚未 push。Queue 排隊室（座位鎖定機制進階版）的 Redis 資料結構重寫維持未排定，不在本次範圍
 - 多租戶主辦方管理介面（審核、切換）
 - 實名制驗證（姓名、身分證末四碼或手機號）
 - 動態驗證碼（CAPTCHA）

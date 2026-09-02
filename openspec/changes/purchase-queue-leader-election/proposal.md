@@ -17,7 +17,7 @@
 - `purchase-queue-leader-election`：多實例部署下，`purchase-queue` 入場推進背景服務在鎖租約有效期間內減少多實例重複執行的機制（基於 Redis 分散式鎖）；租約逾期造成的重疊執行由既有資料庫悲觀鎖保證正確性，非本機制本身的保證範圍
 
 ### Modified Capabilities
-（無——`purchase-queue` 既有的入場推進正確性、順序、逾時等對外可觀察行為不變，這次異動純粹是背景服務執行層面的效率與資源競爭改善，不變更任何 API 契約或既有 Requirement）
+- `purchase-queue`：既有的入場推進正確性、順序、逾時等對外可觀察行為（API 回應、最終資料庫狀態）皆不變，不變更任何 API 契約——但 `PQ-ADMIT-004`「併發推進不超額入場」原文的「系統 MUST 確保單一活動同時只有一次推進在進行」若照字面解讀為「呼叫層級」的保證，與本次新增的 `PQLE-006a`（TTL 逾時後允許重疊執行）字面矛盾。實際上 PQ-ADMIT-004 真正要保證的是「資料庫交易層級」的序列化與最終正確性（不超額入場），這點完全不受本次異動影響；但既有措辭未區分「呼叫層級」與「交易層級」，故本次一併釐清 `PQ-ADMIT-004` 的 Scenario 措辭，明確其保證範圍並與 `PQLE-006a` 對齊（見 `specs/purchase-queue/spec.md` 的 `MODIFIED Requirements`），避免兩份 spec 的字面保證看起來互相矛盾
 
 ## Impact
 
