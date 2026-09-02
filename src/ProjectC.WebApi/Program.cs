@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
+using StackExchange.Redis;
 using ProjectC.Application.Authentication.Login;
 using ProjectC.Application.Authentication.Logout;
 using ProjectC.Application.Authentication.PasswordReset;
@@ -48,6 +49,7 @@ using ProjectC.Domain.Payments;
 using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
+using ProjectC.Infrastructure.DistributedLocking;
 using ProjectC.Infrastructure.Notifications;
 using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
@@ -180,6 +182,35 @@ try
         .ValidateDataAnnotations()
         .ValidateOnStart();
     builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<PurchaseQueueOptions>>().Value);
+
+    // DistributedLockOptions 有安全的預設值（LockTtlMultiplier = 3），比照 RateLimitingOptions
+    // 不需要 ValidateOnStart（見 purchase-queue-leader-election design.md Migration Plan）。
+    builder.Services
+        .AddOptions<DistributedLockOptions>()
+        .Bind(builder.Configuration.GetSection(DistributedLockOptions.SectionName))
+        .ValidateDataAnnotations();
+    builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<DistributedLockOptions>>().Value);
+
+    // AbortOnConnectFail MUST 為 false：StackExchange.Redis 預設值為 true，Redis 尚未就緒時
+    // ConnectionMultiplexer.Connect(...) 會直接拋出例外並阻塞應用程式啟動，違反 fail-open 的
+    // 降級原則（purchase-queue-leader-election design.md 決策 4／spec.md PQLE-010）。
+    // 連線字串 MUST 在 factory delegate 內部才讀取 builder.Configuration（而非在這裡提前算好
+    // ConfigurationOptions 再以 closure 帶入），否則會讀到 builder.Build() 之前的設定快照——
+    // WebApplicationFactory 測試用的設定覆寫是在 Build() 當下才併入 builder.Configuration，
+    // 提前讀取會讀到覆寫前的舊值（實測發現：PQLE-010 的啟動測試曾因此意外連到正式 redis:6379，
+    // 而非測試指定的不可達 endpoint）。空字串會讓 ConfigurationOptions.Parse 產出零個 EndPoint，
+    // ConnectionMultiplexer.Connect(...) 會直接同步拋出「沒有指定任何 endpoint」的例外——這與
+    // AbortOnConnectFail 無關（後者只處理「endpoint 已指定但連不上」），MUST 確保永遠有一個
+    // 語法合法的 endpoint 可供解析。
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    {
+        var redisConfigurationOptions = ConfigurationOptions.Parse(builder.Configuration.GetConnectionString("Redis") ?? "redis:6379");
+        redisConfigurationOptions.AbortOnConnectFail = false;
+        return ConnectionMultiplexer.Connect(redisConfigurationOptions);
+    });
+    // IConnectionMultiplexer 官方建議整個應用程式共用單一實例，本身即是 thread-safe，比照既有
+    // Singleton 註冊慣例（如 IMemoryCache），IDistributedLock 一併註冊為 Singleton。
+    builder.Services.AddSingleton<IDistributedLock, RedisDistributedLock>();
 
     builder.Services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
     builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();
