@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by change rate-limiting-queue. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Admin 可針對個別活動開關熱門搶購模式
 系統 SHALL 提供 Admin 專用端點 `PATCH /api/admin/events/{id}/queue-mode`，Body 為 `{ "enabled": bool }`，允許已登入且角色為 `Admin` 的使用者開啟或關閉指定活動的「熱門搶購模式」（`Event.IsQueueModeEnabled`）；非 `Admin` 或未登入呼叫 MUST 被拒絕（`403`），不變更任何活動狀態。`enabled` 欄位缺漏或非 boolean 時 MUST 回傳 `400` 驗證錯誤，不變更活動狀態；活動 Id 不存在時 MUST 回傳 `404`。成功時 HTTP 回應 MUST 為 `204 No Content`（比照既有 `PATCH /api/admin/tickets/{id}/redeem` 的回應慣例，不回傳 body）。活動的熱門搶購模式預設為關閉，不影響既有活動的既定下單行為。
 
@@ -139,7 +137,7 @@ TBD - created by change rate-limiting-queue. Update Purpose after archive.
 
 #### Scenario: PQ-ADMIT-004 併發推進不超額入場
 - **WHEN** 背景處理同時間針對同一活動計算名額與推進排隊
-- **THEN** 系統 MUST 確保單一活動同時只有一次推進在進行，最終有效入場名額不超過設定上限
+- **THEN** 系統 MUST 確保同一活動同時只有一筆交易真正取得列鎖（`GetForUpdateAsync`）並寫入排隊紀錄，最終有效入場名額不超過設定上限。**範圍釐清（因 `purchase-queue-leader-election` 能力新增而補充，見該能力 spec.md PQLE-006a）**：本 Scenario 保證的是「資料庫交易層級」的序列化與最終正確性，不是「呼叫層級只會有一個推進呼叫在執行」。單一實例部署下兩者恆等；啟用 `purchase-queue-leader-election` 分散式鎖的多實例部署下，鎖租約（TTL）有效期間內兩者也恆等——但若原持有鎖的實例執行時間超過 TTL，另一實例可能取得新鎖並與前者的推進呼叫（方法呼叫層級）重疊執行，此時「呼叫層級只有一個推進在進行」不再成立，但本 Scenario 真正要保證的「最終有效入場名額不超過設定上限」不受影響——`GetForUpdateAsync` 的列鎖獨立於分散式鎖之外運作，持續確保任一時刻只有一個交易真正在寫入同一活動的排隊紀錄
 
 ### Requirement: 等待中的排隊紀錄沒有自身逾時機制
 `Waiting` 狀態的排隊紀錄 SHALL NOT 因等待時間長短而自動失效或被清理；只有在被背景推進機制依序推進為 `Admitted` 後才會開始計算入場逾時。系統 MUST 保證同一活動的 `Waiting` 紀錄之間的推進順序恆依 `JoinedAtUtc ASC, Id ASC` 由舊到新，不因等待過久而被跳過或重新排序。
@@ -180,3 +178,4 @@ TBD - created by change rate-limiting-queue. Update Purpose after archive.
 #### Scenario: PQ-COMPLETE-002 名額於交易提交後立即可供下一位使用
 - **WHEN** 某活動的有效入場名額已達上限，其中一筆 `Admitted` 紀錄因成功建立訂單而在交易內轉為 `Completed`
 - **THEN** 該筆紀錄轉為 `Completed` 後，有效入場名額隨即減少一筆，下一輪背景推進得以將名額提供給最早的 `Waiting` 紀錄，不受該筆紀錄原訂的 `AdmissionExpiresAtUtc` 影響
+
