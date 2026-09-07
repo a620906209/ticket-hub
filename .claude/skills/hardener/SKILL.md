@@ -3,6 +3,8 @@ name: hardener
 description: 依本專案 CLAUDE.md 慣例，為 C# async 方法補強防禦性檢查（參數驗證、Entity 存在性、狀態機驗證、並發處理、日誌、CancellationToken 傳遞）
 keywords: [defensive-programming, validation, exception-handling, logging, concurrency, result-pattern]
 category: code-review
+author: RD-Hank
+origin: project-authored
 ---
 
 # Hardener Skill - 防禦性編程（比照 CLAUDE.md）

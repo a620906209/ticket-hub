@@ -1,7 +1,9 @@
 ---
 name: branch-and-propose
 description: 開始規劃新功能時觸發，自動從 master 同步並建立新分支，接著進入 OpenSpec 提案流程。當使用者說「規劃新功能」「開新的 spec」「開始做 XXX 功能」「幫我開一個新分支做 XXX」時使用。
-argument-hint: [功能名稱]
+argument-hint: "[功能名稱]"
+author: RD-Hank
+origin: project-authored
 ---
 
 ## Instructions
