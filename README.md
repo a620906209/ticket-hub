@@ -86,8 +86,16 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - Rate limiting / 排隊機制（搶購端點分區限流）
 - 登入 Rate limiting（防暴力破解）
 - Email 通知（`IEmailNotificationService` 介面 + Mock 實作，結構化 log 記錄）
+- 可觀測性（Serilog + Seq、HTTP／背景服務 TraceId 與結構化 log）
 
-**Phase 3（Could）— 規劃中，視情況擴充**：Redis 分散式鎖、多租戶管理介面、CAPTCHA、現場核銷掃碼前端頁面等。
+**Phase 3（Could）— 部分已完成，其餘視情況擴充**：
+
+- Redis Queue Leader Election：已完成；透過 Redis 分散式鎖確保多實例下每輪僅由一個實例推進排隊
+- Redis 一般查詢快取：已完成實作與測試，OpenSpec 歸檔與文件同步中
+- 現場核銷掃碼前端：已完成；支援相機掃描與手動輸入備援
+- 多租戶主辦方管理介面：尚未實作
+- 實名制驗證：尚未實作
+- CAPTCHA：尚未實作
 
 ## 5. 本機執行
 
