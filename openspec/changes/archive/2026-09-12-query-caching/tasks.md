@@ -194,4 +194,4 @@
 
 - [x] 9.1 於容器內執行完整測試套件（`docker compose exec api dotnet test`），確認全數通過
 - [x] 9.2 手動驗證：透過真實 API 呼叫，依序驗證「首次查詢（未命中）→ 再次查詢（命中）→ 觸發異動 → 查詢看到最新資料 → 等待 TTL 到期 → 確認即使沒有異動也會重新查詢」的完整流程，針對活動列表與票種列表各跑一輪
-- [ ] 9.3 archive 階段同步更新 `docs/project-scope.md` 的 Could 項目狀態
+- [x] 9.3 archive 階段同步更新 `docs/project-scope.md` 的 Could 項目狀態
