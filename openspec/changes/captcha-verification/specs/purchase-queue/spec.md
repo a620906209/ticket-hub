@@ -3,7 +3,7 @@
 ### Requirement: 買家可加入活動的購票排隊
 系統 SHALL 提供已登入會員加入指定活動排隊的端點 `POST /api/events/{id}/queue/entries`；僅限該活動 `IsQueueModeEnabled = true` 時可加入，`IsQueueModeEnabled = false` 的活動 MUST 拒絕加入請求（回傳 `409 Conflict`）。活動 Id 不存在時 MUST 回傳 `404 Not Found`。此端點只要求已登入（比照既有 `POST /api/orders` 的 `[Authorize]`），不限制會員角色——`MemberRole.Member` 與 `MemberRole.Admin` 皆可呼叫。排隊紀錄綁定的會員身份 MUST 完全取自呼叫者的 JWT Claims，不接受請求 Body 或任何其他輸入指定/覆寫為其他會員 Id。
 
-**加入排隊請求 MUST 附帶驗證碼 token 與使用者填寫的驗證碼文字，系統 SHALL 先呼叫 `captcha-verification` 能力驗證兩者，驗證失敗時 MUST 拒絕加入排隊（不執行下述任何查詢或交易），回傳明確的驗證錯誤。此檢查只在「建立新排隊紀錄」的請求路徑上執行一次；查詢排隊狀態端點（輪詢用途）不受影響、不需要驗證碼。**
+**加入排隊請求 MUST 附帶驗證碼 token 與使用者填寫的驗證碼文字，系統 SHALL 先呼叫 `captcha-verification` 能力驗證兩者，驗證失敗時 MUST 拒絕加入排隊（不執行下述任何查詢或交易），回傳明確的驗證錯誤。此檢查在**每一次呼叫 `POST /api/events/{id}/queue/entries`（加入排隊 HTTP 請求）時都執行一次，不論該次請求最終是否真的建立新紀錄**——即使是 PQ-JOIN-002 這種因既有進行中紀錄而回傳既有紀錄（不建立新紀錄）的 idempotent 路徑，仍須先通過驗證碼才會執行下述任何查詢（含判斷是否已有進行中紀錄），不得倒過來先查詢再決定要不要驗證；查詢排隊狀態端點（`GET`，輪詢用途）不受影響、不需要驗證碼。
 
 系統資料庫層 MUST 保證同一會員對同一活動同時最多只有一筆進行中（`Waiting` 或未逾時 `Admitted`）的排隊紀錄。加入排隊的處理 MUST 在單一交易內完成以下判斷，確保「逾時後可重新加入」與「唯一性約束」兩者不互相矛盾：
 1. 鎖定並查詢該會員在該活動目前「進行中」（`Status IN (Waiting, Admitted)`）的紀錄（依唯一性約束，最多一筆）
