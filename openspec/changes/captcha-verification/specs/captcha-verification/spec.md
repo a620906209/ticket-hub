@@ -22,6 +22,17 @@
 - **WHEN** 驗證碼產生後超過 120 秒未被驗證
 - **THEN** 對應的 Redis key 已因 TTL 到期而不存在，後續以該 token 驗證 MUST 視為失敗
 
+### Requirement: 驗證碼時效設定值須為正數，缺漏時採用明確預設值
+系統 SHALL 驗證 `CaptchaOptions` 的時效秒數（`TtlSeconds`）為正整數（`> 0`），比照既有 `CaptchaRateLimitingOptions`／`LoginRateLimitingOptions` 的既定驗證模式；設定缺漏時採用明確預設值（`120` 秒，與本能力其餘 Requirement 描述的 TTL 一致），不因缺漏而導致驗證碼功能無法啟用；若設定值存在但為 0 或負數，視為明顯誤設定，MUST 於設定驗證階段擋下，不得以無效設定值靜默套用（例如 `TtlSeconds = 0` 會讓 Redis 寫入立即過期，等同驗證碼從未存在，卻不會有任何啟動期的錯誤徵兆）。
+
+#### Scenario: CAPTCHA-STORE-003 TtlSeconds 設定缺漏時採用預設值
+- **WHEN** `appsettings` 未提供 `Captcha` 的 `TtlSeconds` 設定
+- **THEN** 系統採用明確定義的預設值（`TtlSeconds = 120`）正常運作，不視為錯誤
+
+#### Scenario: CAPTCHA-STORE-004 TtlSeconds 設定值為 0 或負數時擋下
+- **WHEN** `Captcha:TtlSeconds` 被設定為 0 或負數
+- **THEN** 系統 MUST 在設定驗證階段（Host 建立階段）擋下此設定，拋出 `OptionsValidationException`，不得以此設定值繼續啟動或運作
+
 ### Requirement: 驗證碼核對為一次性，成功或失敗皆立即失效，讀取與刪除須為單一原子操作
 系統 SHALL 提供供其他能力呼叫的驗證邏輯：以單一原子 Redis 操作（`GETDEL`）讀取並刪除 `captcha:{token}`，取得的值與使用者填寫的驗證碼文字正規化為大寫後計算的 SHA-256 雜湊比對。**讀取與刪除 MUST 在同一次 Redis 命令內完成，不得先讀取、再另外呼叫刪除**——分成兩步會在兩個並發驗證請求之間留下時間視窗，讓同一 token 被兩者都讀到仍然有效的值而雙雙驗證成功，違反一次性保證。Token 不存在（未產生過、已過期，或已被使用過而遭原子刪除）時，MUST 視為驗證失敗。
 
@@ -60,6 +71,13 @@
 - **WHEN** 呼叫驗證碼核對邏輯，此時 Redis 無法連線
 - **THEN** 系統 MUST 讓技術性例外原樣往外拋，回傳明確的技術性錯誤（如既有全域 `IExceptionHandler` 轉換的 `5xx`），MUST NOT 包裝成與「驗證碼答案錯誤」外觀相同的一般業務驗證失敗、MUST NOT 因無法讀取 Redis 而預設視為驗證通過——呼叫端須能區分「答案錯誤」與「系統故障」兩種不同情況，不得混為一談
 
+### Requirement: Redis 連線／命令逾時上限須明確設定，逾時比照無法連線處理，同樣 fail-closed
+系統 SHALL 對 Redis 連線與命令逾時設定明確的上限（不得依賴 StackExchange.Redis 函式庫版本的預設值），逾時本身視為與「Redis 無法連線」同一類故障，同樣套用 fail-closed：MUST 在此上限內拋出技術性例外、回報明確的技術性錯誤，MUST NOT 因等待逾時而讓請求無限期掛起，MUST NOT 因逾時而預設視為驗證通過。
+
+#### Scenario: CAPTCHA-FAIL-003 Redis 命令逾時（連線存在但無回應）比照無法連線處理
+- **WHEN** 呼叫 `GET /api/captcha` 或驗證碼核對邏輯，此時 Redis 連線已建立但命令逾時未回應（非 TCP 連線直接被拒絕）
+- **THEN** 系統 MUST 在明確設定的逾時上限內拋出技術性例外（`RedisTimeoutException`），後續行為與 CAPTCHA-FAIL-001／002 相同——回傳明確的技術性錯誤、不視為驗證通過，此上限值為專案顯式設定的結果，不依賴函式庫預設值
+
 ### Requirement: 呼叫端提供的 Token 與驗證碼文字須符合長度上限，比對前忽略前後空白
 呼叫任何受驗證碼保護的端點（登入、註冊、加入排隊）時，`CaptchaToken` 與 `CaptchaAnswer` 兩欄位的驗證順序 MUST 固定為：**先 trim 前後空白 → 再檢查 trim 後是否為空白 → 再檢查 trim 後的長度是否超過上限**，長度上限的判斷基準是 trim 之後的字串，不是原始輸入字串。長度上限：`CaptchaToken` 64 字元（實際產生值為 GUID 字串表示法，固定 36 字元）、`CaptchaAnswer` 16 字元（實際答案固定 4 碼）。trim 後為空白或超過長度上限時 MUST 視為同一類 `Validation` 錯誤，不呼叫驗證邏輯。`CaptchaAnswer` 比對前 MUST trim 前後空白，避免使用者輸入時偶發的空白造成非預期的驗證失敗；此 trim 與長度驗證使用的 trim 是同一份正規化結果，不是兩套各自獨立、可能得出不同結果的邏輯。
 
@@ -85,6 +103,10 @@
 #### Scenario: CAPTCHA-CANCEL-001 GenerateAsync 已取消
 - **WHEN** 呼叫 `ICaptchaService.GenerateAsync` 時傳入的 `CancellationToken` 已處於取消狀態
 - **THEN** 系統 MUST 在執行 Redis 寫入前拋出 `OperationCanceledException`，不回傳任何 token 或圖片
+
+#### Scenario: CAPTCHA-CANCEL-004 GenerateAsync 在圖片產生完成後、Redis 寫入前才被取消
+- **WHEN** 呼叫 `ICaptchaService.GenerateAsync` 時傳入的 `CancellationToken` 在呼叫當下尚未取消，但在圖片產生完成之後、實際呼叫 Redis 寫入之前才轉為已取消狀態
+- **THEN** 系統 MUST 在執行 Redis 寫入前偵測到取消並拋出 `OperationCanceledException`，MUST NOT 已經呼叫 Redis 寫入命令——「MUST 在執行 Redis 操作前停止處理」這個保證不只適用於「呼叫當下已取消」，也適用於處理過程中才發生取消的情況
 
 #### Scenario: CAPTCHA-CANCEL-002 VerifyAsync 已取消
 - **WHEN** 呼叫 `ICaptchaService.VerifyAsync` 時傳入的 `CancellationToken` 已處於取消狀態
@@ -114,4 +136,4 @@
 
 #### Scenario: CAPTCHA-RATE-003 設定值為 0 或負數時擋下
 - **WHEN** `CaptchaRateLimiting` 的次數上限被設定為 0 或負數，或時間窗被設定為 0 或負的時間長度
-- **THEN** 系統 MUST 在設定驗證階段擋下此設定，不得以此設定值繼續運作
+- **THEN** 系統 MUST 在設定驗證階段（Host 建立階段）擋下此設定，拋出 `OptionsValidationException`，不得以此設定值繼續啟動或運作
