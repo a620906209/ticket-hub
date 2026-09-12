@@ -2,6 +2,7 @@ using FluentAssertions;
 using ProjectC.Application.Common;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Application.Tickets.CreateTicketType;
+using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Venues;
 
@@ -13,12 +14,13 @@ public class CreateTicketTypeHandlerTests
     private readonly FakeSeatMapRepository _seatMapRepository = new();
     private readonly FakeTicketTypeRepository _ticketTypeRepository = new();
     private readonly FakeUnitOfWork _unitOfWork = new();
+    private readonly FakeQueryCache _queryCache = new();
     private readonly CreateTicketTypeHandler _handler;
 
     public CreateTicketTypeHandlerTests()
     {
         _handler = new CreateTicketTypeHandler(
-            _eventRepository, _seatMapRepository, _ticketTypeRepository, _unitOfWork, new CreateTicketTypeRequestValidator());
+            _eventRepository, _seatMapRepository, _ticketTypeRepository, _unitOfWork, new CreateTicketTypeRequestValidator(), _queryCache);
     }
 
     private Guid SeedEventWithZone(string zoneCode)
@@ -125,5 +127,30 @@ public class CreateTicketTypeHandlerTests
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
         _ticketTypeRepository.Data.Should().BeEmpty();
+    }
+
+    // query-caching tasks.md 5.1：交易提交成功後才呼叫該活動票種列表快取的失效。
+    [Fact]
+    public async Task HandleAsync_WithExistingZoneAndValidPrice_InvalidatesTicketTypesCacheForThatEvent()
+    {
+        var eventId = SeedEventWithZone("A");
+        var request = new CreateTicketTypeRequest("A", 500m);
+
+        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _queryCache.RemoveCalls.Should().ContainSingle(key => key == GetTicketTypesHandler.BuildCacheKey(eventId));
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithZeroPrice_DoesNotInvalidateTicketTypesCache()
+    {
+        var eventId = SeedEventWithZone("A");
+        var request = new CreateTicketTypeRequest("A", 0m);
+
+        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        _queryCache.RemoveCalls.Should().BeEmpty();
     }
 }

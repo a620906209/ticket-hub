@@ -26,6 +26,13 @@ public class BackgroundServiceTraceIdTests : IClassFixture<ObservabilityWebAppli
     public BackgroundServiceTraceIdTests(ObservabilityWebApplicationFactory factory)
     {
         _factory = factory;
+        // 本測試類別不測試限流行為本身，卻在單一測試方法內密集呼叫多次登入 API（每輪
+        // SeedExpiredPendingOrderThatWillFailToCancelAsync 各呼叫 2 次），不應該受
+        // ObservabilityWebApplicationFactory 預設值（刻意調低、供 RequestTraceIdTests 觸發 429 用）
+        // 的緊縮視窗影響——系統負載較高時實際呼叫時序被壓縮，會意外撞上這個視窗（strict-reviewer 於
+        // query-caching 變更審查中發現）。比照既有 CustomWebApplicationFactory 的寬鬆額度慣例覆寫。
+        _factory.LoginRateLimitPermitLimit = 1000;
+        _factory.LoginRateLimitWindowSeconds = 60;
         _factory.LogSink.Clear();
     }
 

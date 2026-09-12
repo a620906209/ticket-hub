@@ -1,6 +1,7 @@
 using FluentValidation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
+using ProjectC.Application.Events.GetEvents;
 using ProjectC.Domain.Events;
 
 namespace ProjectC.Application.Events.SetEventQueueMode;
@@ -10,15 +11,18 @@ public sealed class SetEventQueueModeHandler
     private readonly IEventRepository _eventRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IValidator<SetEventQueueModeRequest> _validator;
+    private readonly IQueryCache _queryCache;
 
     public SetEventQueueModeHandler(
         IEventRepository eventRepository,
         IUnitOfWork unitOfWork,
-        IValidator<SetEventQueueModeRequest> validator)
+        IValidator<SetEventQueueModeRequest> validator,
+        IQueryCache queryCache)
     {
         _eventRepository = eventRepository;
         _unitOfWork = unitOfWork;
         _validator = validator;
+        _queryCache = queryCache;
     }
 
     public async Task<Result> HandleAsync(Guid eventId, SetEventQueueModeRequest request, CancellationToken cancellationToken)
@@ -53,6 +57,7 @@ public sealed class SetEventQueueModeHandler
         _eventRepository.Update(@event);
         await transaction.CommitAsync(cancellationToken);
 
+        await _queryCache.RemoveAsync(GetEventsHandler.CacheKey, cancellationToken);
         return Result.Success();
     }
 }

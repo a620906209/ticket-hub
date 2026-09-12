@@ -4,6 +4,7 @@ using ProjectC.Application.Common;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Application.Tests.TestSupport;
+using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
@@ -31,6 +32,7 @@ public class OrderServiceTests
         public FakePaymentGateway PaymentGateway { get; } = new(PaymentResult.Succeeded);
         public FakeApplicationDbContext DbContext { get; } = new();
         public FakeEmailNotificationService EmailNotificationService { get; } = new();
+        public FakeQueryCache QueryCache { get; } = new();
 
         public OrderService CreateOrderService() => new(
             TicketTypeRepository,
@@ -47,7 +49,8 @@ public class OrderServiceTests
             new CancelOrderHandler(DateTimeProvider),
             EmailNotificationService,
             DbContext,
-            NullLogger<OrderService>.Instance);
+            NullLogger<OrderService>.Instance,
+            QueryCache);
 
         public (Event Event, SeatMap SeatMap, EventSeat EventSeat, TicketType TicketType) SeedEventWithSeatAndTicketType(
             string seatZoneCode = "A", string ticketTypeZoneCode = "A")
@@ -719,6 +722,91 @@ public class OrderServiceTests
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(OrderStatus.Cancelled);
         ticketType.AvailableQuantity.Should().Be(10);
+    }
+
+    // ---- query-caching：票種列表快取失效觸發點（tasks.md 5.2／5.3／5.5a／5.8／5.9） ----
+
+    [Fact]
+    public async Task PlaceOrderAsync_WithCountingSelection_InvalidatesTicketTypesCacheForThatEvent()
+    {
+        var fixture = new Fixture();
+        var (@event, ticketType) = fixture.SeedEventWithCountBasedTicketType(availableQuantity: 10);
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, ticketType.Id, 2)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.QueryCache.RemoveCalls.Should().ContainSingle(key => key == GetTicketTypesHandler.BuildCacheKey(@event.Id));
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WithSeatOnlySelection_DoesNotInvalidateTicketTypesCache()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("純座位制訂單不呼叫 TicketType.Reserve，不應觸發票種列表快取失效");
+        fixture.QueryCache.RemoveCalls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSecondCountingSelectionFailsAndCompensatingRollbackOccurs_DoesNotInvalidateCacheOrCommit()
+    {
+        var fixture = new Fixture();
+        var (@event, ticketTypeA) = fixture.SeedEventWithCountBasedTicketType(availableQuantity: 10);
+        var ticketTypeB = @event.CreateCountBasedTicketType("B區", 300m, 1);
+        fixture.TicketTypeRepository.Data.Add(ticketTypeB);
+        var request = new PlaceOrderRequest([
+            new PlaceOrderSelectionRequest(null, ticketTypeA.Id, 2),
+            new PlaceOrderSelectionRequest(null, ticketTypeB.Id, 5), // 超過可售量，觸發 Reserve 失敗、補償回滾
+        ]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        ticketTypeA.AvailableQuantity.Should().Be(10, "第一個項目扣減成功後，第二個項目失敗須把它補回去");
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeFalse();
+        fixture.QueryCache.RemoveCalls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ConfirmOrderAsync_WhenPureCountingOrder_DoesNotInvalidateTicketTypesCache()
+    {
+        var (fixture, order, buyerId, _) = await PlaceCountingOrderAsync(new Fixture(), availableQuantity: 10, quantity: 3);
+        fixture.QueryCache.RemoveCalls.Clear();
+
+        var result = await fixture.CreateOrderService().ConfirmOrderAsync(order.Id, buyerId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.QueryCache.RemoveCalls.Should().BeEmpty("確認付款不變更 AvailableQuantity，不應觸發票種列表快取失效");
+    }
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenPureCountingOrder_InvalidatesTicketTypesCacheForThatEvent()
+    {
+        var (fixture, order, buyerId, ticketType) = await PlaceCountingOrderAsync(new Fixture(), availableQuantity: 10, quantity: 3);
+        fixture.QueryCache.RemoveCalls.Clear();
+
+        var result = await fixture.CreateOrderService().CancelOrderAsync(order.Id, buyerId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.QueryCache.RemoveCalls.Should().ContainSingle(key => key == GetTicketTypesHandler.BuildCacheKey(ticketType.EventId));
+    }
+
+    [Fact]
+    public async Task CancelExpiredOrderAsync_WhenPureCountingOrderIsExpired_InvalidatesTicketTypesCacheForThatEvent()
+    {
+        var (fixture, order, _, ticketType) = await PlaceCountingOrderAsync(new Fixture(), availableQuantity: 10, quantity: 3);
+        fixture.QueryCache.RemoveCalls.Clear();
+        fixture.DateTimeProvider.UtcNow = order.HeldUntilUtc.AddSeconds(1);
+
+        var result = await fixture.CreateOrderService().CancelExpiredOrderAsync(order.Id, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.QueryCache.RemoveCalls.Should().ContainSingle(key => key == GetTicketTypesHandler.BuildCacheKey(ticketType.EventId));
     }
 
     // ---- 混合訂單（座位 + 計數同時存在）的確認/取消 ----

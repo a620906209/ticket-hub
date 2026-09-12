@@ -1,6 +1,8 @@
 ---
 name: spec-scope
 description: 專案初期唯一一次的宏觀需求盤點,產出 docs/project-scope.md
+author: RD-Hank
+origin: project-authored
 ---
 
 執行前檢查 docs/project-scope.md 是否已存在:

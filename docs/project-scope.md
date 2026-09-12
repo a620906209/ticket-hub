@@ -54,7 +54,7 @@
 - 實名制驗證（姓名、身分證末四碼或手機號）
 - 動態驗證碼（CAPTCHA）
 - ~~現場核銷掃碼前端頁面~~——**已完成實作並合併至 master**（Admin 相機掃碼核銷 + 手動輸入備援，核銷 API 新增可選簽章驗證，見 `openspec/changes/archive/2026-08-31-redemption-scanner-ui/`）
-- 快取層（Redis 等，一般查詢 API 用）
+- ~~快取層（Redis 等，一般查詢 API 用）~~——**已完成實作，位於 `feature/query-caching` 分支，尚未合併至 master**（`GET /api/events`、`GET /api/events/{id}/ticket-types` 採 Redis cache-aside 快取，建立活動/票種、切換熱門搶購模式時明確失效，另有 TTL 安全網與 fail-open 邊界；見 `openspec/changes/archive/2026-09-12-query-caching/`）
 
 **Won't（明確排除，避免範疇擴散）**
 - 多元金流與自動分潤結算

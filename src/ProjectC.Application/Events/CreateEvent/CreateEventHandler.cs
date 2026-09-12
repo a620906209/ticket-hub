@@ -1,6 +1,7 @@
 using FluentValidation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
+using ProjectC.Application.Events.GetEvents;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Venues;
 
@@ -15,6 +16,7 @@ public sealed class CreateEventHandler
     private readonly IUnitOfWork _unitOfWork;
     private readonly IValidator<CreateEventRequest> _validator;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IQueryCache _queryCache;
 
     public CreateEventHandler(
         IVenueRepository venueRepository,
@@ -23,7 +25,8 @@ public sealed class CreateEventHandler
         IEventSeatRepository eventSeatRepository,
         IUnitOfWork unitOfWork,
         IValidator<CreateEventRequest> validator,
-        IDateTimeProvider dateTimeProvider)
+        IDateTimeProvider dateTimeProvider,
+        IQueryCache queryCache)
     {
         _venueRepository = venueRepository;
         _seatMapRepository = seatMapRepository;
@@ -32,6 +35,7 @@ public sealed class CreateEventHandler
         _unitOfWork = unitOfWork;
         _validator = validator;
         _dateTimeProvider = dateTimeProvider;
+        _queryCache = queryCache;
     }
 
     public async Task<Result<Guid>> HandleAsync(Guid createdByMemberId, CreateEventRequest request, CancellationToken cancellationToken)
@@ -72,6 +76,7 @@ public sealed class CreateEventHandler
         _eventSeatRepository.AddRange(eventSeats);
         await transaction.CommitAsync(cancellationToken);
 
+        await _queryCache.RemoveAsync(GetEventsHandler.CacheKey, cancellationToken);
         return Result<Guid>.Success(@event.Id);
     }
 }
