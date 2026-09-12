@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Domain.Events;
@@ -13,8 +14,9 @@ using ProjectC.Infrastructure.Security;
 
 namespace ProjectC.Infrastructure.Tests.TestSupport;
 
-/// <summary>共用的 OrderService 組裝邏輯，避免每個並發測試檔各自手動重複 14 個建構參數
-/// （OrderService 建構子曾在 ticket-issuance-and-redemption、email-notification 這幾次變更中改過）。</summary>
+/// <summary>共用的 OrderService 組裝邏輯，避免每個並發測試檔各自手動重複 15 個建構參數
+/// （OrderService 建構子曾在 ticket-issuance-and-redemption、email-notification、query-caching
+/// 這幾次變更中改過）。</summary>
 public static class OrderServiceTestFactory
 {
     public static OrderService Create(
@@ -22,9 +24,11 @@ public static class OrderServiceTestFactory
         IPaymentGateway? paymentGateway = null,
         IEventRepository? eventRepository = null,
         IEmailNotificationService? emailNotificationService = null,
-        ILogger<OrderService>? logger = null)
+        ILogger<OrderService>? logger = null,
+        IQueryCache? queryCache = null,
+        IDateTimeProvider? dateTimeProvider = null)
     {
-        var dateTimeProvider = new SystemDateTimeProvider();
+        dateTimeProvider ??= new SystemDateTimeProvider();
         return new OrderService(
             new TicketTypeRepository(dbContext),
             new EventSeatRepository(dbContext),
@@ -40,6 +44,7 @@ public static class OrderServiceTestFactory
             new CancelOrderHandler(dateTimeProvider),
             emailNotificationService ?? new MockEmailNotificationService(new MockEmailNotificationServiceOptions(), NullLogger<MockEmailNotificationService>.Instance),
             dbContext,
-            logger ?? NullLogger<OrderService>.Instance);
+            logger ?? NullLogger<OrderService>.Instance,
+            queryCache ?? new FakeQueryCache());
     }
 }

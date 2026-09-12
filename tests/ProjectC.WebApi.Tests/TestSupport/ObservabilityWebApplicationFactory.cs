@@ -38,6 +38,20 @@ public sealed class ObservabilityWebApplicationFactory : WebApplicationFactory<P
     /// </summary>
     public string? SeqServerUrl { get; set; }
 
+    /// <summary>
+    /// 覆寫 "LoginRateLimiting:PermitLimit"／"LoginRateLimiting:WindowSeconds"。預設沿用刻意調低的
+    /// 3／2（見下方 ConfigureWebHost 註解，RequestTraceIdTests 需要這個緊縮視窗才能在暖機階段打滿
+    /// 額度觸發 429）。像 BackgroundServiceTraceIdTests 這種完全不測試限流行為、卻在單一測試方法內
+    /// 密集呼叫多次登入 API 的測試類別，應該把這兩個值改寬，避免在系統負載較高、實際呼叫時序被拉開
+    /// 或壓縮時意外撞上這個原本是為了「刻意」觸發 429 而設的緊縮視窗（見 strict-reviewer 在
+    /// query-caching 變更審查中發現：新增大量測試推高整體 Docker/HTTP 負載後，這個共用緊縮視窗讓
+    /// 完全不相關的測試變得 flaky）。MUST 在 <see cref="InitializeAsync"/> 或第一次存取
+    /// <c>Server</c>／<c>Services</c>／<c>CreateClient()</c> 之前設定才會生效，比照 <see cref="SeqServerUrl"/>。
+    /// </summary>
+    public int LoginRateLimitPermitLimit { get; set; } = 3;
+
+    public int LoginRateLimitWindowSeconds { get; set; } = 2;
+
     public ObservabilityWebApplicationFactory()
     {
         var builder = new PostgreSqlBuilder("postgres:16-alpine")
@@ -89,8 +103,8 @@ public sealed class ObservabilityWebApplicationFactory : WebApplicationFactory<P
         {
             configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["LoginRateLimiting:PermitLimit"] = "3",
-                ["LoginRateLimiting:WindowSeconds"] = "2",
+                ["LoginRateLimiting:PermitLimit"] = LoginRateLimitPermitLimit.ToString(),
+                ["LoginRateLimiting:WindowSeconds"] = LoginRateLimitWindowSeconds.ToString(),
             });
         });
 

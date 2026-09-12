@@ -1,6 +1,7 @@
 using FluentAssertions;
 using ProjectC.Application.Common;
 using ProjectC.Application.Events.CreateEvent;
+using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Venues;
 
@@ -14,6 +15,7 @@ public class CreateEventHandlerTests
     private readonly FakeEventSeatRepository _eventSeatRepository = new();
     private readonly FakeUnitOfWork _unitOfWork = new();
     private readonly FakeDateTimeProvider _dateTimeProvider = new();
+    private readonly FakeQueryCache _queryCache = new();
     private readonly CreateEventHandler _handler;
     private static readonly Guid AdminMemberId = Guid.NewGuid();
 
@@ -21,7 +23,7 @@ public class CreateEventHandlerTests
     {
         _handler = new CreateEventHandler(
             _venueRepository, _seatMapRepository, _eventRepository, _eventSeatRepository, _unitOfWork,
-            new CreateEventRequestValidator(), _dateTimeProvider);
+            new CreateEventRequestValidator(), _dateTimeProvider, _queryCache);
     }
 
     private (Guid VenueId, Guid SeatMapId) SeedVenueAndSeatMap(int seatCount)
@@ -157,5 +159,30 @@ public class CreateEventHandlerTests
         result.Error!.Type.Should().Be(ErrorType.NotFound);
         _eventRepository.Data.Should().BeEmpty();
         _eventSeatRepository.Data.Should().BeEmpty();
+    }
+
+    // query-caching tasks.md 4.1／4.5：交易提交成功後才呼叫失效，驗證失敗不觸發失效。
+    [Fact]
+    public async Task HandleAsync_WithValidRequest_InvalidatesEventListCache()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId);
+
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _queryCache.RemoveCalls.Should().ContainSingle(key => key == GetEventsHandler.CacheKey);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithBlankTitle_DoesNotInvalidateEventListCache()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("  ", DateTime.UtcNow.AddDays(30), venueId, seatMapId);
+
+        var result = await _handler.HandleAsync(AdminMemberId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        _queryCache.RemoveCalls.Should().BeEmpty();
     }
 }

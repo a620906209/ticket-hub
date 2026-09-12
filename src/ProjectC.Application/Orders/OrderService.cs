@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Orders.PlaceOrder;
+using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Notifications;
 using ProjectC.Domain.Orders;
@@ -30,6 +31,7 @@ public sealed class OrderService
     private readonly IEmailNotificationService _emailNotificationService;
     private readonly IApplicationDbContext _dbContext;
     private readonly ILogger<OrderService> _logger;
+    private readonly IQueryCache _queryCache;
 
     public OrderService(
         ITicketTypeRepository ticketTypeRepository,
@@ -46,7 +48,8 @@ public sealed class OrderService
         CancelOrderHandler cancelOrderHandler,
         IEmailNotificationService emailNotificationService,
         IApplicationDbContext dbContext,
-        ILogger<OrderService> logger)
+        ILogger<OrderService> logger,
+        IQueryCache queryCache)
     {
         _ticketTypeRepository = ticketTypeRepository;
         _eventSeatRepository = eventSeatRepository;
@@ -63,6 +66,7 @@ public sealed class OrderService
         _emailNotificationService = emailNotificationService;
         _dbContext = dbContext;
         _logger = logger;
+        _queryCache = queryCache;
     }
 
     public async Task<Result<Guid>> PlaceOrderAsync(Guid buyerId, PlaceOrderRequest request, CancellationToken cancellationToken)
@@ -306,12 +310,22 @@ public sealed class OrderService
         _orderRepository.Add(result.Value!);
         await transaction.CommitAsync(cancellationToken);
 
+        // 只有純計數票種項目才會呼叫 TicketType.Reserve、變更 AvailableQuantity；純座位制訂單
+        // （quantitySelections 為空）不觸發票種列表快取失效（design.md 決策 4 訂正）。
+        if (quantitySelections.Count > 0)
+        {
+            await _queryCache.RemoveAsync(GetTicketTypesHandler.BuildCacheKey(distinctEventIds[0]), cancellationToken);
+        }
+
         return Result<Guid>.Success(result.Value!.Id);
     }
 
     public async Task<Result> ConfirmOrderAsync(Guid orderId, Guid requestingBuyerId, CancellationToken cancellationToken)
     {
-        var result = await ChangeOrderStatusAsync(orderId, requestingBuyerId, _confirmOrderHandler.Handle, cancellationToken);
+        // 確認付款不呼叫 TicketType.Reserve/Release，AvailableQuantity 在這一步不變，
+        // 不觸發票種列表快取失效（design.md 決策 4）。
+        var result = await ChangeOrderStatusAsync(
+            orderId, requestingBuyerId, _confirmOrderHandler.Handle, invalidatesTicketTypeCache: false, cancellationToken);
         if (!result.IsSuccess)
         {
             return result;
@@ -350,14 +364,14 @@ public sealed class OrderService
     }
 
     public Task<Result> CancelOrderAsync(Guid orderId, Guid requestingBuyerId, CancellationToken cancellationToken)
-        => ChangeOrderStatusAsync(orderId, requestingBuyerId, WrapSync(_cancelOrderHandler.Handle), cancellationToken);
+        => ChangeOrderStatusAsync(orderId, requestingBuyerId, WrapSync(_cancelOrderHandler.Handle), invalidatesTicketTypeCache: true, cancellationToken);
 
     /// <summary>
     /// 背景清理呼叫，沒有買家身份可驗證，改以「訂單確實已逾時」作為授權依據，取代本人驗證
     /// （見 ticketing-order-management design.md 決策 1）。
     /// </summary>
     public Task<Result> CancelExpiredOrderAsync(Guid orderId, CancellationToken cancellationToken)
-        => ChangeOrderStatusAsync(orderId, requestingBuyerId: null, WrapSync(_cancelOrderHandler.Handle), cancellationToken);
+        => ChangeOrderStatusAsync(orderId, requestingBuyerId: null, WrapSync(_cancelOrderHandler.Handle), invalidatesTicketTypeCache: true, cancellationToken);
 
     // CancelOrderHandler.Handle 維持同步（純記憶體邏輯，無 I/O），包一層轉成跟 ConfirmOrderHandler.Handle
     // 相同的非同步委派型別，讓兩者能共用同一套 ChangeOrderStatusAsync 交易骨架（見 design.md 決策 3）。
@@ -369,6 +383,7 @@ public sealed class OrderService
         Guid orderId,
         Guid? requestingBuyerId,
         Func<Order, IReadOnlyDictionary<Guid, EventSeat>, IReadOnlyDictionary<Guid, TicketType>, CancellationToken, Task<Result>> handle,
+        bool invalidatesTicketTypeCache,
         CancellationToken cancellationToken)
     {
         var order = await _orderRepository.GetByIdAsync(orderId, cancellationToken);
@@ -439,6 +454,12 @@ public sealed class OrderService
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        if (invalidatesTicketTypeCache)
+        {
+            await _queryCache.RemoveAsync(GetTicketTypesHandler.BuildCacheKey(order.EventId), cancellationToken);
+        }
+
         return result;
     }
 }

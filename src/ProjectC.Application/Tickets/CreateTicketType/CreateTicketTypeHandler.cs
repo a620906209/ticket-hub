@@ -1,6 +1,7 @@
 using FluentValidation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
+using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
@@ -14,19 +15,22 @@ public sealed class CreateTicketTypeHandler
     private readonly ITicketTypeRepository _ticketTypeRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IValidator<CreateTicketTypeRequest> _validator;
+    private readonly IQueryCache _queryCache;
 
     public CreateTicketTypeHandler(
         IEventRepository eventRepository,
         ISeatMapRepository seatMapRepository,
         ITicketTypeRepository ticketTypeRepository,
         IUnitOfWork unitOfWork,
-        IValidator<CreateTicketTypeRequest> validator)
+        IValidator<CreateTicketTypeRequest> validator,
+        IQueryCache queryCache)
     {
         _eventRepository = eventRepository;
         _seatMapRepository = seatMapRepository;
         _ticketTypeRepository = ticketTypeRepository;
         _unitOfWork = unitOfWork;
         _validator = validator;
+        _queryCache = queryCache;
     }
 
     public async Task<Result<Guid>> HandleAsync(Guid eventId, CreateTicketTypeRequest request, CancellationToken cancellationToken)
@@ -94,6 +98,7 @@ public sealed class CreateTicketTypeHandler
         _ticketTypeRepository.Add(ticketType);
         await transaction.CommitAsync(cancellationToken);
 
+        await _queryCache.RemoveAsync(GetTicketTypesHandler.BuildCacheKey(eventId), cancellationToken);
         return Result<Guid>.Success(ticketType.Id);
     }
 }
