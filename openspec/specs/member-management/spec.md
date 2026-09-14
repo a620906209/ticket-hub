@@ -4,19 +4,27 @@
 TBD - created by archiving change membership-system. Update Purpose after archive.
 ## Requirements
 ### Requirement: 使用者可以註冊會員帳號
-系統 SHALL 允許未登入的使用者以 Email 與密碼註冊會員帳號，Email 須為系統中唯一值。
+系統 SHALL 允許未登入的使用者以 Email 與密碼註冊會員帳號，Email 須為系統中唯一值。**註冊請求 MUST 附帶驗證碼 token 與使用者填寫的驗證碼文字，系統 SHALL 先呼叫 `captcha-verification` 能力驗證兩者，驗證失敗時 MUST 拒絕註冊（不判斷 Email 是否重複、密碼是否符合強度），回傳明確的驗證錯誤。**
 
 #### Scenario: 使用未重複的 Email 註冊成功
-- **WHEN** 使用者送出註冊請求，Email 尚未被其他會員使用，且密碼符合強度規則（至少 8 碼，含英數）
+- **WHEN** 使用者送出註冊請求，Email 尚未被其他會員使用，密碼符合強度規則（至少 8 碼，含英數），且驗證碼正確
 - **THEN** 系統建立新會員（狀態為啟用、角色為一般會員），密碼以雜湊方式儲存，並回傳成功結果
 
 #### Scenario: 使用已存在的 Email 註冊失敗
-- **WHEN** 使用者送出註冊請求，Email 已被其他會員使用
+- **WHEN** 使用者送出註冊請求，Email 已被其他會員使用，且驗證碼正確
 - **THEN** 系統拒絕註冊，回傳 409 衝突錯誤，不建立新會員
 
 #### Scenario: 密碼不符強度規則
-- **WHEN** 使用者送出註冊請求，密碼長度小於 8 碼或不含英數混合
+- **WHEN** 使用者送出註冊請求，密碼長度小於 8 碼或不含英數混合，且驗證碼正確
 - **THEN** 系統拒絕註冊，回傳 400 驗證錯誤並說明密碼規則
+
+#### Scenario: CAPTCHA-REG-001 驗證碼錯誤時註冊失敗，不判斷 Email 或密碼
+- **WHEN** 使用者送出的 Email 未重複、密碼符合強度規則，但驗證碼文字與對應 token 的正確答案不符
+- **THEN** 系統 MUST 拒絕註冊，回傳驗證碼錯誤的驗證錯誤，不建立新會員，不因其餘欄位皆合法而略過驗證碼檢查
+
+#### Scenario: CAPTCHA-REG-002 未提供驗證碼 token 或文字時註冊失敗
+- **WHEN** 註冊請求缺漏驗證碼 token 或使用者填寫的驗證碼文字任一欄位
+- **THEN** 系統回傳 400 驗證錯誤，不建立新會員，不呼叫驗證碼核對邏輯
 
 ### Requirement: 已登入會員可以查詢自己的會員資料
 系統 SHALL 允許已通過身份驗證的會員查詢自己的會員資料（不含密碼雜湊等敏感欄位）。
