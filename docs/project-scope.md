@@ -52,7 +52,7 @@
 - ~~Redis 分散式鎖~~——**Leader Election 部分已完成實作並歸檔**（`purchase-queue-leader-election`，`openspec/changes/archive/2026-09-03-purchase-queue-leader-election/`）：`PurchaseQueueAdmissionService` 背景推進服務新增以 Redis `SET NX PX` + Lua compare-and-delete 實作的分散式鎖，多實例部署下每輪只讓一個實例真正執行推進；Redis 故障採 fail-open（照常執行並記錄 Warning）；`docker-compose.yml` 新增 `redis` 服務。新增 24＋2 項測試（單元／元件／服務層端到端，含 TTL 逾時重疊執行下的正確性、Redis 斷線後自動恢復互斥、應用程式啟動時 Redis 不可用仍可正常啟動等情境），4 個測試專案全數通過。實作完成、strict-reviewer PASS 後，人工複查另抓到 3 個 blocking 問題（AC↔測試追溯矩陣缺漏、PQLE-010 測試嚴謹度不足、新舊 spec 對「併發推進」保證範圍的字面矛盾）並已修正——spec-reviewer／strict-reviewer 的 PASS 判定不是天花板，仍需人工複查。`purchase-queue`／新增 `purchase-queue-leader-election` 兩份 spec 已於歸檔時同步更新。已合併至 master、已歸檔，待 push。Queue 排隊室（座位鎖定機制進階版）的 Redis 資料結構重寫維持未排定，不在本次範圍
 - 多租戶主辦方管理介面（審核、切換）
 - 實名制驗證（姓名、身分證末四碼或手機號）
-- 動態驗證碼（CAPTCHA）
+- ~~動態驗證碼（CAPTCHA）~~——**已完成實作，尚未封存（archive）／合併至 master**（註冊、登入、加入排隊三個端點補上圖形驗證碼：`SixLabors.ImageSharp` 純受管理程式碼繪製 4 碼英數字圖片，答案雜湊暫存於 Redis、一次性核對（`GETDEL` 原子操作），Redis 故障時 fail-closed（與既有 Redis 用途的 fail-open 慣例相反）；`GET /api/captcha` 另掛獨立命名的 `captcha` rate-limit policy，與既有 `api-rate-limiting` 能力的 `login` policy 共用 `Microsoft.AspNetCore.RateLimiting` 既定機制與回應格式，但各自獨立計數、不共用額度，見 `openspec/changes/captcha-verification/`）
 - ~~現場核銷掃碼前端頁面~~——**已完成實作並合併至 master**（Admin 相機掃碼核銷 + 手動輸入備援，核銷 API 新增可選簽章驗證，見 `openspec/changes/archive/2026-08-31-redemption-scanner-ui/`）
 - ~~快取層（Redis 等，一般查詢 API 用）~~——**已完成實作，位於 `feature/query-caching` 分支，尚未合併至 master**（`GET /api/events`、`GET /api/events/{id}/ticket-types` 採 Redis cache-aside 快取，建立活動/票種、切換熱門搶購模式時明確失效，另有 TTL 安全網與 fail-open 邊界；見 `openspec/changes/archive/2026-09-12-query-caching/`）
 
@@ -131,7 +131,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - 除 CLAUDE.md 既有安全強制規則外：
   - 登入 Rate limiting 防暴力破解：Should
   - API 防搶票機器人：與 Should 的「基礎排隊機制」共用同一套，不另建防爬蟲系統
-  - 進階行為驗證（CAPTCHA）：Could
+  - 進階行為驗證（CAPTCHA）：Could——**已完成實作**，獨立的 `captcha` rate-limit policy 與登入端點的 `login` policy 各自獨立計數，關聯說明見第 2 節 Could 項
 
 **前端支援範圍**
 - 支援 RWD（手機瀏覽器）：Must

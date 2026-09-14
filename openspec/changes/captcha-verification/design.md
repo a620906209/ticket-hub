@@ -36,7 +36,7 @@
 
 ### 決策 2：驗證碼內容為 4 碼英數字，排除易混淆字元，比對時忽略大小寫
 
-字元集排除 `0`/`O`、`1`/`I`/`l` 等易混淆字元（避免真人使用者因字型辨識困難而誤判）。比對時將使用者輸入 trim 前後空白後正規化為大寫，與正確答案比對，不要求大小寫完全一致——這是可用性考量，不降低防機器人強度（機器人窮舉不因忽略大小寫、忽略前後空白而變得更容易，字元集大小才是決定因素）。
+字元集排除 `0`/`O`、`1`/`I`/`l` 等易混淆字元（避免真人使用者因字型辨識困難而誤判）。驗證碼答案屬於安全敏感內容，產生每一個字元 MUST 使用密碼學安全亂數（`RandomNumberGenerator.GetInt32`），MUST NOT 使用 `System.Random`／`Random.Shared`；雜訊線等不影響答案的視覺元素不受此限制。比對時將使用者輸入 trim 前後空白後正規化為大寫，與正確答案比對，不要求大小寫完全一致——這是可用性考量，不降低防機器人強度（機器人窮舉不因忽略大小寫、忽略前後空白而變得更容易，字元集大小才是決定因素）。
 
 ### 決策 3：驗證碼答案以 Redis 暫存，key 為隨機 token，值為答案的雜湊（不存明碼）
 
@@ -145,7 +145,9 @@
 
 **`GenerateAsync` 需要在兩個時間點檢查，不能只在方法最前面檢查一次**：既有 `RedisQueryCache.cs` 的 `GetAsync`／`SetAsync`／`RemoveAsync` 在方法最前面檢查之後緊接著就是 Redis 呼叫本身，中間沒有其他耗時工作，檢查一次已足夠涵蓋「MUST 在執行 Redis 操作前停止處理」這個保證。`RedisCaptchaService.GenerateAsync` 不同：方法最前面的檢查之後，還要經過 `ICaptchaImageGenerator` 產生 PNG（CPU-bound 的繪圖運算，非零耗時，尤其含雜訊線繪製）才會呼叫 `StringSetAsync`——若取消發生在這段耗時期間，方法最前面那一次檢查已經通過、不會再被攔截，`StringSetAsync` 仍會被呼叫，違反 spec「MUST 在執行 Redis 操作前停止處理」這個一般性保證（不只是「呼叫當下已取消」這種狹義情境）。因此 `GenerateAsync` MUST 在兩個時間點各檢查一次：方法最前面（避免呼叫端傳入已取消的 token 時還去做不必要的圖片產生），以及**緊接在 `StringSetAsync` 呼叫之前**（攔截圖片產生期間才發生的取消，對應 spec 新增的 CAPTCHA-CANCEL-004）。`VerifyAsync` 檢查之後到 `StringGetDeleteAsync` 之間只有輕量的字串 trim／正規化／雜湊運算，理論上不需要額外檢查，但為了與 `GenerateAsync` 維持一致的程式碼模式、明確符合 spec 的一般性 MUST 陳述、避免日後這段邏輯變得更複雜時被遺忘，MUST 同樣在 `StringGetDeleteAsync` 呼叫前再檢查一次。
 
-**可測試性**：若 `RedisCaptchaService` 直接建構 `CaptchaImageGenerator` 這個具體類別，測試將無法控制「圖片產生完成的那一刻讓 token 被取消」這個精確時間點。因此 MUST 新增 `ICaptchaImageGenerator` 介面（`ProjectC.Infrastructure/Captcha/`），由 `RedisCaptchaService` 建構子注入。**此介面與其實作皆位於 `ProjectC.Infrastructure` 同一專案內，MUST NOT 被誤讀為違反 CLAUDE.md「不得將介面與實作放在同一專案」這條規則**——該規則鎖定的是 `Domain` 定義的 Repository／外部服務介面（決策 12 已論證的那個層級的抽象），`ICaptchaImageGenerator` 純粹是 Infrastructure 內部的技術性測試替身邊界，用來讓副作用（圖片產生的時序）在測試中可控，不對外跨越到 Domain／Application、不被任何 Handler 直接依賴，性質與該條規則規範的範疇不同，與決策 12 的介面放置規則亦無關。測試時以假的 `ICaptchaImageGenerator` 實作，在其產生圖片的方法內部呼叫測試自己持有的 `CancellationTokenSource.Cancel()` 再回傳圖片位元組，讓 `RedisCaptchaService.GenerateAsync` 恰好在「圖片已產生、尚未呼叫 Redis」的時間點收到已取消的 token，斷言：`OperationCanceledException` 往外拋，且**真實 Redis（`RedisFixture`，比照既有 `RedisQueryCacheTests` 手法）中該 token 對應的 key 確實不存在**，證明取消確實發生在 `StringSetAsync` 呼叫之前而非之後（tasks.md 5.2a；不使用 mock `IDatabase`／`IConnectionMultiplexer`——與既有 `RedisCaptchaServiceTests`／`RedisQueryCacheTests` 對「正常 Redis 行為」一律使用真實 Redis 而非 mock 的既定分工一致，mock 手法只用於決策 11／CAPTCHA-FAIL-* 這種需要模擬 Redis 拋例外的情境）。
+**可測試性**：若 `RedisCaptchaService` 直接建構 `CaptchaImageGenerator` 這個具體類別，測試將無法控制「圖片產生完成的那一刻讓 token 被取消」這個精確時間點。因此 MUST 新增 `ICaptchaImageGenerator` 介面（`ProjectC.Infrastructure/Captcha/`），由 `RedisCaptchaService` 建構子注入。**此介面與其實作皆位於 `ProjectC.Infrastructure` 同一專案內，MUST NOT 被誤讀為違反 CLAUDE.md「不得將介面與實作放在同一專案」這條規則**——該規則鎖定的是 `Domain` 定義的 Repository／外部服務介面（決策 12 已論證的那個層級的抽象），`ICaptchaImageGenerator` 純粹是 Infrastructure 內部的技術性測試替身邊界，用來讓副作用（圖片產生的時序）在測試中可控，不對外跨越到 Domain／Application、不被任何 Handler 直接依賴，性質與該條規則規範的範疇不同，與決策 12 的介面放置規則亦無關。測試時以假的 `ICaptchaImageGenerator` 實作，在其產生圖片的方法內部呼叫測試自己持有的 `CancellationTokenSource.Cancel()` 再回傳圖片位元組，讓 `RedisCaptchaService.GenerateAsync` 恰好在「圖片已產生、尚未呼叫 Redis」的時間點收到已取消的 token，斷言：`OperationCanceledException` 往外拋（tasks.md 5.2a）。
+
+**〔實作後修正〕驗證「未寫入 Redis」的手法**：原始決策在此處MUST 使用真實 Redis 核對 key 不存在、不使用 mock。人工複查兩輪皆指出這個手法不可靠：以「呼叫前後對 `captcha:*` 做 `server.Keys()`（底層為 `SCAN`）比對是否有差異」來推斷「這次呼叫沒有寫入」，`SCAN` 不是一致性快照、也無法排除其他行程或測試同時增刪 key 的可能，即使兩次掃描結果相同也只是間接證據，不是對「`StringSetAsync` 是否被呼叫」的直接觀察。改為 mock `IConnectionMultiplexer`／`IDatabase`，直接斷言 `GetDatabase()`／`StringSetAsync` 從未被呼叫（`Times.Never`）——這是對本測試唯一要驗證的宣稱最直接、不依賴時序推論的證明方式。**因此本測試的「不使用 mock」限制不再適用；決策 11／CAPTCHA-FAIL-* 之外，這是第二個刻意使用 mock 的情境，理由是驗證「呼叫從未發生」這種否定性宣稱，用 mock 的呼叫次數斷言比用真實 Redis 的間接觀察更直接可靠**。`GenerateAsync` 正常寫入雜湊與 TTL 的行為，仍由 `GenerateAsync_WritesHashedAnswerWithTtl`（真實 Redis）驗證，不受此修正影響。
 
 Handler 層級同理（對應 spec 新增的 CAPTCHA-CANCEL-003）：`LoginHandler`／`RegisterMemberHandler`／`JoinPurchaseQueueHandler`／`GetCaptchaHandler` MUST 把自己收到的 `cancellationToken` 參數原樣傳給 `ICaptchaService`，不得改傳 `CancellationToken.None`。驗證方式：`FakeCaptchaService`（tasks.md 5.1）內部同樣加上 `cancellationToken.ThrowIfCancellationRequested()`，測試時對 Handler 傳入已取消的 token，若 Handler 確實把它轉傳給 `VerifyAsync`，測試會觀察到 `OperationCanceledException`；若 Handler 誤用 `CancellationToken.None`，測試會觀察不到例外而失敗，藉此不需要引入新的「斷言確切傳入哪個 token 實例」的 Mock/Spy 手法，沿用既有專案裡「pre-cancelled token 應該拋例外」這一種既定測試風格即可。
 
@@ -211,6 +213,16 @@ CLAUDE.md 架構規則原文：「Repository／外部服務的 interface 定義�
 - 對應 spec 新增的 Requirement「驗證碼時效設定值須為正數，缺漏時採用明確預設值」與 Scenario CAPTCHA-STORE-003（缺漏採預設值）／CAPTCHA-STORE-004（0 或負數擋下）
 
 **考慮過的替代方案**：沿用 `QueryCacheOptions` 模式（無預設值，缺漏視為錯誤）——排除，這會讓「未設定 `Captcha:TtlSeconds`」這種最常見的省事設定方式（比照 `CaptchaRateLimitingOptions` 已經採用的「缺漏可接受、用預設值」慣例）在 CAPTCHA 這裡變成啟動失敗，體驗不一致且與 tasks.md 1.2 已經寫明的預設值直接矛盾。
+
+### 決策 15（實作後修正，非規劃階段原始決策）：驗證碼答案錯誤 MUST 回傳獨立的 `ErrorType.CaptchaInvalid`，不是與 FluentValidation 欄位驗證共用的 `ErrorType.Validation`
+
+**問題**：原 tasks.md 1.4 沿用 `Error.Validation(...)` 表示「驗證碼答案錯誤」——但同一個 Handler 的 FluentValidation 欄位驗證失敗（Email 格式、密碼強度、CaptchaToken／CaptchaAnswer 缺漏或超長等，見決策 8）也回傳同一個 `ErrorType.Validation`，兩者在 `ResultExtensions.CreateProblemResult` 都映射為 HTTP 400、`ProblemDetails.Title = "Validation"`，前端完全無法區分。人工複查發現前端（`LoginPage.vue`／`RegisterPage.vue`／`EventDetailPage.vue`）當時只依 `error.status === 400` 判斷「是否為驗證碼錯誤」來清空驗證碼輸入並自動換發新圖——若未來某個欄位驗證規則變動、或前後端驗證規則出現任何細微落差，導致提交時真正命中的是欄位驗證失敗而非驗證碼錯誤，使用者會被誤導成「驗證碼錯了」，且不必要地換發新驗證碼圖片。
+
+**決策**：新增 `ErrorType.CaptchaInvalid`（`ProjectC.Application/Common/ErrorType.cs`）與對應的 `Error.CaptchaInvalid(string message)` 工廠方法（`Error.cs`），`ResultExtensions.CreateProblemResult` 映射為 HTTP 400（與 `Validation` 相同狀態碼，但 `Title` 不同）——比照既有 `QueueAdmissionRequired`／`InvalidTicketSignature` 用獨立 `ErrorType` 讓前端能依 `ProblemDetails.Title`（而非泛用狀態碼）判斷語意的既定慣例（`ResultExtensions.cs` 既有註解已明確說明這個判準）。三個 Handler 的 `ICaptchaService.VerifyAsync` 回傳 `false` 分支改用 `Error.CaptchaInvalid(...)`；FluentValidation 欄位驗證失敗分支（`validation.IsValid` 為 `false`，含 CaptchaToken／CaptchaAnswer 缺漏或超長）維持 `Error.Validation(...)` 不變——這兩種情境在 spec 裡都屬於「驗證碼錯誤的驗證錯誤」／「拒絕（並回傳驗證錯誤）」這類泛稱描述（見各 spec 的 CAPTCHA-AUTH-001／CAPTCHA-REG-001／CAPTCHA-QUEUE-001 Scenario 措辭），沒有明確指定必須使用哪一個具體 `ErrorType`，此決策屬於實作細節層級的修正，不影響 spec 描述的可觀察行為（回應狀態碼、是否核發 Token、是否建立紀錄皆不變）。
+
+前端三處呼叫端對應修正：判斷「是否為驗證碼錯誤」（清空驗證碼輸入、自動換發新圖）的條件改為 `error.problem?.title === 'CaptchaInvalid'`，不再使用 `error.status === 400`。
+
+**考慮過的替代方案**：用回應內容（`ProblemDetails.Detail`）的文字內容比對——排除，字串比對脆弱（訊息文字未來調整或多語系化時會直接失效），且不符合本專案既有慣例（`QueueAdmissionRequired`／`InvalidTicketSignature` 皆用型別化的 `Title`，不用文字內容比對）。
 
 ## Risks / Trade-offs
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getEvents, getEventSeats, getTicketTypes } from '../../api/events'
 import { placeOrder } from '../../api/orders'
@@ -7,6 +7,7 @@ import type { PlaceOrderSelection } from '../../api/orders'
 import { getMyQueueStatus, joinQueue } from '../../api/queue'
 import { ApiError } from '../../api/httpClient'
 import { useAuthStore } from '../../stores/auth'
+import { useCaptcha } from '../../composables/useCaptcha'
 import type { EventSeat, EventSummary, QueueStatus, TicketType } from '../../types/apiResponses'
 import type { SelectedSeat } from '../../types/ui'
 import { computeHeldUntilUtc } from '../../utils/orderHold'
@@ -36,6 +37,15 @@ const joiningQueue = ref(false)
 let queuePollTimer: ReturnType<typeof setTimeout> | null = null
 let isRefreshingQueueStatus = false
 
+// 加入排隊操作的驗證碼（captcha-verification design.md 決策 7、CAPTCHA-BW-QUEUE-001）。
+const {
+  token: captchaToken,
+  imageBase64: captchaImageBase64,
+  loadError: captchaLoadError,
+  refresh: refreshCaptcha,
+} = useCaptcha()
+const captchaAnswer = ref('')
+
 // 一旦已經查詢過排隊狀態，以每次輪詢回應當下的 queueModeEnabled 為準（比活動列表當初讀到的
 // isQueueModeEnabled 更新），才能正確反映「等待期間 Admin 關閉熱門搶購模式」（BW-TOGGLE-001）。
 const isQueueModeActive = computed(() => queueStatus.value?.queueModeEnabled ?? event.value?.isQueueModeEnabled ?? false)
@@ -52,6 +62,17 @@ const showJoinPrompt = computed(
 )
 const canPurchase = computed(
   () => !authStore.isAuthenticated || !isQueueModeActive.value || queueStatus.value?.status === 'Admitted',
+)
+
+// 進入「尚未加入排隊」畫面時才載入驗證碼，避免不需要排隊的活動也白白呼叫 GET /api/captcha。
+watch(
+  showJoinPrompt,
+  (visible) => {
+    if (visible && !captchaToken.value && !captchaLoadError.value) {
+      void refreshCaptcha()
+    }
+  },
+  { immediate: true },
 )
 
 // 只納入座位制票種：純計數票種的 zoneCode 是自由顯示名稱，可能剛好跟某個座位分區同名，
@@ -285,9 +306,18 @@ async function handleJoinQueue(): Promise<void> {
   joiningQueue.value = true
   errorMessage.value = ''
   try {
-    await joinQueue(eventId)
+    await joinQueue(eventId, captchaToken.value, captchaAnswer.value)
     await refreshQueueStatus()
   } catch (error) {
+    // 驗證碼錯誤：顯示提示、清空輸入並自動換發新的驗證碼，停留在原畫面，不觸發座位/票種資料的
+    // 清空或重新整理（CAPTCHA-BW-QUEUE-002）。判斷依據 MUST 是後端回傳的可區分 title
+    // （"CaptchaInvalid"），不是泛用的 400 狀態碼，與 LoginPage／RegisterPage 一致。
+    if (error instanceof ApiError && error.problem?.title === 'CaptchaInvalid') {
+      errorMessage.value = toErrorMessage(error, '驗證碼錯誤，請重新輸入')
+      captchaAnswer.value = ''
+      void refreshCaptcha()
+      return
+    }
     errorMessage.value = toErrorMessage(error, '加入排隊失敗')
   } finally {
     joiningQueue.value = false
@@ -436,7 +466,15 @@ onUnmounted(stopQueuePolling)
               title="這個活動目前為熱門搶購模式，請先加入排隊"
               style="margin-bottom: 16px"
             />
-            <el-button type="primary" :loading="joiningQueue" @click="handleJoinQueue">加入排隊</el-button>
+            <div class="captcha-row">
+              <img v-if="captchaImageBase64" :src="`data:image/png;base64,${captchaImageBase64}`" alt="驗證碼圖片" class="captcha-image" />
+              <el-button type="default" @click="refreshCaptcha()">看不清楚？換一張</el-button>
+            </div>
+            <el-alert v-if="captchaLoadError" :title="captchaLoadError" type="warning" show-icon style="margin: 8px 0" />
+            <el-input v-model="captchaAnswer" placeholder="請輸入驗證碼" maxlength="16" style="width: 160px; margin: 8px 0" />
+            <div>
+              <el-button type="primary" :loading="joiningQueue" :disabled="!captchaToken" @click="handleJoinQueue">加入排隊</el-button>
+            </div>
           </template>
 
           <template v-else>
@@ -636,5 +674,13 @@ onUnmounted(stopQueuePolling)
 }
 .summary {
   margin-top: 24px;
+}
+.captcha-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.captcha-image {
+  height: 48px;
 }
 </style>

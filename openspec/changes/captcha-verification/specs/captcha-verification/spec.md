@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 系統提供圖形驗證碼產生端點
-系統 SHALL 提供不需登入即可呼叫的端點 `GET /api/captcha`，每次呼叫產生一組獨立的驗證碼：4 碼英數字內容（排除 `0`/`O`、`1`/`I`/`l` 等易混淆字元）、對應圖片（PNG，以 SixLabors.ImageSharp 純受管理程式碼繪製，不依賴 `System.Drawing`），以及代表此次驗證碼的隨機 token（GUID）。回應 SHALL 包含 token 與圖片內容（base64 編碼的 PNG），不回傳驗證碼答案明文。
+系統 SHALL 提供不需登入即可呼叫的端點 `GET /api/captcha`，每次呼叫產生一組獨立的驗證碼：4 碼英數字內容（排除 `0`/`O`、`1`/`I`/`l` 等易混淆字元，且答案字元 MUST 使用密碼學安全亂數產生，不得使用 `System.Random`／`Random.Shared`）、對應圖片（PNG，以 SixLabors.ImageSharp 純受管理程式碼繪製，不依賴 `System.Drawing`），以及代表此次驗證碼的隨機 token（GUID）。回應 SHALL 包含 token 與圖片內容（base64 編碼的 PNG），不回傳驗證碼答案明文。
 
 #### Scenario: CAPTCHA-GEN-001 成功產生驗證碼
 - **WHEN** 任何呼叫者（不論是否登入）呼叫 `GET /api/captcha`

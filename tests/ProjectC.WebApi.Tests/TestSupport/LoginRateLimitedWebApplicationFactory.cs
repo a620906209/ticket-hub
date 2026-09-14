@@ -1,6 +1,10 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using ProjectC.Application.Common.Interfaces;
 
 namespace ProjectC.WebApi.Tests.TestSupport;
 
@@ -37,6 +41,16 @@ public class LoginRateLimitedWebApplicationFactory : WebApplicationFactory<Progr
                 ["LoginRateLimiting:PermitLimit"] = LoginPermitLimit.ToString(),
                 ["LoginRateLimiting:WindowSeconds"] = LoginWindowSeconds.ToString(),
             });
+        });
+
+        // 獨立於 CustomWebApplicationFactory 的第二個 WebApplicationFactory 階層（刻意不繼承，見上方
+        // 既有註解），MUST 自行新增同樣的 ICaptchaService → FakeCaptchaService 替換，否則這個檔案的
+        // 核心測試手法（連續送出大量登入請求觸發限流）會因為登入端點新增必填驗證碼檢查而全數壞掉
+        // （captcha-verification design.md 決策 9）。
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<ICaptchaService>();
+            services.AddScoped<ICaptchaService, FakeCaptchaService>();
         });
     }
 }

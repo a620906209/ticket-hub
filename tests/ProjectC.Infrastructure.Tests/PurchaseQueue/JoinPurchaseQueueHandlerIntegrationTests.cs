@@ -116,9 +116,12 @@ public class JoinPurchaseQueueHandlerIntegrationTests
             new EventRepository(dbContext),
             new PurchaseQueueRepository(dbContext),
             new UnitOfWork(dbContext),
-            new FixedDateTimeProvider(now));
+            new FixedDateTimeProvider(now),
+            new JoinPurchaseQueueRequestValidator(),
+            new FakeCaptchaService());
 
-        var result = await handler.HandleAsync(eventId, memberId, CancellationToken.None);
+        var request = new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer);
+        var result = await handler.HandleAsync(eventId, memberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().NotBe(expiredEntry.Id, "逾時後重新加入應該建立一筆新紀錄，不是回傳舊紀錄的 Id");
@@ -162,9 +165,12 @@ public class JoinPurchaseQueueHandlerIntegrationTests
             interceptingEventRepository,
             new PurchaseQueueRepository(dbContext),
             new UnitOfWork(dbContext),
-            new FixedDateTimeProvider(now));
+            new FixedDateTimeProvider(now),
+            new JoinPurchaseQueueRequestValidator(),
+            new FakeCaptchaService());
 
-        var result = await handler.HandleAsync(eventId, memberId, CancellationToken.None);
+        var request = new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer);
+        var result = await handler.HandleAsync(eventId, memberId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse(
             "交易前的檢查讀到 IsQueueModeEnabled = true，若沒有交易內重新鎖定確認，會誤判成功並建立一筆不該存在的排隊紀錄");

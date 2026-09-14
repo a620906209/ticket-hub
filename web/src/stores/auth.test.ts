@@ -30,7 +30,7 @@ describe('auth store', () => {
     vi.mocked(authApi.getMyProfile).mockResolvedValue(member)
 
     const store = useAuthStore()
-    await store.login('a@example.com', 'password123')
+    await store.login('a@example.com', 'password123', 'token-1', 'TEST')
 
     expect(store.accessToken).toBe('access-1')
     expect(store.member).toEqual(member)
@@ -44,7 +44,7 @@ describe('auth store', () => {
     vi.mocked(authApi.logout).mockResolvedValue(undefined)
 
     const store = useAuthStore()
-    await store.login('a@example.com', 'password123')
+    await store.login('a@example.com', 'password123', 'token-1', 'TEST')
     await store.logout()
 
     expect(store.accessToken).toBeNull()

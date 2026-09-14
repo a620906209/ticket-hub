@@ -4,19 +4,25 @@ import type { AuthTokens, MemberProfile } from '../types/apiResponses'
 // 登入／註冊／換發不透過會觸發 401 自動換發攔截的 request 版本呼叫（見設計文件決策 5），
 // 直接用 httpClient 的基礎 request()，避免「換發本身失敗」被誤判成「需要再換發一次」。
 
-export function register(email: string, password: string, displayName: string): Promise<{ id: string }> {
+export function register(
+  email: string,
+  password: string,
+  displayName: string,
+  captchaToken: string,
+  captchaAnswer: string,
+): Promise<{ id: string }> {
   return request('/auth/register', {
     method: 'POST',
     skipAuth: true,
-    body: { email, password, displayName },
+    body: { email, password, displayName, captchaToken, captchaAnswer },
   })
 }
 
-export function login(email: string, password: string): Promise<AuthTokens> {
+export function login(email: string, password: string, captchaToken: string, captchaAnswer: string): Promise<AuthTokens> {
   return request('/auth/login', {
     method: 'POST',
     skipAuth: true,
-    body: { email, password },
+    body: { email, password, captchaToken, captchaAnswer },
   })
 }
 

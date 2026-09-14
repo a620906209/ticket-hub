@@ -30,14 +30,14 @@ public class RequestTraceIdTests : IClassFixture<ObservabilityWebApplicationFact
         // 不用在隔離窗口內夾雜不確定次數的暖機請求。
         for (var i = 0; i < 3; i++)
         {
-            await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1"));
+            await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1", FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
         }
 
         // 清空後只送這一次請求，確保接下來收集到的 LogEvent 全部、只屬於這一次請求
         // （原本的寫法混雜了暖機請求的日誌，只斷言「至少一筆」符合，蓋不到「這次請求的其他日誌
         // 有沒有漏掉 TraceId 或帶了不同值」這個情境，實測發現）。
         _factory.LogSink.Clear();
-        var rejectedResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1"));
+        var rejectedResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1", FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
         rejectedResponse.StatusCode.Should().Be(HttpStatusCode.TooManyRequests, "額度應該已經在暖機階段打滿");
 
         var body = await rejectedResponse.Content.ReadAsStringAsync();

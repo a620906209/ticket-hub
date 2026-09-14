@@ -11,6 +11,16 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <PackageReference Include="QRCoder" />
     <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="SixLabors.ImageSharp.Drawing" />
+    <PackageReference Include="SixLabors.Fonts" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 驗證碼繪製字型：DejaVu Sans（DejaVu Fonts License），embedded resource 隨應用程式部署，
+         不依賴容器 OS 字型（captcha-verification design.md 決策 1）。授權條款隨檔案一併嵌入。 -->
+    <EmbeddedResource Include="Captcha\Fonts\DejaVuSans.ttf" />
+    <EmbeddedResource Include="Captcha\Fonts\LICENSE" />
   </ItemGroup>
 
   <PropertyGroup>

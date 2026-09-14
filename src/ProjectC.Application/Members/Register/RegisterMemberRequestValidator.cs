@@ -10,5 +10,6 @@ public sealed class RegisterMemberRequestValidator : AbstractValidator<RegisterM
         RuleFor(x => x.Email).NotEmpty().EmailAddress();
         RuleFor(x => x.Password).NotEmpty().MustBeStrongPassword();
         RuleFor(x => x.DisplayName).NotEmpty().MaximumLength(100);
+        this.ApplyCaptchaValidation(x => x.CaptchaToken, x => x.CaptchaAnswer);
     }
 }

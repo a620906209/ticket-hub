@@ -24,9 +24,9 @@ public class EventQueueController : ControllerBase
     }
 
     [HttpPost("entries")]
-    public async Task<IActionResult> JoinQueue(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> JoinQueue(Guid id, [FromBody] JoinPurchaseQueueRequest request, CancellationToken cancellationToken)
     {
-        var result = await _joinPurchaseQueueHandler.HandleAsync(id, User.GetMemberId(), cancellationToken);
+        var result = await _joinPurchaseQueueHandler.HandleAsync(id, User.GetMemberId(), request, cancellationToken);
         return result.ToActionResult(entryId => StatusCode(StatusCodes.Status201Created, new { id = entryId }));
     }
 
