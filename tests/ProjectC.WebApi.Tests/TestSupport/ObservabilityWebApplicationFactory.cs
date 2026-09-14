@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using ProjectC.Application.Common.Interfaces;
 using ProjectC.Infrastructure.Persistence;
 using Serilog.Core;
 using Testcontainers.PostgreSql;
@@ -122,5 +125,14 @@ public sealed class ObservabilityWebApplicationFactory : WebApplicationFactory<P
         // Program.cs 的 SerilogConfigurator.Configure 會從 services 解析 ILogEventSink 並掛上——
         // 這裡註冊即可，不需要（也不應該）再呼叫一次 UseSerilog（見上方類別註解）。
         builder.ConfigureServices(services => services.AddSingleton<ILogEventSink>(LogSink));
+
+        // 獨立於 CustomWebApplicationFactory 的第三個 WebApplicationFactory 階層（同樣刻意不繼承），
+        // MUST 自行新增同樣的 ICaptchaService → FakeCaptchaService 替換（captcha-verification
+        // design.md 決策 9）。
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<ICaptchaService>();
+            services.AddScoped<ICaptchaService, FakeCaptchaService>();
+        });
     }
 }

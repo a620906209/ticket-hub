@@ -30,6 +30,8 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
             email = AuthTestHelper.NewEmail(),
             password = AuthTestHelper.DefaultPassword,
             displayName = "Alice",
+            captchaToken = FakeCaptchaService.ValidToken,
+            captchaAnswer = FakeCaptchaService.ValidAnswer,
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -46,6 +48,8 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
             email,
             password = AuthTestHelper.DefaultPassword,
             displayName = "Alice Again",
+            captchaToken = FakeCaptchaService.ValidToken,
+            captchaAnswer = FakeCaptchaService.ValidAnswer,
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -57,7 +61,7 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
         var email = AuthTestHelper.NewEmail();
         await AuthTestHelper.RegisterAsync(_client, email);
 
-        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, AuthTestHelper.DefaultPassword));
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, AuthTestHelper.DefaultPassword, FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var tokens = await response.Content.ReadFromJsonAsync<AuthTokensDto>();
@@ -71,7 +75,7 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
         var email = AuthTestHelper.NewEmail();
         await AuthTestHelper.RegisterAsync(_client, email);
 
-        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1"));
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1", FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -79,7 +83,9 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Login_WithUnknownEmail_Returns401()
     {
-        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(AuthTestHelper.NewEmail(), AuthTestHelper.DefaultPassword));
+        var response = await _client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest(AuthTestHelper.NewEmail(), AuthTestHelper.DefaultPassword, FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -101,7 +107,7 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
         var deactivateResponse = await adminClient.PostAsync($"/api/admin/members/{member!.Id}/deactivate", content: null);
         deactivateResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, AuthTestHelper.DefaultPassword));
+        var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, AuthTestHelper.DefaultPassword, FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
         loginResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
@@ -169,10 +175,10 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
         var confirmResponse = await _client.PostAsJsonAsync("/api/auth/password-reset/confirm", new ResetPasswordRequest(plainTextResetToken, "NewPassword1"));
         confirmResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        var loginWithNewPassword = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "NewPassword1"));
+        var loginWithNewPassword = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "NewPassword1", FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
         loginWithNewPassword.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var loginWithOldPassword = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, AuthTestHelper.DefaultPassword));
+        var loginWithOldPassword = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, AuthTestHelper.DefaultPassword, FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
         loginWithOldPassword.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 

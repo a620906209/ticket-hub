@@ -13,6 +13,7 @@ using ProjectC.Application.Authentication.Login;
 using ProjectC.Application.Authentication.Logout;
 using ProjectC.Application.Authentication.PasswordReset;
 using ProjectC.Application.Authentication.Refresh;
+using ProjectC.Application.Captcha.GetCaptcha;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Events.CreateEvent;
@@ -50,6 +51,7 @@ using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 using ProjectC.Infrastructure.Caching;
+using ProjectC.Infrastructure.Captcha;
 using ProjectC.Infrastructure.DistributedLocking;
 using ProjectC.Infrastructure.Notifications;
 using ProjectC.Infrastructure.Payments;
@@ -207,6 +209,14 @@ try
     {
         var redisConfigurationOptions = ConfigurationOptions.Parse(builder.Configuration.GetConnectionString("Redis") ?? "redis:6379");
         redisConfigurationOptions.AbortOnConnectFail = false;
+        // 逾時上限明確設定，不依賴函式庫預設值（5000ms）——這是共用設定，同時套用於
+        // query-caching／purchase-queue-leader-election（fail-open，更短逾時只會讓它們更快降級）
+        // 與 captcha-verification（fail-closed，讓故障回應時間成為可稽核、可測試的上限）
+        // （captcha-verification design.md 決策 11）。
+        redisConfigurationOptions.ConnectTimeout = 2000;
+        redisConfigurationOptions.SyncTimeout = 2000;
+        redisConfigurationOptions.AsyncTimeout = 2000;
+        redisConfigurationOptions.ConnectRetry = 1;
         return ConnectionMultiplexer.Connect(redisConfigurationOptions);
     });
     // IConnectionMultiplexer 官方建議整個應用程式共用單一實例，本身即是 thread-safe，比照既有
@@ -222,6 +232,30 @@ try
         .ValidateOnStart();
     builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<QueryCacheOptions>>().Value);
     builder.Services.AddSingleton<IQueryCache, RedisQueryCache>();
+
+    // CaptchaOptions：有安全的預設值（TtlSeconds = 120），比照 CaptchaRateLimitingOptions／
+    // LoginRateLimitingOptions 不需要 ValidateOnStart，缺漏時採用預設值、顯式設為 0 或負數才擋下
+    // （captcha-verification design.md 決策 14）。
+    builder.Services
+        .AddOptions<CaptchaOptions>()
+        .Bind(builder.Configuration.GetSection(CaptchaOptions.SectionName))
+        .ValidateDataAnnotations();
+    builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<CaptchaOptions>>().Value);
+
+    // CaptchaRateLimitingOptions：獨立於 RateLimitingOptions／LoginRateLimitingOptions，比照同一種
+    // 有安全預設值、不需要 ValidateOnStart 的模式（captcha-verification design.md 決策 6）。
+    builder.Services
+        .AddOptions<CaptchaRateLimitingOptions>()
+        .Bind(builder.Configuration.GetSection(CaptchaRateLimitingOptions.SectionName))
+        .ValidateDataAnnotations();
+    builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<CaptchaRateLimitingOptions>>().Value);
+
+    // Scoped，MUST NOT 是 Singleton：SixLabors.Fonts 的 FontFamily／FontCollection 未經查證取得
+    // 多執行緒並行讀取的官方 thread-safety 保證，Scoped 讓每個 request 各自持有獨立執行個體，
+    // 從根本排除跨執行緒共用同一份字型物件的疑慮（captcha-verification design.md 決策 13）。
+    builder.Services.AddScoped<ICaptchaImageGenerator, CaptchaImageGenerator>();
+    builder.Services.AddScoped<ICaptchaService, RedisCaptchaService>();
+    builder.Services.AddScoped<GetCaptchaHandler>();
 
     builder.Services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
     builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();
@@ -309,6 +343,9 @@ try
         rateLimiterOptions.AddPolicy("place-order", httpContext => CreateMemberPartition(httpContext));
         rateLimiterOptions.AddPolicy("confirm-order", httpContext => CreateMemberPartition(httpContext));
         rateLimiterOptions.AddPolicy("login", httpContext => CreateIpPartition(httpContext));
+        // 獨立命名的 captcha policy，MUST NOT 沿用 "login"——共用 policy 名稱會共用同一個
+        // PartitionedRateLimiter 計數器（captcha-verification design.md 決策 6）。
+        rateLimiterOptions.AddPolicy("captcha", httpContext => CreateCaptchaPartition(httpContext));
 
         rateLimiterOptions.OnRejected = async (context, cancellationToken) =>
         {
@@ -361,6 +398,22 @@ try
                 QueueLimit = 0,
             });
         }
+
+        // GET /api/captcha 同樣匿名可呼叫、沒有會員 Id，重用既有的 IP 分區鍵推導邏輯，但改讀取
+        // 獨立的 CaptchaRateLimitingOptions——這只是共用「怎麼從 HttpContext 算出 IP 字串」的
+        // 靜態方法，不代表共用 login policy 本身或其計數狀態（captcha-verification design.md 決策 6）。
+        static RateLimitPartition<string> CreateCaptchaPartition(HttpContext httpContext)
+        {
+            var options = httpContext.RequestServices.GetRequiredService<CaptchaRateLimitingOptions>();
+            var partitionKey = LoginRateLimiterPartitioning.GetPartitionKey(httpContext);
+
+            return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = options.PermitLimit,
+                Window = TimeSpan.FromSeconds(options.WindowSeconds),
+                QueueLimit = 0,
+            });
+        }
     });
 
     var app = builder.Build();
@@ -375,6 +428,11 @@ try
     // LoginRateLimitingOptions 同樣沒有 ValidateOnStart()，理由與上面的 RateLimitingOptions 相同
     // （login-rate-limiting design.md 決策 3）。
     app.Services.GetRequiredService<LoginRateLimitingOptions>();
+
+    // CaptchaOptions／CaptchaRateLimitingOptions 同樣沒有 ValidateOnStart()，理由與上面相同
+    // （captcha-verification design.md 決策 14、6）。
+    app.Services.GetRequiredService<CaptchaOptions>();
+    app.Services.GetRequiredService<CaptchaRateLimitingOptions>();
 
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())

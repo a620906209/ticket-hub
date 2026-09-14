@@ -32,6 +32,21 @@ public class RateLimitingOptionsFailFastTests
         return configuration;
     }
 
+    private static Dictionary<string, string?> BaseConfigurationWithCaptcha(int ttlSeconds)
+    {
+        var configuration = BaseConfiguration(permitLimit: 20, windowSeconds: 60);
+        configuration["Captcha:TtlSeconds"] = ttlSeconds.ToString();
+        return configuration;
+    }
+
+    private static Dictionary<string, string?> BaseConfigurationWithCaptchaRateLimiting(int permitLimit, int windowSeconds)
+    {
+        var configuration = BaseConfiguration(permitLimit: 20, windowSeconds: 60);
+        configuration["CaptchaRateLimiting:PermitLimit"] = permitLimit.ToString();
+        configuration["CaptchaRateLimiting:WindowSeconds"] = windowSeconds.ToString();
+        return configuration;
+    }
+
     private static bool ContainsOptionsValidationException(Exception exception)
     {
         var current = exception;
@@ -84,6 +99,52 @@ public class RateLimitingOptionsFailFastTests
             builder.UseEnvironment("Testing");
             builder.ConfigureAppConfiguration((_, configBuilder) =>
                 configBuilder.AddInMemoryCollection(BaseConfigurationWithLoginRateLimiting(loginPermitLimit, loginWindowSeconds)));
+        });
+
+        var act = () => factory.Server;
+
+        act.Should().Throw<Exception>()
+            .Where(e => e is OptionsValidationException || ContainsOptionsValidationException(e));
+    }
+
+    // captcha-verification spec CAPTCHA-STORE-004：CaptchaOptions 同樣沒有 ValidateOnStart()，Program.cs
+    // 在 app.Build() 後強制解析一次 IOptions<CaptchaOptions>，理由與上面的 RateLimitingOptions 相同
+    // （design.md 決策 14）。CAPTCHA-STORE-003（缺漏時採用預設值）見 CaptchaOptionsTests
+    // （Application.Tests，直接驗證 C# 層級預設值）。
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void CreatingHost_WithNonPositiveCaptchaValues_ThrowsOptionsValidationException(int ttlSeconds)
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Testing");
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+                configBuilder.AddInMemoryCollection(BaseConfigurationWithCaptcha(ttlSeconds)));
+        });
+
+        var act = () => factory.Server;
+
+        act.Should().Throw<Exception>()
+            .Where(e => e is OptionsValidationException || ContainsOptionsValidationException(e));
+    }
+
+    // captcha-verification spec CAPTCHA-RATE-003：CaptchaRateLimitingOptions 同樣沒有 ValidateOnStart()，
+    // Program.cs 在 app.Build() 後強制解析一次 IOptions<CaptchaRateLimitingOptions>，理由與上面相同
+    // （design.md 決策 6）。CAPTCHA-RATE-002（缺漏時採用預設值）見 CaptchaRateLimitingOptionsTests
+    // （Application.Tests，直接驗證 C# 層級預設值）。
+    [Theory]
+    [InlineData(0, 60)]
+    [InlineData(-1, 60)]
+    [InlineData(10, 0)]
+    [InlineData(10, -1)]
+    public void CreatingHost_WithNonPositiveCaptchaRateLimitingValues_ThrowsOptionsValidationException(int permitLimit, int windowSeconds)
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Testing");
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+                configBuilder.AddInMemoryCollection(BaseConfigurationWithCaptchaRateLimiting(permitLimit, windowSeconds)));
         });
 
         var act = () => factory.Server;

@@ -28,6 +28,11 @@ public static class ResultExtensions
             // Title 沿用下方 error.Type.ToString()，前端據此（而非泛用 400）判斷是否顯示
             // 「簽章驗證失敗」，比照 QueueAdmissionRequired 的既有慣例（redemption-scanner-ui design.md 決策 2）。
             ErrorType.InvalidTicketSignature => StatusCodes.Status400BadRequest,
+            // Title 沿用下方 error.Type.ToString()，前端據此（而非泛用 400 Validation）判斷是否為驗證碼
+            // 答案錯誤，比照 QueueAdmissionRequired／InvalidTicketSignature 的既有慣例——若只依 HTTP
+            // status 判斷，其他語意的 400（例如 Email／密碼欄位驗證失敗）會被誤判成驗證碼錯誤，導致
+            // 前端誤清空驗證碼輸入並不必要地換發新圖（captcha-verification design.md 決策 8 補充）。
+            ErrorType.CaptchaInvalid => StatusCodes.Status400BadRequest,
             ErrorType.NotFound => StatusCodes.Status404NotFound,
             ErrorType.Conflict => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,

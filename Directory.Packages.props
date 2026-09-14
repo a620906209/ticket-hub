@@ -20,6 +20,11 @@
     <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
     <PackageVersion Include="QRCoder" Version="1.8.0" />
     <PackageVersion Include="StackExchange.Redis" Version="3.1.31" />
+    <!-- 驗證碼圖片產生（captcha-verification design.md 決策 1）：鎖定 1.0.0 系列（Apache 2.0，免授權金鑰），
+         與既有 SixLabors.ImageSharp 2.1.11 相容。MUST NOT 升級至 3.x 系列——該系列起改用 Split License，
+         需另外評估授權金鑰與免費條件是否符合。 -->
+    <PackageVersion Include="SixLabors.ImageSharp.Drawing" Version="1.0.0" />
+    <PackageVersion Include="SixLabors.Fonts" Version="1.0.0" />
   </ItemGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

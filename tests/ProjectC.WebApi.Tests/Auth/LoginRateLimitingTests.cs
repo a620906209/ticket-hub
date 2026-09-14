@@ -26,7 +26,9 @@ public class LoginRateLimitingTests : IClassFixture<LoginRateLimitTestDatabaseFi
         => new(_databaseFixture.ConnectionString);
 
     private static Task<HttpResponseMessage> AttemptLoginWithFakeCredentialsAsync(HttpClient client)
-        => client.PostAsJsonAsync("/api/auth/login", new LoginRequest(AuthTestHelper.NewEmail(), "WrongPassword1"));
+        => client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest(AuthTestHelper.NewEmail(), "WrongPassword1", FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
 
     /// <summary>平行送出 N 次請求，而非循序 await——Fixed Window 限流器的額度計算不受到達順序影響，
     /// 但循序 await 讓「耗盡額度所需的實際耗時」等於 N 次請求延遲的總和，在系統負載較高、
@@ -89,9 +91,13 @@ public class LoginRateLimitingTests : IClassFixture<LoginRateLimitTestDatabaseFi
         await AuthTestHelper.RegisterAsync(client, email);
 
         await Task.WhenAll(Enumerable.Range(0, LoginRateLimitedWebApplicationFactory.LoginPermitLimit)
-            .Select(_ => client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "WrongPassword1"))));
+            .Select(_ => client.PostAsJsonAsync(
+                "/api/auth/login",
+                new LoginRequest(email, "WrongPassword1", FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer))));
 
-        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, AuthTestHelper.DefaultPassword));
+        var response = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest(email, AuthTestHelper.DefaultPassword, FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
 
         response.StatusCode.Should().Be(HttpStatusCode.TooManyRequests, "即使帳密正確，超額請求也一律拒絕");
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());

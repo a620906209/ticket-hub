@@ -1,7 +1,11 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using ProjectC.Application.Common.Interfaces;
 using ProjectC.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
@@ -143,6 +147,19 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
                 ["LoginRateLimiting:PermitLimit"] = "1000",
                 ["LoginRateLimiting:WindowSeconds"] = "60",
             });
+        });
+
+        // 預設把 ICaptchaService 換成固定 token／答案的 FakeCaptchaService：這個基底類別（含子類別）
+        // 共 20 個既有測試檔案透過 AuthTestHelper／直接建構 LoginRequest／RegisterMemberRequest 呼叫
+        // 真實的註冊／登入端點準備測試前置資料，本身完全不是在測驗證碼行為，也沒有任何方式能程式化
+        // 解出真實 RedisCaptchaService 產生的隨機圖形驗證碼內容（captcha-verification design.md 決策 9）。
+        // 需要驗證真實 RedisCaptchaService 行為的測試類別（CAPTCHA-GEN-*／CAPTCHA-RATE-001／
+        // CAPTCHA-FAIL-*）MUST 個別在自己的 ConfigureTestServices 覆寫換回真實服務，比照
+        // NeedsWorkingRedis 這種既有透過子類別覆寫改變基底行為的既定慣例。
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<ICaptchaService>();
+            services.AddScoped<ICaptchaService, FakeCaptchaService>();
         });
     }
 }

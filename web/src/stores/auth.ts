@@ -37,8 +37,8 @@ export const useAuthStore = defineStore('auth', () => {
     member.value = null
   }
 
-  async function login(email: string, password: string): Promise<void> {
-    const tokens = await authApi.login(email, password)
+  async function login(email: string, password: string, captchaToken: string, captchaAnswer: string): Promise<void> {
+    const tokens = await authApi.login(email, password, captchaToken, captchaAnswer)
     accessToken.value = tokens.accessToken
     storeRefreshToken(tokens.refreshToken)
     member.value = await authApi.getMyProfile()

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Members;
+using ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.Infrastructure.Persistence;
@@ -70,7 +71,9 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
         var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
 
-        var response = await adminClient.PostAsync($"/api/events/{eventId}/queue/entries", null);
+        var response = await adminClient.PostAsJsonAsync(
+            $"/api/events/{eventId}/queue/entries",
+            new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
 
         response.StatusCode.Should().Be(HttpStatusCode.Created, "Admin 角色帳號應依一般會員的既定規則處理，不因角色而被拒絕");
     }
@@ -99,9 +102,12 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
         var callerClient = await CreateAuthenticatedMemberClientAsync();
         var callerMemberId = await ReadOwnMemberIdAsync(callerClient);
 
-        // 端點本身沒有宣告任何接受 request body 的參數（型別層級即不接受），這裡刻意夾帶一個看似合法的
-        // memberId 欄位，確認 model binding 會忽略它，不會被拿來覆寫排隊紀錄的會員身份。
-        var response = await callerClient.PostAsJsonAsync($"/api/events/{eventId}/queue/entries", new { memberId = otherMemberId });
+        // JoinPurchaseQueueRequest 只宣告 CaptchaToken／CaptchaAnswer 兩個欄位（不接受 memberId），
+        // 這裡刻意夾帶一個看似合法的 memberId 欄位，確認 model binding 會忽略它，不會被拿來覆寫
+        // 排隊紀錄的會員身份。
+        var response = await callerClient.PostAsJsonAsync(
+            $"/api/events/{eventId}/queue/entries",
+            new { memberId = otherMemberId, captchaToken = FakeCaptchaService.ValidToken, captchaAnswer = FakeCaptchaService.ValidAnswer });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         using var scope = _factory.Services.CreateScope();
@@ -110,5 +116,19 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
         var entry = await dbContext.PurchaseQueueEntries.AsNoTracking().SingleAsync(e => e.Id == entryId);
         entry.MemberId.Should().Be(callerMemberId);
         entry.MemberId.Should().NotBe(otherMemberId);
+    }
+
+    // CAPTCHA-QUEUE-003：查詢排隊狀態端點（輪詢用，非建立操作）不需要驗證碼欄位仍可正常回應
+    // （captcha-verification design.md Non-Goals：不涉及查詢排隊狀態端點，加驗證碼會破壞既有輪詢體驗）。
+    [Fact]
+    public async Task GetMyQueueStatus_WithoutAnyCaptchaField_StillRespondsNormally()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
+        var memberClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await memberClient.GetAsync($"/api/events/{eventId}/queue/entries/me");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

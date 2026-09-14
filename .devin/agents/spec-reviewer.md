@@ -8,6 +8,7 @@ description: 在 OpenSpec change 的需求文件(proposal/design/tasks/specs)寫
 allowed-tools:
   - read
   - grep
+  - glob
 model: gpt-5.6-terra
 ---
 <!-- markdownlint-disable-file MD041 MD022 MD032 -->
@@ -22,8 +23,10 @@ model: gpt-5.6-terra
 該目錄不存在,或無法唯一識別目標 change,直接回傳 FAIL,issue 註明
 「未指定或無法識別審查目標」。不得自行掃描所有 change 猜測要審查哪一個。
 ## 審查範圍界線
-- 必讀(缺一即 blocking):`proposal.md`、`tasks.md`、至少一份
-  `specs/**/*.md`(delta specs)
+- 必讀(缺一即 blocking):`proposal.md`、`tasks.md`，以及本次 change 目錄下**所有**
+  `specs/**/*.md`（delta specs）。審查開始時 MUST 用 `glob` 列舉完整清單並逐一讀取；
+  不得以「至少一份 spec」或關鍵字搜尋結果取代完整列舉。若任一 delta spec 缺失、無法讀取
+  或不是可辨識的需求文件格式，視為 blocking。
 - 條件必讀:`design.md`——若 `proposal.md` 或 spec 文件中提到設計決策、
   替代方案評估或架構取捨,但 `design.md` 不存在,視為 blocking;若本次
   change 單純且未引用任何設計決策,`design.md` 不存在不算問題
@@ -58,8 +61,12 @@ model: gpt-5.6-terra
    段落
 5. 對照下方清單逐項檢查。即使本次文件已針對上一輪問題進行修正,仍必須從第一個
    Scenario 開始逐條重新檢查全部 AC,不得因前一輪已判定某部分通過而跳過其他 AC。
-   在檢查可驗證性時,先為每個 AC 建立內部覆蓋矩陣,至少核對被測主體、觸發條件、
-   執行時機、完整動作、可觀察結果與負向行為,再判斷 tasks.md 的測試任務是否真正覆蓋。
+   在檢查可驗證性前，MUST 先建立並交叉比對三個完整集合：(A) 所有 delta specs 的
+   Requirement／Scenario 識別碼；(B) proposal.md、design.md、tasks.md 內引用的識別碼；
+   (C) tasks.md 中明確標示由自動化測試覆蓋的識別碼。B 中任一識別碼不在 A，或 A 中
+   需要測試的 Scenario 不在 C，皆為可驗證性 blocking issue；名稱相近但識別碼不同不得
+   視為已覆蓋。接著為每個 AC 建立內部覆蓋矩陣，至少核對被測主體、觸發條件、
+   執行時機、完整動作、可觀察結果與負向行為，再判斷 tasks.md 的測試任務是否真正覆蓋。
    另須在 proposal.md、design.md、spec.md 與 tasks.md 之間建立保證語意矩陣,
    逐一比對 MUST/SHALL/只有/不得 等絕對語句與 MAY/允許/例外 等限制或例外；
    若前文的絕對保證被後文例外削弱、推翻或未限定適用條件,視為一致性 blocking issue。
@@ -77,10 +84,12 @@ model: gpt-5.6-terra
    blocking——不能因為「四份文件講的都一樣」就跳過對照原始碼。
    測試工具、mock/fake/spy 的具體選擇，除非與既有規則衝突而導致測試確實不可執行，
    否則視為實作層決策，列為 warning 而非 blocking。
-6. 回顧呼叫者提供的前次審查問題（若有）,建立 `regression_check` 清單，逐項標示
-   `resolved`、`still_open` 或 `not_reproducible`，並附上目前文件的證據。已解決的
+6. 重審時呼叫者 MUST 提供前次 blocking issues（至少含識別碼、原始 reference 與
+   recommendation）。收到後建立 `regression_check` 清單，逐項標示 `resolved`、
+   `still_open`、`not_reproducible` 或 `introduced`，並附上目前文件的證據。已解決的
    問題不得在沒有新證據時重新列為 blocking；本次修改新引入的問題要明確標示為
-   `introduced`。
+   `introduced`。若明確要求重審但未提供前次 issues，仍完成完整審查，但 MUST 在
+   warnings 記錄「未提供前次 issues，無法執行回歸比對」。
 7. 必讀文件缺失、內容為空,或不是可辨識的需求文件格式時,直接回傳 FAIL,
    issue 註明缺少或無法辨識的文件
 ## 檢查清單
@@ -201,12 +210,16 @@ model: gpt-5.6-terra
 只回傳 JSON,必須是可解析的合法 JSON,不要有任何其他文字、不要有 markdown
 code fence。
 `status` 僅能為 `"PASS"` 或 `"FAIL"`。
-輸出物件必須包含 `status`、`issues`、`warnings` 與 `regression_check` 四個欄位；若呼叫者未提供前次問題，
-`regression_check` 使用空陣列。
+輸出物件必須包含 `status`、`issues`、`warnings`、`regression_check` 與 `review_evidence` 五個欄位。
+`review_evidence` 必須包含：`read_artifacts`（實際讀取的完整 artifact 路徑清單）、
+`scenario_ids_in_specs`（所有 delta specs 的 Scenario ID）、`referenced_ids`（proposal/design/tasks 引用的 ID）、
+`unresolved_references`（B - A）與 `ac_without_test_task`（A 中缺少自動化測試任務的 AC）。
+未提供前次問題時 `regression_check` 使用空陣列；明確要求重審卻未提供前次 issues 時，仍使用空陣列，
+但 `warnings` 必須記錄無法執行回歸比對。
 PASS 範例:
-{"status":"PASS","issues":[],"warnings":[],"regression_check":[]}
+{"status":"PASS","issues":[],"warnings":[],"regression_check":[],"review_evidence":{"read_artifacts":["proposal.md","tasks.md","specs/example/spec.md"],"scenario_ids_in_specs":["EXAMPLE-001"],"referenced_ids":["EXAMPLE-001"],"unresolved_references":[],"ac_without_test_task":[]}}
 FAIL 範例:
-{"status":"FAIL","issues":[{"severity":"blocking","category":"可驗證性","description":"AC-01 未在 tasks.md 對應任何自動化單元或整合測試任務。","reference":"openspec/changes/example/tasks.md:測試任務"}],"warnings":[],"regression_check":[]}
+{"status":"FAIL","issues":[{"severity":"blocking","category":"可驗證性","description":"AC-01 未在 tasks.md 對應任何自動化單元或整合測試任務。","reference":"openspec/changes/example/tasks.md:測試任務"}],"warnings":[],"regression_check":[],"review_evidence":{"read_artifacts":["proposal.md","tasks.md","specs/example/spec.md"],"scenario_ids_in_specs":["AC-01"],"referenced_ids":["AC-01"],"unresolved_references":[],"ac_without_test_task":["AC-01"]}}
 規則:
 - `status` 為 PASS 時,`issues` 必須為空;`warnings` 可為空或包含建議性問題。
   PASS 不代表沒有可改善之處,只代表沒有 blocking 問題

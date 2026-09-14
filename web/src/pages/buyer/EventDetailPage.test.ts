@@ -6,12 +6,14 @@ import EventDetailPage from './EventDetailPage.vue'
 import * as eventsApi from '../../api/events'
 import * as ordersApi from '../../api/orders'
 import * as queueApi from '../../api/queue'
+import * as captchaApi from '../../api/captcha'
 import { ApiError } from '../../api/httpClient'
 import type { EventSeat, EventSummary, QueueStatus, TicketType } from '../../types/apiResponses'
 
 vi.mock('../../api/events')
 vi.mock('../../api/orders')
 vi.mock('../../api/queue')
+vi.mock('../../api/captcha')
 
 const pushMock = vi.fn()
 vi.mock('vue-router', () => ({
@@ -629,6 +631,11 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     return button
   }
 
+  // 加入排隊區塊裡唯一的純文字輸入欄位（驗證碼輸入），比照 LoginPage/RegisterPage 測試的既有選法。
+  function captchaAnswerInput(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('input[type="text"]')
+  }
+
   beforeEach(() => {
     mockIsAuthenticated = true
     pushMock.mockReset()
@@ -638,8 +645,10 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     vi.mocked(ordersApi.placeOrder).mockReset()
     vi.mocked(queueApi.getMyQueueStatus).mockReset()
     vi.mocked(queueApi.joinQueue).mockReset()
+    vi.mocked(captchaApi.getCaptcha).mockReset()
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
+    vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-1', imageBase64: 'base64-image-1' })
   })
 
   afterEach(() => {
@@ -658,11 +667,67 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     expect(wrapper.text()).toContain('加入排隊')
     expect(wrapper.find('.seat-btn').exists()).toBe(false)
 
+    // 驗證碼為必填欄位，先填寫再點擊「加入排隊」，否則若前端做必填驗證會卡在原地送不出去（7.3a）。
+    await captchaAnswerInput(wrapper).setValue('TEST')
     await joinQueueButton(wrapper).trigger('click')
     await flushPromises()
 
-    expect(queueApi.joinQueue).toHaveBeenCalledWith('event-1')
+    expect(queueApi.joinQueue).toHaveBeenCalledWith('event-1', 'captcha-token-1', 'TEST')
     expect(wrapper.text()).toContain('排隊中')
+  })
+
+  // CAPTCHA-BW-QUEUE-001：尚未加入排隊時顯示驗證碼圖片與輸入欄位。
+  it('CAPTCHA-BW-QUEUE-001：尚未加入排隊時顯示驗證碼圖片與輸入欄位', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('img[alt="驗證碼圖片"]').exists()).toBe(true)
+    expect(captchaAnswerInput(wrapper).exists()).toBe(true)
+  })
+
+  // CAPTCHA-BW-QUEUE-002：驗證碼錯誤時，MUST 同時滿足以下四項，缺一不可。
+  it('CAPTCHA-BW-QUEUE-002：驗證碼錯誤時顯示提示、清空輸入並自動換發、停留原畫面、不開放選位', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    vi.mocked(queueApi.joinQueue).mockRejectedValue(
+      new ApiError(400, { status: 400, title: 'CaptchaInvalid', detail: '驗證碼錯誤或已逾時，請重新取得驗證碼。' }),
+    )
+    const wrapper = mountPage()
+    await flushPromises()
+    vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-2', imageBase64: 'base64-image-2' })
+
+    await captchaAnswerInput(wrapper).setValue('WRONG')
+    await joinQueueButton(wrapper).trigger('click')
+    await flushPromises()
+
+    // ①顯示驗證碼錯誤提示
+    expect(wrapper.text()).toContain('驗證碼錯誤或已逾時，請重新取得驗證碼。')
+    // ②自動呼叫 GET /api/captcha 換取新驗證碼並清空舊有輸入欄位
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(2)
+    expect((captchaAnswerInput(wrapper).element as HTMLInputElement).value).toBe('')
+    // ③停留在尚未加入排隊的畫面
+    expect(wrapper.text()).toContain('加入排隊')
+    // ④選位與計數購票操作入口仍不開放
+    expect(wrapper.find('.seat-btn').exists()).toBe(false)
+  })
+
+  // CAPTCHA-BW-005／006：GET /api/captcha 載入或刷新失敗時顯示提示、停用加入排隊按鈕，
+  // 不清空/重新整理座位與票種資料。
+  it('GET /api/captcha 初次載入失敗時顯示提示、停用加入排隊按鈕，不重新整理座位票種資料', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    vi.mocked(captchaApi.getCaptcha).mockReset()
+    vi.mocked(captchaApi.getCaptcha).mockRejectedValue(new Error('network error'))
+    const wrapper = mountPage()
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('系統暫時無法取得驗證碼，請稍後再試')
+    expect(joinQueueButton(wrapper).attributes('disabled')).toBeDefined()
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
+    expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(1)
   })
 
   it('BW-QUEUE-002：排隊中顯示等待畫面與前方等待人數，停用選位/計數/區域隨選，並定期輪詢狀態', async () => {

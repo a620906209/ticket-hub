@@ -18,4 +18,5 @@ public sealed class Error
     public static Error Forbidden(string message) => new(ErrorType.Forbidden, message);
     public static Error QueueAdmissionRequired(string message) => new(ErrorType.QueueAdmissionRequired, message);
     public static Error InvalidTicketSignature(string message) => new(ErrorType.InvalidTicketSignature, message);
+    public static Error CaptchaInvalid(string message) => new(ErrorType.CaptchaInvalid, message);
 }

@@ -35,7 +35,9 @@ public class OrdersRateLimitingTests : IClassFixture<RateLimitedWebApplicationFa
         => client.PostAsync($"/api/orders/{Guid.NewGuid()}/confirm", null);
 
     private static Task<HttpResponseMessage> AttemptLoginAsync(HttpClient client)
-        => client.PostAsJsonAsync("/api/auth/login", new LoginRequest(AuthTestHelper.NewEmail(), "WrongPassword1"));
+        => client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest(AuthTestHelper.NewEmail(), "WrongPassword1", FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
 
     [Fact]
     public async Task PlaceOrder_WithRequestsUnderTheLimit_AllSucceedWithoutBeingRateLimited()

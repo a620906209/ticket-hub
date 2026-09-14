@@ -1,3 +1,4 @@
+using FluentValidation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Events;
@@ -7,25 +8,47 @@ namespace ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
 
 public sealed class JoinPurchaseQueueHandler
 {
+    private const string InvalidCaptchaMessage = "驗證碼錯誤或已逾時，請重新取得驗證碼。";
+
     private readonly IEventRepository _eventRepository;
     private readonly IPurchaseQueueRepository _purchaseQueueRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IValidator<JoinPurchaseQueueRequest> _validator;
+    private readonly ICaptchaService _captchaService;
 
     public JoinPurchaseQueueHandler(
         IEventRepository eventRepository,
         IPurchaseQueueRepository purchaseQueueRepository,
         IUnitOfWork unitOfWork,
-        IDateTimeProvider dateTimeProvider)
+        IDateTimeProvider dateTimeProvider,
+        IValidator<JoinPurchaseQueueRequest> validator,
+        ICaptchaService captchaService)
     {
         _eventRepository = eventRepository;
         _purchaseQueueRepository = purchaseQueueRepository;
         _unitOfWork = unitOfWork;
         _dateTimeProvider = dateTimeProvider;
+        _validator = validator;
+        _captchaService = captchaService;
     }
 
-    public async Task<Result<Guid>> HandleAsync(Guid eventId, Guid memberId, CancellationToken cancellationToken)
+    public async Task<Result<Guid>> HandleAsync(Guid eventId, Guid memberId, JoinPurchaseQueueRequest request, CancellationToken cancellationToken)
     {
+        var validation = await _validator.ValidateAsync(request, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return Result<Guid>.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+        }
+
+        // 驗證碼檢查 MUST 在既有排隊資格檢查（活動存在性、Queue Mode 是否開啟）之前執行
+        // （CAPTCHA-QUEUE-001，captcha-verification design.md 決策 5）。
+        var captchaValid = await _captchaService.VerifyAsync(request.CaptchaToken, request.CaptchaAnswer, cancellationToken);
+        if (!captchaValid)
+        {
+            return Result<Guid>.Failure(Error.CaptchaInvalid(InvalidCaptchaMessage));
+        }
+
         var @event = await _eventRepository.GetByIdAsync(eventId, cancellationToken);
         if (@event is null)
         {

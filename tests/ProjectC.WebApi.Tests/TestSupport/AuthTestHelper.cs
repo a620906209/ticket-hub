@@ -18,13 +18,17 @@ public static class AuthTestHelper
 
     public static async Task RegisterAsync(HttpClient client, string email, string password = DefaultPassword, string displayName = "Test User")
     {
-        var response = await client.PostAsJsonAsync("/api/auth/register", new RegisterMemberRequest(email, password, displayName));
+        var response = await client.PostAsJsonAsync(
+            "/api/auth/register",
+            new RegisterMemberRequest(email, password, displayName, FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
         response.EnsureSuccessStatusCode();
     }
 
     public static async Task<AuthTokensDto> LoginAsync(HttpClient client, string email, string password = DefaultPassword)
     {
-        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, password));
+        var response = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new LoginRequest(email, password, FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<AuthTokensDto>())!;
     }
