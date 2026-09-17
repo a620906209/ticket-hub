@@ -21,6 +21,7 @@ public class JoinPurchaseQueueHandlerTests
         public FakeUnitOfWork UnitOfWork { get; } = new();
         public FakeDateTimeProvider DateTimeProvider { get; } = new() { UtcNow = Now };
         public FakeCaptchaService CaptchaService { get; } = new();
+        public FakePurchaseQueueAdmissionMirror AdmissionMirror { get; } = new();
 
         public JoinPurchaseQueueHandler CreateHandler() => new(
             EventRepository,
@@ -28,7 +29,8 @@ public class JoinPurchaseQueueHandlerTests
             UnitOfWork,
             DateTimeProvider,
             new JoinPurchaseQueueRequestValidator(),
-            CaptchaService);
+            CaptchaService,
+            AdmissionMirror);
 
         public Event SeedEvent(bool isQueueModeEnabled = true)
         {

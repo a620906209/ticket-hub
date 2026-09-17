@@ -39,6 +39,7 @@ public class PurchaseQueueAdmissionServiceLeaderElectionBranchTests : IClassFixt
             },
             distributedLock,
             new DistributedLockOptions(),
+            _factory.Services.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>(),
             NullLogger<PurchaseQueueAdmissionService>.Instance);
 
     private async Task<(Guid EventId, PurchaseQueueEntry Waiting)> SeedWaitingEventAsync(ApplicationDbContext dbContext)
@@ -97,8 +98,10 @@ public class PurchaseQueueAdmissionServiceLeaderElectionBranchTests : IClassFixt
         fakeLock.ReleaseCalls.Should().BeEmpty("未取得鎖不應嘗試釋放");
     }
 
+    // PQLE-007（取代原本的 fail-open 斷言，見 purchase-queue-redis-admission design.md Decision 6／
+    // tasks.md 8.4）：Redis 不可用時 MUST 跳過本輪推進（fail-closed），不再視為已取得執行資格。
     [Fact]
-    public async Task AdvanceQueueOnceWithLeaderElectionAsync_WhenRedisUnavailable_ExecutesAdvanceButDoesNotRelease()
+    public async Task AdvanceQueueOnceWithLeaderElectionAsync_WhenRedisUnavailable_SkipsAdvanceAndDoesNotRelease()
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -108,7 +111,7 @@ public class PurchaseQueueAdmissionServiceLeaderElectionBranchTests : IClassFixt
         await CreateService(fakeLock).AdvanceQueueOnceWithLeaderElectionAsync(CancellationToken.None);
 
         (await ReadStatusAsync(waiting.Id)).Should().Be(
-            PurchaseQueueEntryStatus.Admitted, "Redis 不可用時 MUST 視為已取得執行資格，照常執行本輪推進（fail-open）");
+            PurchaseQueueEntryStatus.Waiting, "Redis 不可用時 MUST 跳過本輪推進與校正（fail-closed），不再視為已取得執行資格");
         fakeLock.ReleaseCalls.Should().BeEmpty("RedisUnavailable 代表本來就沒有真的鎖，不應嘗試釋放");
     }
 }

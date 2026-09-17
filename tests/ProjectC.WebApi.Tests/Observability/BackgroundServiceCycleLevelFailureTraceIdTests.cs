@@ -9,6 +9,7 @@ using ProjectC.WebApi.Tests.TestSupport;
 using Serilog;
 using Serilog.Events;
 using Serilog.Extensions.Logging;
+using StackExchange.Redis;
 
 namespace ProjectC.WebApi.Tests.Observability;
 
@@ -69,6 +70,7 @@ public class BackgroundServiceCycleLevelFailureTraceIdTests
             new PurchaseQueueOptions(),
             new FakeDistributedLock(),
             new DistributedLockOptions(),
+            new Mock<IConnectionMultiplexer>().Object,
             logger);
 
         using var cts = new CancellationTokenSource();

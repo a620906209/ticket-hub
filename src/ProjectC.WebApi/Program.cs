@@ -57,6 +57,7 @@ using ProjectC.Infrastructure.Notifications;
 using ProjectC.Infrastructure.Payments;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.Infrastructure.Persistence.Repositories;
+using ProjectC.Infrastructure.PurchaseQueue;
 using ProjectC.Infrastructure.Security;
 using ProjectC.Infrastructure.Tickets;
 using ProjectC.WebApi.BackgroundServices;
@@ -222,6 +223,9 @@ try
     // IConnectionMultiplexer 官方建議整個應用程式共用單一實例，本身即是 thread-safe，比照既有
     // Singleton 註冊慣例（如 IMemoryCache），IDistributedLock 一併註冊為 Singleton。
     builder.Services.AddSingleton<IDistributedLock, RedisDistributedLock>();
+    // 入場推進 Redis 鏡像的 best-effort 同步（PQ-JOIN／PQ-COMPLETE），比照 RedisDistributedLock
+    // 無狀態、Singleton 註冊（purchase-queue-redis-admission design.md Decision 3／8）。
+    builder.Services.AddSingleton<IPurchaseQueueAdmissionMirror, RedisPurchaseQueueAdmissionMirror>();
 
     // QueryCacheOptions：任一值缺漏或為 0／負數會讓 StackExchange.Redis 在每次快取寫入時同步拋出
     // ArgumentException，比照 PurchaseQueueOptions 啟動時 fail-fast（見 design.md 決策 6a）。

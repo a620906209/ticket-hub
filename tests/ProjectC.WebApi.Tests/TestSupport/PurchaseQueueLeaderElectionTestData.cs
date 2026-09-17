@@ -45,4 +45,17 @@ internal static class PurchaseQueueLeaderElectionTestData
             await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-30 + i));
         }
     }
+
+    public static async Task<PurchaseQueueEntry> SeedAdmittedEntryAsync(
+        ApplicationDbContext dbContext, Guid eventId, DateTime joinedAtUtc, DateTime admittedAtUtc, DateTime admissionExpiresAtUtc)
+    {
+        var member = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Test Buyer", "hash");
+        dbContext.Members.Add(member);
+        var entry = new PurchaseQueueEntry(Guid.NewGuid(), eventId, member.Id, joinedAtUtc);
+        entry.Admit(admittedAtUtc, admissionExpiresAtUtc);
+        dbContext.PurchaseQueueEntries.Add(entry);
+        await dbContext.SaveChangesAsync();
+
+        return entry;
+    }
 }

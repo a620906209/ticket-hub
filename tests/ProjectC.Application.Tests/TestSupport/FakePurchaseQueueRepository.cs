@@ -20,12 +20,46 @@ public sealed class FakePurchaseQueueRepository : IPurchaseQueueRepository
         => Task.FromResult(Data.FirstOrDefault(e => e.EventId == eventId && e.MemberId == memberId &&
             (e.Status == PurchaseQueueEntryStatus.Waiting || e.Status == PurchaseQueueEntryStatus.Admitted)));
 
-    public Task<IReadOnlyList<PurchaseQueueEntry>> GetForAdmissionAsync(Guid eventId, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<PurchaseQueueEntry>> GetActiveForReconciliationAsync(Guid eventId, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<PurchaseQueueEntry>>(Data
             .Where(e => e.EventId == eventId && (e.Status == PurchaseQueueEntryStatus.Waiting || e.Status == PurchaseQueueEntryStatus.Admitted))
-            .OrderBy(e => e.JoinedAtUtc)
-            .ThenBy(e => e.Id)
             .ToList());
+
+    public Task<int> AdmitBatchAsync(IReadOnlyCollection<Guid> entryIds, DateTime admittedAtUtc, DateTime admissionExpiresAtUtc, CancellationToken cancellationToken)
+    {
+        var affected = 0;
+        foreach (var entry in Data.Where(e => entryIds.Contains(e.Id) && e.Status == PurchaseQueueEntryStatus.Waiting))
+        {
+            entry.Admit(admittedAtUtc, admissionExpiresAtUtc);
+            affected++;
+        }
+
+        return Task.FromResult(affected);
+    }
+
+    public Task<int> ExpireBatchAsync(IReadOnlyCollection<Guid> entryIds, CancellationToken cancellationToken)
+    {
+        var affected = 0;
+        foreach (var entry in Data.Where(e => entryIds.Contains(e.Id) && e.Status == PurchaseQueueEntryStatus.Admitted))
+        {
+            entry.Expire();
+            affected++;
+        }
+
+        return Task.FromResult(affected);
+    }
+
+    public Task<int> AdmitIfWaitingAsync(Guid entryId, DateTime admittedAtUtc, DateTime admissionExpiresAtUtc, CancellationToken cancellationToken)
+    {
+        var entry = Data.FirstOrDefault(e => e.Id == entryId && e.Status == PurchaseQueueEntryStatus.Waiting);
+        if (entry is null)
+        {
+            return Task.FromResult(0);
+        }
+
+        entry.Admit(admittedAtUtc, admissionExpiresAtUtc);
+        return Task.FromResult(1);
+    }
 
     public Task<int> CountWaitingAheadAsync(Guid eventId, DateTime joinedAtUtc, Guid entryId, CancellationToken cancellationToken)
         => Task.FromResult(Data.Count(e => e.EventId == eventId && e.Status == PurchaseQueueEntryStatus.Waiting &&
