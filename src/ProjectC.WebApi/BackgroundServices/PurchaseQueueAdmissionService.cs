@@ -23,8 +23,18 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
 
     // Decision 4：入場推進 Lua Script。KEYS[1]=waiting zset，KEYS[2]=admitted zset；
     // ARGV[1]=now(ms)，ARGV[2]=maxConcurrentAdmittedBuyers，ARGV[3]=新入場逾時時間(ms)，
-    // ARGV[4]=pending 標記 TTL(秒)，ARGV[5]=pending key 前綴。回傳 { expiredIds, promotedIds }，
-    // 兩者皆為 entryId 字串陣列。所有輸入一律透過 KEYS/ARGV 傳遞，不字串拼接組出 Script 文字。
+    // ARGV[4]=pending 標記 TTL(秒)，ARGV[5]=pending key 前綴。回傳 { expiredIds, promotedIds,
+    // dedupedIds }，三者皆為 entryId 字串陣列。所有輸入一律透過 KEYS/ARGV 傳遞，不字串拼接組出
+    // Script 文字。
+    //
+    // dedupedIds（strict-reviewer 事後審查修正）：校正步驟 3 的 gap-fill 是「依快照做決策、之後才
+    // 執行寫入」，決策與寫入之間若插入一次完整的並發推進，可能讓同一個 entryId 短暫真的同時存在於
+    // waiting 與 admitted（design.md Decision 5 已承認、接受此暫態，交由下一輪校正步驟 6 收斂）。
+    // ZPOPMIN 本身若對此毫無防禦，會把這個已入場的 member 當成新候選，重設其 admitted score（等同
+    // 非預期延長 AdmissionExpiresAtUtc，違反 TTL 固定窗口語意）。因此 popped member 寫入 admitted
+    // 前 MUST 先用 ZSCORE 檢查是否已在 admitted：已存在者只當成清除其 waiting 端殘留（不重設
+    // score、不計入 promoted、不佔用本輪名額），並繼續從 waiting 補取下一位，直到填滿可用名額或
+    // waiting 耗盡。
     private const string AdvanceScript = """
         local expired = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', ARGV[1])
         if #expired > 0 then
@@ -36,19 +46,31 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
         local available = maxAdmitted - currentAdmitted
 
         local promoted = {}
+        local deduped = {}
         if available > 0 then
-            local popped = redis.call('ZPOPMIN', KEYS[1], available)
-            local i = 1
-            while i <= #popped do
-                local member = popped[i]
-                table.insert(promoted, member)
-                redis.call('ZADD', KEYS[2], ARGV[3], member)
-                redis.call('SET', ARGV[5] .. member, '1', 'EX', ARGV[4])
-                i = i + 2
+            local remaining = available
+            while remaining > 0 do
+                local popped = redis.call('ZPOPMIN', KEYS[1], remaining)
+                if #popped == 0 then
+                    break
+                end
+                local i = 1
+                while i <= #popped do
+                    local member = popped[i]
+                    if redis.call('ZSCORE', KEYS[2], member) then
+                        table.insert(deduped, member)
+                    else
+                        table.insert(promoted, member)
+                        redis.call('ZADD', KEYS[2], ARGV[3], member)
+                        redis.call('SET', ARGV[5] .. member, '1', 'EX', ARGV[4])
+                        remaining = remaining - 1
+                    end
+                    i = i + 2
+                end
             end
         end
 
-        return { expired, promoted }
+        return { expired, promoted, deduped }
         """;
 
     // Decision 5 步驟 2：單一 Lua Script 原子讀取 waiting／admitted 兩個 zset 的全部成員
@@ -268,14 +290,18 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
         await transaction.CommitAsync(cancellationToken);
 
         var database = _connectionMultiplexer.GetDatabase();
-        var now = _dateTimeProvider.UtcNow;
 
-        // Decision 5「觸發時機 2」：每輪推進前先執行校正（design.md／tasks.md 4.7）。
-        await ReconcileEventQueueAsync(eventId, purchaseQueueRepository, database, now, cancellationToken);
+        // Decision 5「觸發時機 2」：每輪推進前先執行校正（design.md／tasks.md 4.7）。校正本身可能
+        // 耗時，其比較基準時間與下面入場推進 Lua Script 使用的「now」刻意分開取得（strict-reviewer
+        // 事後審查修正）：若沿用校正前的舊 now 計算 admissionExpiresAtUtc，校正耗時會讓使用者實際
+        // 拿到的入場視窗短於 AdmissionTtlSeconds。
+        var reconciliationNow = _dateTimeProvider.UtcNow;
+        await ReconcileEventQueueAsync(eventId, purchaseQueueRepository, database, reconciliationNow, cancellationToken);
 
         // Decision 4：入場推進 Lua Script。EVAL 呼叫本身失敗／逾時（結果未知）MUST NOT 在同一輪內
         // 重試，直接往外拋，交由呼叫端（AdvanceQueueOnceCoreAsync 的逐活動 try/catch）記錄 Warning
         // 並跳過本活動這一輪（design.md Decision 4／6）。
+        var now = _dateTimeProvider.UtcNow;
         var admissionExpiresAtUtc = now.AddSeconds(_options.AdmissionTtlSeconds);
         var scriptResult = await database.ScriptEvaluateAsync(
             AdvanceScript,
@@ -290,6 +316,14 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
 
         var expiredIds = ((string[]?)scriptResult[0] ?? []).Select(Guid.Parse).ToList();
         var promotedIds = ((string[]?)scriptResult[1] ?? []).Select(Guid.Parse).ToList();
+        var dedupedIds = ((string[]?)scriptResult[2] ?? []).Select(Guid.Parse).ToList();
+
+        if (dedupedIds.Count > 0)
+        {
+            _logger.LogWarning(
+                "Purchase queue admission script found {Count} entries for event {EventId} already present in the admitted mirror while still in the waiting mirror (dual-membership race); removed from waiting without re-promoting or resetting admission expiry: {EntryIds}",
+                dedupedIds.Count, eventId, dedupedIds);
+        }
 
         if (expiredIds.Count > 0)
         {
@@ -454,8 +488,16 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
             .ToHashSet();
         foreach (var member in admittedRedis.Keys)
         {
-            if (legalAdmittedIds.Contains(member) || !Guid.TryParse(member, out var entryId))
+            if (legalAdmittedIds.Contains(member))
             {
+                continue;
+            }
+
+            // 無法解析為 Guid 的殘留（格式損壞的 member）一律視為孤兒直接清除，不得因為解析失敗就
+            // 略過——否則會永久佔用 ZCARD 計算出的名額（strict-reviewer 事後審查修正）。
+            if (!Guid.TryParse(member, out var entryId))
+            {
+                await TryRemoveMalformedMemberAsync(admittedKey, member, "admitted", database);
                 continue;
             }
 
@@ -467,8 +509,14 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
         var waitingIdSet = waitingPg.Select(e => e.Id.ToString()).ToHashSet();
         foreach (var member in waitingRedis)
         {
-            if (waitingIdSet.Contains(member) || !Guid.TryParse(member, out var entryId))
+            if (waitingIdSet.Contains(member))
             {
+                continue;
+            }
+
+            if (!Guid.TryParse(member, out var entryId))
+            {
+                await TryRemoveMalformedMemberAsync(waitingKey, member, "waiting", database);
                 continue;
             }
 
@@ -525,6 +573,23 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
             _logger.LogWarning(exception,
                 "Purchase queue reconciliation operation {Operation} for entry {EntryId} failed; will retry next reconciliation round.",
                 operation, entryId);
+        }
+    }
+
+    // 步驟 5／6 的格式損壞 member 清除：沒有可解析的 entryId，無法套用以 entryId 為 key 的 Decision 8
+    // 連續失敗計數，統一走 Warning-only、下一輪重試的簡易路徑（design.md Decision 5「重複執行的
+    // 冪等性」）。
+    private async Task TryRemoveMalformedMemberAsync(string key, string member, string setName, IDatabase database)
+    {
+        try
+        {
+            await database.SortedSetRemoveAsync(key, member);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception,
+                "Purchase queue reconciliation failed to remove malformed {SetName} member '{Member}'; will retry next reconciliation round.",
+                setName, member);
         }
     }
 

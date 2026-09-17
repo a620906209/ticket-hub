@@ -298,6 +298,35 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         (await database.SortedSetScoreAsync(admittedKey, legalActive.Id.ToString())).Should().NotBeNull("其他合法 entry 的校正結果不受影響");
     }
 
+    // strict-reviewer 事後審查修正：格式損壞（非合法 Guid）的殘留 member 先前會被 `Guid.TryParse`
+    // 失敗直接跳過、永久卡住 ZCARD 計算出的名額，須視為孤兒直接清除，涵蓋 admitted 與 waiting 兩個
+    // 鏡像。
+    [Fact]
+    public async Task Reconciliation_RemovesMalformedNonGuidMembersFromBothMirrorsWithoutAffectingOtherLegalEntries()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var eventId = await PurchaseQueueLeaderElectionTestData.SeedQueueModeEventAsync(dbContext, maxConcurrentAdmittedBuyers: 2);
+        var now = DateTime.UtcNow;
+        var legalActive = await PurchaseQueueLeaderElectionTestData.SeedAdmittedEntryAsync(dbContext, eventId, now.AddMinutes(-20), now.AddMinutes(-15), now.AddMinutes(30));
+        var legalWaiting = await PurchaseQueueLeaderElectionTestData.SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-5));
+
+        var database = GetDatabase();
+        var admittedKey = PurchaseQueueAdmissionRedisKeys.Admitted(eventId);
+        var waitingKey = PurchaseQueueAdmissionRedisKeys.Waiting(eventId);
+        const string malformedMember = "not-a-guid";
+        await database.SortedSetAddAsync(admittedKey, malformedMember, PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(now.AddMinutes(10)));
+        await database.SortedSetAddAsync(waitingKey, malformedMember, PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(now));
+
+        var act = () => CreateService(maxConcurrentAdmittedBuyers: 2).AdvanceQueueOnceAsync(CancellationToken.None);
+        await act.Should().NotThrowAsync("格式損壞 member 的清除不應拋出例外");
+
+        (await database.SortedSetScoreAsync(admittedKey, malformedMember)).Should().BeNull("格式損壞的 admitted member MUST 被視為孤兒清除");
+        (await database.SortedSetScoreAsync(waitingKey, malformedMember)).Should().BeNull("格式損壞的 waiting member MUST 被視為孤兒清除");
+        (await database.SortedSetScoreAsync(admittedKey, legalActive.Id.ToString())).Should().NotBeNull("其他合法 admitted entry 不受影響");
+        (await ReadStatusAsync(legalWaiting.Id)).Should().NotBe(PurchaseQueueEntryStatus.Expired, "其他合法 waiting entry 不受影響");
+    }
+
     // PQ-COMPLETE-003／PQLE-REBUILD-004（見 tasks.md 9.7）：訂單完成同步失敗（ZREM 失敗，模擬 Redis
     // 暫時不可用）時，Postgres 端立即為 Completed；Redis 端名額短暫仍被佔用；持續故障期間名額不會
     // 被錯誤釋放（維持保守，不超額）；Redis／同步恢復後的下一次校正正確 ZREM 釋放。
@@ -497,6 +526,44 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         var other = await PurchaseQueueLeaderElectionTestData.SeedWaitingEntryAsync(dbContext, eventId, DateTime.UtcNow.AddMinutes(-5));
         await CreateService(maxConcurrentAdmittedBuyers: 1).AdvanceQueueOnceAsync(CancellationToken.None);
         (await ReadStatusAsync(other.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting, "名額仍被 target 佔用，other 不應被推進");
+    }
+
+    // strict-reviewer 事後審查修正（AdvanceScript dedup 防禦）：直接模擬校正步驟 3 的 gap-fill「依快照
+    // 決策、之後才寫入」與一次完整並發推進交錯後的結果——同一個 entryId 真的同時存在於 waiting 與
+    // admitted 鏡像（design.md Decision 5 承認的暫態）。驗證 AdvanceScript 的 ZPOPMIN 不會把它當成
+    // 新候選重新推進：不重設 admitted score（不延長 AdmissionExpiresAtUtc）、正確清除其 waiting 端
+    // 殘留。
+    [Fact]
+    public async Task AdvanceScript_WhenEntryAlreadyExistsInBothWaitingAndAdmittedMirrors_DoesNotResetItsAdmissionExpiry()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        // maxConcurrentAdmittedBuyers: 2——target 手動佔用的 admitted 名額算 1 個，MUST 留至少 1 個
+        // 可用名額，AdvanceScript 才會實際嘗試 ZPOPMIN（否則 available <= 0 時整段推進迴圈不會執行，
+        // 無法驗證 ZPOPMIN 本身的防禦）。
+        var eventId = await PurchaseQueueLeaderElectionTestData.SeedQueueModeEventAsync(dbContext, maxConcurrentAdmittedBuyers: 2);
+        var target = await PurchaseQueueLeaderElectionTestData.SeedWaitingEntryAsync(dbContext, eventId, DateTime.UtcNow.AddMinutes(-10));
+
+        var database = GetDatabase();
+        var waitingKey = PurchaseQueueAdmissionRedisKeys.Waiting(eventId);
+        var admittedKey = PurchaseQueueAdmissionRedisKeys.Admitted(eventId);
+        // 刻意設一個遠大於 AdmissionTtlSeconds（CreateService 固定 300 秒）的到期時間；若被 AdvanceScript
+        // 誤重設，會被壓成 now+300s 左右，能明確跟原值區分。
+        var originalExpiresAtUtc = DateTime.UtcNow.AddHours(5);
+        await database.SortedSetAddAsync(waitingKey, target.Id.ToString(), PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(target.JoinedAtUtc));
+        await database.SortedSetAddAsync(admittedKey, target.Id.ToString(), PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(originalExpiresAtUtc));
+        // pending 標記存活，讓校正步驟 7 這一輪不代為落地 Postgres，聚焦驗證 AdvanceScript 本身的防禦。
+        await database.StringSetAsync(PurchaseQueueAdmissionRedisKeys.Pending(target.Id), "1", TimeSpan.FromSeconds(30));
+
+        await CreateService(maxConcurrentAdmittedBuyers: 2).AdvanceQueueOnceAsync(CancellationToken.None);
+
+        (await database.SortedSetScoreAsync(waitingKey, target.Id.ToString())).Should().BeNull("MUST 被 ZPOPMIN 取出並清除，不得留在 waiting");
+        var admittedScoreAfter = await database.SortedSetScoreAsync(admittedKey, target.Id.ToString());
+        admittedScoreAfter.Should().NotBeNull();
+        admittedScoreAfter!.Value.Should().Be(
+            PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(originalExpiresAtUtc),
+            "已在 admitted 的 entry 被重複選中時 MUST NOT 重設 score（等同非預期延長 AdmissionExpiresAtUtc）");
+        (await ReadStatusAsync(target.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting, "pending 標記尚未過期，本輪不應代為落地，聚焦驗證 Redis 端防禦本身");
     }
 
     // PQLE-REBUILD-005（真實併發壓力測試，整合層，補強經驗證據，見 tasks.md 9.10c）：對同一活動同時
