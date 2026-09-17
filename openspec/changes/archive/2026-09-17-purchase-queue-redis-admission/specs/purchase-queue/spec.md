@@ -21,9 +21,17 @@
 - **WHEN** 背景處理同時間針對同一活動計算名額與推進排隊
 - **THEN** 系統 MUST 確保同一活動同時只有一個推進決策真正生效並寫入排隊紀錄，最終有效入場名額不超過設定上限。**機制說明（因 `purchase-queue-redis-admission` 改動而更新，取代原先依賴 Postgres `PurchaseQueueRepository.GetForAdmissionAsync` 批次悲觀鎖的論證；此處不涉及 `IEventRepository.GetForUpdateAsync`——後者用於 Queue Mode 切換的線性化，本次改動不變更其行為）**：入場推進的互斥與決策改由 Redis Lua Script 的原子執行提供——Redis 對單一 Script 的執行為單執行緒、序列化，即使多個背景服務實例重疊呼叫推進邏輯（見 `purchase-queue-leader-election` 能力，分散式鎖租約到期時可能發生重疊呼叫），Redis 仍保證同一時刻只有一個 Script 執行在修改同一活動的排隊資料，後一次執行必定讀到前一次執行後的最新狀態，不會重複推進、不會超額。推進決策確定後才批次寫回 Postgres 持久化，此寫回動作不需要（也不依賴）`PurchaseQueueRepository.GetForAdmissionAsync` 悲觀鎖，但 MUST 為**條件式寫回**（`WHERE Id = entryId AND Status = 期望的前置狀態`，以 `Status` 欄位本身作為版本判定依據），確保被延遲或重試的寫回不會覆寫已經流轉到更新狀態的紀錄。逾時清除與新推進兩份決策清單 MUST 分開批次寫回（逾時→`Expired`、推進→`Admitted`），任一清單寫回失敗 MUST NOT 混用另一清單的補償方式（見 `purchase-queue-leader-election` 能力對應 Requirement）
 
+**Lua Script 對跨集合重複推進的下游防禦（本次事後審查修正，2026-09-18，見 `purchase-queue-leader-election` 能力 `PQLE-REBUILD-005` 的修正說明）**：一致性校正機制的 gap-fill 決策與其實際寫入之間存在時間差，理論上仍可能讓同一個 entryId 短暫同時存在於 `waiting` 與 `admitted` 兩個鏡像。入場推進 Lua Script 從 `waiting` 彈出候選 entryId、寫入 `admitted` 前，MUST 先確認該 entryId 是否已存在於 `admitted` 鏡像；已存在者 MUST 只視為清除其 `waiting` 端殘留，不得計入本輪新推進名單、不得重設其既有的入場逾時時間，並繼續從 `waiting` 補取下一位候選，直到補滿名額或無更多候選（見 `PQ-ADMIT-007`）。
+
+**入場逾時時間的計算基準（本次事後審查修正，2026-09-18）**：Script 使用的「目前時間」與「設定入場逾時時間」的計算基準，MUST 是「實際呼叫入場推進 Lua Script 當下」取得的時間，不得沿用同一輪推進流程中、在此之前執行的一致性校正步驟開始前所取得的舊時間戳——校正本身可能耗時，若沿用舊時間戳計算入場逾時時間，會讓實際入場者拿到的有效入場視窗短於設計的入場逾時秒數。
+
 #### Scenario: PQ-ADMIT-005 同毫秒加入的紀錄，推進順序具確定性與可重現性
 - **WHEN** 兩筆以上排隊紀錄的 `JoinedAtUtc` 精確到毫秒完全相同，且都在 `Waiting` 狀態等待推進
 - **THEN** 系統依這些紀錄的 `entryId` 字串 lexicographic 順序決定彼此的相對推進順序，同一組輸入的推進結果每次執行都相同（確定性、可重現），此順序不要求與 Postgres `Id ASC` 一致
+
+#### Scenario: PQ-ADMIT-007 已入場的 entry 因鏡像暫時不一致被重複選中時，不重設其入場逾時（本次事後審查修正，2026-09-18）
+- **WHEN** 入場推進 Lua Script 從 `waiting` 彈出某 entryId 作為候選，但該 entryId 因一致性校正機制的暫時性不一致（見 `purchase-queue-leader-election` 能力 `PQLE-REBUILD-005` 的修正說明）已經存在於 `admitted` 鏡像
+- **THEN** 系統 MUST NOT 將此 entryId 計入本輪新推進名單、MUST NOT 重設其既有的入場逾時時間，只清除其在 `waiting` 鏡像的殘留成員，並繼續從 `waiting` 補取下一位候選，直到補滿名額或無更多候選
 
 #### Scenario: PQ-ADMIT-006 持有推進決策的程序於寫回 Postgres 前中止或延遲，名額由校正機制安全補完
 - **WHEN** 某筆 `Waiting` 紀錄已被 Redis 的原子操作決定推進為 `Admitted`，但執行該決策的程序在對應的 Postgres `UPDATE` 完成前中止（例如程序當機）或被長時間延遲，且超過放棄判定的寬限時間

@@ -7,6 +7,8 @@
 
 補齊 `waiting` 鏡像缺漏時，MUST 排除任何已存在於 Redis `admitted` 鏡像的 entryId，即使 Postgres 當下仍顯示該 entryId 為 `Waiting`（Postgres 尚未追上 Redis 端已做出的推進決策）——MUST NOT 把這類 entryId 補回 `waiting`，否則會讓同一 entryId 同時存在於 `waiting` 與 `admitted` 兩個集合，破壞兩者互斥的前提，可能被後續推進誤判為全新的等待紀錄而重複推進（見 `PQLE-REBUILD-005`）。
 
+**殘留的暫態競態與下游防禦（本次事後審查修正，2026-09-18，strict-reviewer 三輪審查皆未發現，由人工審查找出）**：上述排除規則依賴校正單次讀取的快照做出「補或不補」的決策，但**決策當下**與**實際執行 `ZADD` 寫入**之間仍有時間差——若這段時間差內插入了一次完整的並發推進（另一實例的 Redis Lua Script 完整執行），仍可能讓同一個 entryId 短暫真的同時出現在 `waiting` 與 `admitted` 兩個鏡像，不是絕對不可能發生的情況。系統 MUST NOT 假設這個暫態絕對不會發生，而是在 `purchase-queue` 能力 `PQ-ADMIT-004` 的入場推進 Lua Script 本身建立下游防禦（見該 Requirement 與 `PQ-ADMIT-007`）：即使這個暫態真的發生，入場推進機制 MUST NOT 把處於這個暫態的 entryId 當成新的推進候選、MUST NOT 重設其既有的入場逾時時間；此暫態本身則由下一輪校正的清除步驟自然收斂，不需要也不應該試圖讓校正的快照讀取與寫入之間達成嚴格線性化。
+
 **Postgres 寫回失敗或結果未知時 MUST NOT 立即反向補償 Redis 鏡像**：入場推進批次寫回 Postgres 遇到任何例外（連線失敗、逾時、或無法確認實際是否已提交），系統 MUST NOT 假設「例外＝一定未寫入」而立即對 Redis 鏡像做反向修改（例如把已推進的 entryId 打回 `waiting`），因為該次寫入實際上可能已經在資料庫端成功提交、只是回應未送達——若此時反向修改 Redis，會讓已經正確落地的狀態被錯誤地復原成未處理狀態。系統 MUST 只記錄 Warning 結構化 log，不做任何 Redis 端補償，收斂完全交給上述條件式校正機制（`PQLE-REBUILD-002a`／`003b`）——條件式 `UPDATE` 本身對重複執行是安全的（已生效則為 0 列受影響的 no-op），不需要區分「確定失敗」與「結果未知」。
 
 **單一活動的處理失敗 MUST NOT 中止同一輪其餘活動的處理**：入場推進與校正的主迴圈對每個 `IsQueueModeEnabled = true` 的活動獨立處理，任一活動處理時遇到**業務例外**（連線問題、逾時等），MUST 只記錄 Warning 並跳過該活動，MUST NOT 中止迴圈、MUST NOT 影響同一輪其餘活動的推進與校正結果（見 `PQLE-REBUILD-006`）。**此隔離 MUST NOT 涵蓋 `OperationCanceledException`（本輪審查發現的缺口，補上明確 Scenario）**：`OperationCanceledException` 代表呼叫端主動取消或既有背景服務外層的取消語意，與「單一活動的業務例外」是不同語意，MUST 讓它正常向外傳遞，中止本輪剩餘活動的處理；已完成處理的前置活動的推進與校正結果 MUST 保留、不回滾（見 `PQLE-REBUILD-008`）。
@@ -46,6 +48,10 @@
 #### Scenario: PQLE-REBUILD-007 admitted 鏡像的終態殘留清除不限於 Completed（本輪審查發現的清除範圍缺口）
 - **WHEN** 校正讀取快照時，某 entryId 存在於 Redis `admitted` 鏡像，但該 entryId 在 Postgres 的目前狀態為 `Expired`（例如先前由本能力的條件式 `UPDATE` 落地為 `Expired`，但當時對應的 Redis 移除未同步成功），或該 entryId 在 Postgres 查無任何對應紀錄（孤兒 member）
 - **THEN** 系統 MUST 將該 entryId 從 `admitted` 鏡像清除，不得因為它不符合「Postgres 狀態為 `Completed`」這個單一條件就略過；此清除範圍 MUST NOT 誤及 Postgres 仍為 `Admitted`（不論是否已逾期）的 entryId——逾期但尚未落地為 `Expired` 的殘留由入場推進機制自身的逾時清除步驟自然收斂，不由本 Scenario 的校正步驟搶先處理
+
+#### Scenario: PQLE-REBUILD-007a 格式損壞、無法解析為 entryId 的殘留成員一律視為孤兒清除（本次事後審查修正，2026-09-18）
+- **WHEN** 校正讀取快照時，`waiting` 或 `admitted` 鏡像中出現一個無法解析為合法 `Guid` 的成員（例如資料寫入錯誤或人為誤植造成的格式損壞字串）
+- **THEN** 系統 MUST 將此成員視為孤兒直接清除，比照 `PQLE-REBUILD-007` 查無對應紀錄的孤兒情況處理，MUST NOT 因為無法解析出對應的 entryId 就略過不清除——否則這類殘留會被 `admitted` 鏡像的 `ZCARD` 名額計算持續計入，永久佔用一個有效入場名額
 
 #### Scenario: PQLE-REBUILD-008 處理中途遭取消時，例外正常傳遞、後續活動不再處理、已完成結果保留（本輪審查發現的追溯缺口）
 - **WHEN** 持有分散式鎖的實例在同一輪內依序處理多個 `IsQueueModeEnabled = true` 的活動，已完成部分活動的推進與校正後，本次呼叫收到外部發出的取消（`CancellationToken` 被觸發），尚未開始處理後續活動
