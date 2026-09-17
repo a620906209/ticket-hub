@@ -26,7 +26,8 @@ public static class OrderServiceTestFactory
         IEmailNotificationService? emailNotificationService = null,
         ILogger<OrderService>? logger = null,
         IQueryCache? queryCache = null,
-        IDateTimeProvider? dateTimeProvider = null)
+        IDateTimeProvider? dateTimeProvider = null,
+        IPurchaseQueueAdmissionMirror? admissionMirror = null)
     {
         dateTimeProvider ??= new SystemDateTimeProvider();
         return new OrderService(
@@ -45,6 +46,7 @@ public static class OrderServiceTestFactory
             emailNotificationService ?? new MockEmailNotificationService(new MockEmailNotificationServiceOptions(), NullLogger<MockEmailNotificationService>.Instance),
             dbContext,
             logger ?? NullLogger<OrderService>.Instance,
-            queryCache ?? new FakeQueryCache());
+            queryCache ?? new FakeQueryCache(),
+            admissionMirror ?? new FakePurchaseQueueAdmissionMirror());
     }
 }

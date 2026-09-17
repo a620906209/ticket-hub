@@ -38,19 +38,33 @@ public class PurchaseQueueRepository : IPurchaseQueueRepository
             .SingleOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<PurchaseQueueEntry>> GetForAdmissionAsync(Guid eventId, CancellationToken cancellationToken)
-    {
-        _dbContext.EnsureActiveTransaction(nameof(GetForAdmissionAsync));
-
-        return await _dbContext.PurchaseQueueEntries
-            .FromSqlInterpolated($"""
-                SELECT * FROM "PurchaseQueueEntries"
-                WHERE "EventId" = {eventId} AND "Status" IN ('Waiting', 'Admitted')
-                ORDER BY "JoinedAtUtc" ASC, "Id" ASC
-                FOR UPDATE
-                """)
+    public async Task<IReadOnlyList<PurchaseQueueEntry>> GetActiveForReconciliationAsync(Guid eventId, CancellationToken cancellationToken)
+        => await _dbContext.PurchaseQueueEntries
+            .AsNoTracking()
+            .Where(e => e.EventId == eventId &&
+                (e.Status == PurchaseQueueEntryStatus.Waiting || e.Status == PurchaseQueueEntryStatus.Admitted))
             .ToListAsync(cancellationToken);
-    }
+
+    public Task<int> AdmitBatchAsync(IReadOnlyCollection<Guid> entryIds, DateTime admittedAtUtc, DateTime admissionExpiresAtUtc, CancellationToken cancellationToken)
+        => _dbContext.PurchaseQueueEntries
+            .Where(e => entryIds.Contains(e.Id) && e.Status == PurchaseQueueEntryStatus.Waiting)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(e => e.Status, PurchaseQueueEntryStatus.Admitted)
+                .SetProperty(e => e.AdmittedAtUtc, admittedAtUtc)
+                .SetProperty(e => e.AdmissionExpiresAtUtc, admissionExpiresAtUtc), cancellationToken);
+
+    public Task<int> ExpireBatchAsync(IReadOnlyCollection<Guid> entryIds, CancellationToken cancellationToken)
+        => _dbContext.PurchaseQueueEntries
+            .Where(e => entryIds.Contains(e.Id) && e.Status == PurchaseQueueEntryStatus.Admitted)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(e => e.Status, PurchaseQueueEntryStatus.Expired), cancellationToken);
+
+    public Task<int> AdmitIfWaitingAsync(Guid entryId, DateTime admittedAtUtc, DateTime admissionExpiresAtUtc, CancellationToken cancellationToken)
+        => _dbContext.PurchaseQueueEntries
+            .Where(e => e.Id == entryId && e.Status == PurchaseQueueEntryStatus.Waiting)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(e => e.Status, PurchaseQueueEntryStatus.Admitted)
+                .SetProperty(e => e.AdmittedAtUtc, admittedAtUtc)
+                .SetProperty(e => e.AdmissionExpiresAtUtc, admissionExpiresAtUtc), cancellationToken);
 
     public Task<int> CountWaitingAheadAsync(Guid eventId, DateTime joinedAtUtc, Guid entryId, CancellationToken cancellationToken)
         => _dbContext.PurchaseQueueEntries

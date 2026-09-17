@@ -37,6 +37,7 @@ public class PurchaseQueueAdmissionServiceExecuteAsyncDelegationTests : IClassFi
             },
             distributedLock,
             new DistributedLockOptions(),
+            _factory.Services.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>(),
             NullLogger<PurchaseQueueAdmissionService>.Instance);
 
     private async Task<PurchaseQueueEntry> SeedWaitingEntryAsync()
@@ -118,8 +119,10 @@ public class PurchaseQueueAdmissionServiceExecuteAsyncDelegationTests : IClassFi
         fakeLock.AcquireCalls.Count.Should().BeGreaterThanOrEqualTo(fakeLock.ReleaseCalls.Count, "每次釋放都必須有對應的一次取得");
     }
 
+    // PQLE-007（取代原本的 fail-open 斷言，見 purchase-queue-redis-admission design.md Decision 6／
+    // tasks.md 8.4）：Redis 不可用時 MUST 跳過每一輪推進（fail-closed），不再視為已取得執行資格。
     [Fact]
-    public async Task ExecuteAsync_ThroughRealStartAsync_WhenRedisUnavailable_ExecutesAdvanceButNeverReleases()
+    public async Task ExecuteAsync_ThroughRealStartAsync_WhenRedisUnavailable_SkipsAdvanceEveryRoundAndNeverReleases()
     {
         var waiting = await SeedWaitingEntryAsync();
         var fakeLock = new FakeDistributedLock { NextResult = LockResult.RedisUnavailable };
@@ -129,10 +132,6 @@ public class PurchaseQueueAdmissionServiceExecuteAsyncDelegationTests : IClassFi
         await service.StartAsync(cts.Token);
         try
         {
-            await WaitUntilAsync(
-                async () => await ReadStatusAsync(waiting.Id) == PurchaseQueueEntryStatus.Admitted,
-                "Redis 不可用時仍應照常執行本輪推進（fail-open）");
-
             await WaitUntilAsync(() => fakeLock.AcquireCalls.Count >= 3, "至少確認連續幾輪都是 RedisUnavailable，不是單一輪的巧合");
         }
         finally
@@ -140,6 +139,8 @@ public class PurchaseQueueAdmissionServiceExecuteAsyncDelegationTests : IClassFi
             await service.StopAsync(CancellationToken.None);
         }
 
+        (await ReadStatusAsync(waiting.Id)).Should().Be(
+            PurchaseQueueEntryStatus.Waiting, "Redis 不可用時 MUST 跳過每一輪推進與校正（fail-closed）");
         fakeLock.ReleaseCalls.Should().BeEmpty("RedisUnavailable 代表本來就沒有真的鎖，任何一輪都不應該呼叫 ReleaseAsync");
     }
 

@@ -32,6 +32,7 @@ public sealed class OrderService
     private readonly IApplicationDbContext _dbContext;
     private readonly ILogger<OrderService> _logger;
     private readonly IQueryCache _queryCache;
+    private readonly IPurchaseQueueAdmissionMirror _admissionMirror;
 
     public OrderService(
         ITicketTypeRepository ticketTypeRepository,
@@ -49,7 +50,8 @@ public sealed class OrderService
         IEmailNotificationService emailNotificationService,
         IApplicationDbContext dbContext,
         ILogger<OrderService> logger,
-        IQueryCache queryCache)
+        IQueryCache queryCache,
+        IPurchaseQueueAdmissionMirror admissionMirror)
     {
         _ticketTypeRepository = ticketTypeRepository;
         _eventSeatRepository = eventSeatRepository;
@@ -67,6 +69,7 @@ public sealed class OrderService
         _dbContext = dbContext;
         _logger = logger;
         _queryCache = queryCache;
+        _admissionMirror = admissionMirror;
     }
 
     public async Task<Result<Guid>> PlaceOrderAsync(Guid buyerId, PlaceOrderRequest request, CancellationToken cancellationToken)
@@ -309,6 +312,13 @@ public sealed class OrderService
 
         _orderRepository.Add(result.Value!);
         await transaction.CommitAsync(cancellationToken);
+
+        // 訂單完成同步移除 Redis admitted 鏡像，交易 commit 後才執行、非同一交易，best-effort
+        // （purchase-queue-redis-admission design.md Decision 8）。
+        if (queueEntry is not null)
+        {
+            await _admissionMirror.SyncCompletionAsync(lockedEvent.Id, queueEntry.Id, cancellationToken);
+        }
 
         // 只有純計數票種項目才會呼叫 TicketType.Reserve、變更 AvailableQuantity；純座位制訂單
         // （quantitySelections 為空）不觸發票種列表快取失效（design.md 決策 4 訂正）。

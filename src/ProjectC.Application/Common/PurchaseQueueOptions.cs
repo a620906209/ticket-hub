@@ -16,4 +16,14 @@ public sealed class PurchaseQueueOptions
 
     [Range(1, int.MaxValue)]
     public int PollingIntervalSeconds { get; set; }
+
+    // Decision 9 正式契約值：pending 標記 TTL，預設 30 秒，有安全預設值不需要額外 fail-fast
+    // （purchase-queue-redis-admission design.md 決策 9）。
+    [Range(1, int.MaxValue)]
+    public int AdmissionPendingTtlSeconds { get; set; } = 30;
+
+    // Decision 8「Log 等級升級門檻」：同一 entryId 連續失敗達此輪數時，當次失敗 log 升級為 Error
+    // （purchase-queue-redis-admission design.md 決策 8）。
+    [Range(1, int.MaxValue)]
+    public int ReconciliationFailureLogUpgradeThreshold { get; set; } = 10;
 }

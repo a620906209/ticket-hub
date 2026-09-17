@@ -56,7 +56,10 @@ services:
       seq:
         condition: service_started
       # redis 不要求健康檢查通過才啟動 api，理由與 seq 相同：Redis 連線失敗不得阻塞 API 啟動
-      # （purchase-queue-leader-election design.md Migration Plan／決策 4，fail-open）。
+      # （purchase-queue-leader-election design.md Migration Plan／決策 4）。這只是「啟動流程」
+      # 本身不受影響——入場推進的「執行期」行為已改為 fail-closed：Redis 不可用時背景服務跳過
+      # 該輪推進與校正，不再是 purchase-queue-leader-election 原本的 fail-open 慣例
+      # （purchase-queue-redis-admission design.md Decision 6／Migration Plan）。
       redis:
         condition: service_started
     environment:

@@ -16,6 +16,7 @@ public sealed class JoinPurchaseQueueHandler
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly IValidator<JoinPurchaseQueueRequest> _validator;
     private readonly ICaptchaService _captchaService;
+    private readonly IPurchaseQueueAdmissionMirror _admissionMirror;
 
     public JoinPurchaseQueueHandler(
         IEventRepository eventRepository,
@@ -23,7 +24,8 @@ public sealed class JoinPurchaseQueueHandler
         IUnitOfWork unitOfWork,
         IDateTimeProvider dateTimeProvider,
         IValidator<JoinPurchaseQueueRequest> validator,
-        ICaptchaService captchaService)
+        ICaptchaService captchaService,
+        IPurchaseQueueAdmissionMirror admissionMirror)
     {
         _eventRepository = eventRepository;
         _purchaseQueueRepository = purchaseQueueRepository;
@@ -31,6 +33,7 @@ public sealed class JoinPurchaseQueueHandler
         _dateTimeProvider = dateTimeProvider;
         _validator = validator;
         _captchaService = captchaService;
+        _admissionMirror = admissionMirror;
     }
 
     public async Task<Result<Guid>> HandleAsync(Guid eventId, Guid memberId, JoinPurchaseQueueRequest request, CancellationToken cancellationToken)
@@ -91,6 +94,14 @@ public sealed class JoinPurchaseQueueHandler
         {
             // 仍為 Waiting 或未逾時的 Admitted：回傳既有紀錄，不建立新紀錄（Idempotent，決策 3 步驟 4）。
             await transaction.CommitAsync(cancellationToken);
+
+            // 只有仍為 Waiting 的既有紀錄才需要同步進 Redis waiting 鏡像；已 Admitted 的紀錄
+            // MUST NOT 被誤加回 waiting（purchase-queue-redis-admission design.md Decision 3）。
+            if (existing.Status == PurchaseQueueEntryStatus.Waiting)
+            {
+                await _admissionMirror.SyncJoinAsync(eventId, existing.Id, existing.JoinedAtUtc, cancellationToken);
+            }
+
             return Result<Guid>.Success(existing.Id);
         }
 
@@ -110,6 +121,15 @@ public sealed class JoinPurchaseQueueHandler
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        // resultEntry 可能是本次新增的紀錄，也可能是併發競賽下被其他請求搶先建立的既有紀錄
+        // （AddOrGetExistingAsync 內部重試邏輯），兩者皆需同步，但只在仍為 Waiting 時才同步
+        // （design.md Decision 3；理由同上）。
+        if (resultEntry.Status == PurchaseQueueEntryStatus.Waiting)
+        {
+            await _admissionMirror.SyncJoinAsync(eventId, resultEntry.Id, resultEntry.JoinedAtUtc, cancellationToken);
+        }
+
         return Result<Guid>.Success(resultEntry.Id);
     }
 }

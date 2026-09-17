@@ -118,7 +118,8 @@ public class JoinPurchaseQueueHandlerIntegrationTests
             new UnitOfWork(dbContext),
             new FixedDateTimeProvider(now),
             new JoinPurchaseQueueRequestValidator(),
-            new FakeCaptchaService());
+            new FakeCaptchaService(),
+            new FakePurchaseQueueAdmissionMirror());
 
         var request = new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer);
         var result = await handler.HandleAsync(eventId, memberId, request, CancellationToken.None);
@@ -167,7 +168,8 @@ public class JoinPurchaseQueueHandlerIntegrationTests
             new UnitOfWork(dbContext),
             new FixedDateTimeProvider(now),
             new JoinPurchaseQueueRequestValidator(),
-            new FakeCaptchaService());
+            new FakeCaptchaService(),
+            new FakePurchaseQueueAdmissionMirror());
 
         var request = new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer);
         var result = await handler.HandleAsync(eventId, memberId, request, CancellationToken.None);

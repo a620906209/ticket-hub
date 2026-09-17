@@ -33,6 +33,7 @@ public class OrderServiceTests
         public FakeApplicationDbContext DbContext { get; } = new();
         public FakeEmailNotificationService EmailNotificationService { get; } = new();
         public FakeQueryCache QueryCache { get; } = new();
+        public FakePurchaseQueueAdmissionMirror AdmissionMirror { get; } = new();
 
         public OrderService CreateOrderService() => new(
             TicketTypeRepository,
@@ -50,7 +51,8 @@ public class OrderServiceTests
             EmailNotificationService,
             DbContext,
             NullLogger<OrderService>.Instance,
-            QueryCache);
+            QueryCache,
+            AdmissionMirror);
 
         public (Event Event, SeatMap SeatMap, EventSeat EventSeat, TicketType TicketType) SeedEventWithSeatAndTicketType(
             string seatZoneCode = "A", string ticketTypeZoneCode = "A")
