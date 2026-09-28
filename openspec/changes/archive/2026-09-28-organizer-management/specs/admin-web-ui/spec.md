@@ -22,8 +22,6 @@
 ### Requirement: 使用者可透過介面查看與切換自己所屬的主辦方
 系統 SHALL 提供「我的主辦方」清單頁，顯示使用者目前所屬的所有 Organizer 及其狀態（`Pending`／`Approved`／`Rejected`／`Suspended`）。狀態為 `Approved` 的項目 SHALL 提供「切換」操作，呼叫切換操作情境端點時 MUST 一併帶入使用者目前持有的 Refresh Token，成功後系統 SHALL 導向一般後台首頁；非 `Approved` 狀態的項目 SHALL 顯示對應狀態說明文字，不提供切換操作。導覽列 SHALL 顯示使用者目前切換所在的 Organizer 名稱（尚未切換時顯示提示文字），並提供快速前往「我的主辦方」清單頁的入口。
 
-**過渡期說明**：在依賴本次的 `event-management-organizer-scoping` 上線之前，一般後台首頁仍受舊版「Admin 角色」路由守衛保護；非 Admin 使用者切換成功後導向該首頁會被既有守衛擋下、導向買家端首頁。這是本次與後續變更接續部署過程中的預期過渡狀態（見 `organizer-management` 能力 design.md 的 Dependency 說明），不影響本頁「呼叫切換端點並取得新 Access Token」這個核心行為的正確性。
-
 #### Scenario: AWU-LIST-001 查看所屬主辦方清單
 - **WHEN** 已登入使用者開啟「我的主辦方」清單頁
 - **THEN** 系統顯示該使用者目前所屬的所有 Organizer 及其狀態
