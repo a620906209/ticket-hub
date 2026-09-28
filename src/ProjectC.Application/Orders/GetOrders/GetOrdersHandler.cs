@@ -14,9 +14,9 @@ public sealed class GetOrdersHandler
         _dateTimeProvider = dateTimeProvider;
     }
 
-    public async Task<IReadOnlyList<OrderSummaryDto>> HandleAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<OrderSummaryDto>> HandleAsync(Guid organizerId, CancellationToken cancellationToken)
     {
-        var orders = await _orderRepository.GetAllAsync(cancellationToken);
+        var orders = await _orderRepository.GetByOrganizerIdAsync(organizerId, cancellationToken);
         var now = _dateTimeProvider.UtcNow;
 
         return orders

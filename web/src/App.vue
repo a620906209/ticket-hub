@@ -14,7 +14,10 @@ watch(
   () => authStore.isAuthenticated,
   (isAuthenticated) => {
     if (isAuthenticated) return
-    const requiresAuth = route.meta.requiresAuth === true || route.matched.some((record) => record.meta.requiresAdmin)
+    // 後台頁面只標 requiresAdmin 或 requiresOrganizerContext（不另標 requiresAuth），兩者都隱含需要登入。
+    const requiresAuth =
+      route.meta.requiresAuth === true ||
+      route.matched.some((record) => record.meta.requiresAdmin || record.meta.requiresOrganizerContext)
     if (requiresAuth) {
       router.push({ name: 'login', query: { redirect: route.fullPath } })
     }

@@ -39,12 +39,10 @@ async function handleLogout(): Promise<void> {
       <el-menu mode="horizontal" router :ellipsis="false" class="admin-nav-menu">
         <el-menu-item index="/admin/venues">場館管理</el-menu-item>
         <el-menu-item index="/admin/events">活動管理</el-menu-item>
-        <!-- 以下三頁路由守衛仍要求 Admin 角色（AWU-GUARD-004／006），非 Admin 的 Organizer 成員點了只會被導回買家首頁，因此不顯示。 -->
-        <template v-if="authStore.isAdmin">
-          <el-menu-item index="/admin/orders">訂單管理</el-menu-item>
-          <el-menu-item index="/admin/redeem">票券核銷</el-menu-item>
-          <el-menu-item index="/admin/organizers">主辦方審核</el-menu-item>
-        </template>
+        <el-menu-item index="/admin/orders">訂單管理</el-menu-item>
+        <el-menu-item index="/admin/redeem">票券核銷</el-menu-item>
+        <!-- 審核頁路由守衛仍要求 Admin 角色（AWU-GUARD-004），非 Admin 點了只會被導回買家首頁，因此不顯示。 -->
+        <el-menu-item v-if="authStore.isAdmin" index="/admin/organizers">主辦方審核</el-menu-item>
       </el-menu>
       <router-link :to="{ name: 'my-organizers' }" class="organizer-indicator">
         {{ currentOrganizerName ?? '尚未切換主辦方' }}

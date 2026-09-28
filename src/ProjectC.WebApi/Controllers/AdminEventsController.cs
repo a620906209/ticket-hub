@@ -84,11 +84,17 @@ public class AdminEventsController : ControllerBase
         return result.ToActionResult();
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.RequireOrganizerContext)]
     [HttpGet("{eventId:guid}/sales-report")]
     public async Task<IActionResult> GetSalesReport(Guid eventId, CancellationToken cancellationToken)
     {
-        var result = await _getEventSalesReportHandler.HandleAsync(eventId, cancellationToken);
+        if (!User.TryGetOrganizerId(out var organizerId))
+        {
+            // fail-closed，理由同 CreateEvent。
+            return Forbid();
+        }
+
+        var result = await _getEventSalesReportHandler.HandleAsync(eventId, organizerId, cancellationToken);
         return result.ToActionResult(Ok);
     }
 }

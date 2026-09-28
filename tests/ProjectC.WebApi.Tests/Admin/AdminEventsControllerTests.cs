@@ -401,32 +401,39 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
 
     // ---- GET /api/admin/events/{eventId}/sales-report（sales-report tasks.md 4.3） ----
 
+    // [RPT-AUTHZ-001] 已切換至 Approved Organizer（非 Admin）即可查詢自己活動的銷售報表
     [Fact]
-    public async Task GetSalesReport_AsAdmin_Returns200()
+    public async Task GetSalesReport_AsApprovedOrganizerNonAdminOnOwnEvent_Returns200()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
         var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
         var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
         var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
-        var response = await adminClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
+        var response = await organizerClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    // [RPT-AUTHZ-002] 一般 Member 與 Admin 角色未切換 Organizer 皆 403（Admin 不再能繞過 Organizer 切換）
     [Fact]
-    public async Task GetSalesReport_AsNonAdminMember_Returns403()
+    public async Task GetSalesReport_WithoutOrganizerContext_Returns403ForMemberAndAdmin()
     {
-        var email = AuthTestHelper.NewEmail();
-        var client = _factory.CreateClient();
-        var tokens = await AuthTestHelper.RegisterAndLoginAsync(client, email);
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
+        var memberClient = _factory.CreateClient();
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(memberClient);
+        memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
 
-        var response = await client.GetAsync($"/api/admin/events/{Guid.NewGuid()}/sales-report");
+        var memberResponse = await memberClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
+        var adminResponse = await adminClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        memberResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        adminResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    // [RPT-AUTHZ-003]
     [Fact]
     public async Task GetSalesReport_WithoutToken_Returns401()
     {
@@ -440,11 +447,48 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task GetSalesReport_ForNonExistentEvent_Returns404()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
 
-        var response = await adminClient.GetAsync($"/api/admin/events/{Guid.NewGuid()}/sales-report");
+        var response = await organizerClient.GetAsync($"/api/admin/events/{Guid.NewGuid()}/sales-report");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    // [RPT-AUTHZ-004] 其他 Organizer 的活動視同不存在：狀態碼與 body 皆與真正不存在時相同（除 ID 外逐字相同）
+    [Fact]
+    public async Task GetSalesReport_ForOtherOrganizerEvent_Returns404WithSameBodyAsMissingEvent()
+    {
+        var (organizerAClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (organizerBClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerBClient);
+        var eventB = await CreateEventAsync(organizerBClient, venueId, seatMapId);
+        var missingEventId = Guid.NewGuid();
+
+        var otherOrganizerResponse = await organizerAClient.GetAsync($"/api/admin/events/{eventB}/sales-report");
+        var missingResponse = await organizerAClient.GetAsync($"/api/admin/events/{missingEventId}/sales-report");
+
+        otherOrganizerResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await NotFoundResponseBody.ReadNormalizedAsync(otherOrganizerResponse, eventB))
+            .Should().Be(await NotFoundResponseBody.ReadNormalizedAsync(missingResponse, missingEventId));
+    }
+
+    // [RPT-AUTHZ-005] RequireOrganizerContext 不即時查表：停權前核發、未過期的 Access Token 在過期前仍可查詢。
+    // 這是 design.md Decision 2 的既知有界延遲視窗；若此測試失敗，代表 Policy 行為改變，spec 必須同步修改。
+    [Fact]
+    public async Task GetSalesReport_WithTokenIssuedBeforeOrganizerSuspended_IsStillAcceptedUntilExpiry()
+    {
+        var (organizerClient, organizerId) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+
+        var suspendResponse = await adminClient.PatchAsync($"/api/admin/organizers/{organizerId}/suspend", null);
+        suspendResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var response = await organizerClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -454,7 +498,6 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         // 沒有經過真正的 HTTP 序列化路徑；用 JsonDocument 直接檢查駝峰命名的欄位是否存在，
         // 比反序列化回同一個 C# 型別更能抓到「欄位名稱不是駝峰」這類問題，因為反序列化預設對
         // 屬性名稱大小寫不敏感，PascalCase 誤寫也會反序列化成功、測不出來）。
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
         var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
         var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient, zoneCode: "A");
         var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
@@ -476,7 +519,7 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var orderId = await ReadCreatedIdAsync(orderResponse);
         await buyerClient.PostAsync($"/api/orders/{orderId}/confirm", null);
 
-        var response = await adminClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
+        var response = await organizerClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = document.RootElement;
 

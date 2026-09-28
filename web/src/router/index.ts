@@ -57,12 +57,12 @@ const router = createRouter({
         { path: 'venues', name: 'admin-venues', component: AdminVenueListPage, meta: { requiresOrganizerContext: true } },
         { path: 'events', name: 'admin-events', component: AdminEventListPage, meta: { requiresOrganizerContext: true } },
         { path: 'events/new', name: 'admin-event-create', component: AdminEventCreatePage, meta: { requiresOrganizerContext: true } },
-        // 銷售報表本次不動，後端維持 AdminOnly（design.md Decision 1 範圍澄清）。
-        { path: 'events/:eventId/sales-report', name: 'admin-sales-report', component: AdminSalesReportPage, meta: { requiresAdmin: true } },
-        // 訂單、核銷頁面本次不修改，維持既有「角色為 Admin」規則（AWU-GUARD-006）。
-        { path: 'orders', name: 'admin-orders', component: AdminOrderListPage, meta: { requiresAdmin: true } },
-        { path: 'orders/:id', name: 'admin-order-detail', component: AdminOrderDetailPage, meta: { requiresAdmin: true } },
-        { path: 'redeem', name: 'admin-redeem', component: RedemptionScannerPage, meta: { requiresAdmin: true } },
+        // 銷售報表、訂單、核銷後端已改為 RequireOrganizerContext，比照活動、場館頁面（AWU-GUARD-007，
+        // 見 order-report-redemption-organizer-scoping design.md Decision 3）。
+        { path: 'events/:eventId/sales-report', name: 'admin-sales-report', component: AdminSalesReportPage, meta: { requiresOrganizerContext: true } },
+        { path: 'orders', name: 'admin-orders', component: AdminOrderListPage, meta: { requiresOrganizerContext: true } },
+        { path: 'orders/:id', name: 'admin-order-detail', component: AdminOrderDetailPage, meta: { requiresOrganizerContext: true } },
+        { path: 'redeem', name: 'admin-redeem', component: RedemptionScannerPage, meta: { requiresOrganizerContext: true } },
         // 審核頁面只需要 Admin 角色，不需要已切換 Organizer（AWU-GUARD-004／005）。
         { path: 'organizers', name: 'admin-organizers', component: AdminOrganizersPage, meta: { requiresAdmin: true } },
       ],

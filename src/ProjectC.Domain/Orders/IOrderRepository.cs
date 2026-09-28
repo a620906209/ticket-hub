@@ -5,8 +5,15 @@ public interface IOrderRepository
     /// <summary>實作 MUST 一併載入 <see cref="Order.Items"/>；<c>ConfirmOrderHandler</c>/<c>CancelOrderHandler</c> 假設這個集合已完整。</summary>
     Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
-    /// <summary>供 Admin 訂單列表/明細使用，實作 MUST 一併載入 <see cref="Order.Items"/>（跟 <see cref="GetByIdAsync"/> 一致）。</summary>
-    Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken);
+    /// <summary>只回傳所屬活動屬於指定 Organizer 的訂單，供後台訂單列表使用。過濾 MUST 在資料庫端執行（join <c>Events</c>），
+    /// 不得把其他 Organizer 的訂單載入記憶體再過濾；實作 MUST 一併載入 <see cref="Order.Items"/>
+    /// （見 order-report-redemption-organizer-scoping design.md Decision 1）。</summary>
+    Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken);
+
+    /// <summary>以單一查詢（<c>OrderItems JOIN Orders JOIN Events</c>）只投影回該訂單明細所屬活動的 <c>OrganizerId</c>，
+    /// 查無時回傳 <see langword="null"/>。供核銷在持鎖交易內核對歸屬，刻意不載入 <see cref="Order"/> 實體以縮短鎖持有時間
+    /// （見 order-report-redemption-organizer-scoping design.md Decision 1）。</summary>
+    Task<Guid?> GetOrganizerIdByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken);
 

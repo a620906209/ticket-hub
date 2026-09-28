@@ -192,7 +192,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 | 座位選擇與鎖定 | ✅ 已完成（悲觀鎖，見第 8 節決策） | `seat-reservation` |
 | 訂單建立與結帳流程 | ✅ 已完成，`IPaymentGateway` 抽象化已補上（見第 8 節） | `ticket-ordering`、`ticket-purchase` |
 | 電子票券產出（QR Code + HMAC） | ✅ 已完成（純後端；QR/簽章為按需產生，出票交易本身不呼叫，見 `ticket-issuance-and-redemption` design.md 決策 1、3） | `ticket-issuance` |
-| 核銷 API | ✅ 已完成（`PATCH /api/admin/tickets/{id}/redeem`，Admin-only，含併發防重複核銷） | `ticket-redemption` |
+| 核銷 API | ✅ 已完成（`PATCH /api/admin/tickets/{id}/redeem`，限已切換 Organizer 的成員且只能核銷自家票券（見 `order-report-redemption-organizer-scoping`），含併發防重複核銷） | `ticket-redemption` |
 | `TicketType.RequiresSeat` 開關 | ✅ 已完成（純後端，見第 8 節） | `TicketType.cs`、`event-management`、`ticket-ordering`、`ticket-purchase` |
 | 會員系統整合登入 | ✅ 已完成 | `authentication`、`member-management` |
 | 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細與票券 QR Code 查詢已補上（見 `buyer-order-query`）；純計數票種的 Admin 建立表單與買家購票 UI 已補上（見 `count-ticket-type-web-ui`） | `buyer-web-ui`、`admin-web-ui` |

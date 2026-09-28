@@ -41,9 +41,10 @@ public class GetOrderByIdLegacyDataTests
             $"""INSERT INTO "OrderItems" ("Id", "EventSeatId", "UnitPrice", "OrderId") VALUES ({Guid.NewGuid()}, {eventSeatIds[0]}, 500, {orderId})""");
 
         await using var readDbContext = _fixture.CreateDbContext();
-        var handler = new GetOrderByIdHandler(new OrderRepository(readDbContext), new SystemDateTimeProvider());
+        var handler = new GetOrderByIdHandler(new OrderRepository(readDbContext), new EventRepository(readDbContext), new SystemDateTimeProvider());
+        var organizerId = await readDbContext.Events.AsNoTracking().Where(e => e.Id == eventId).Select(e => e.OrganizerId).SingleAsync();
 
-        var result = await handler.HandleAsync(orderId, CancellationToken.None);
+        var result = await handler.HandleAsync(orderId, organizerId, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue("private EF 物化建構子須能正確綁定 TicketTypeId IS NULL 的舊列，不能查詢失敗");
         var item = result.Value!.Items.Single();

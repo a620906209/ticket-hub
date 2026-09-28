@@ -153,43 +153,29 @@ describe('EventListPage 活動列表：建立者/建立時間/售票狀況', () 
   })
 })
 
-// 銷售報表後端維持 AdminOnly（event-management-organizer-scoping design.md Decision 1），非 Admin 的
-// Organizer 成員看得到入口卻只會被路由守衛導回買家首頁，因此入口 MUST 只對 Admin 顯示。
-describe('EventListPage 銷售報表入口依角色顯示', () => {
+// 銷售報表後端已改為 RequireOrganizerContext（order-report-redemption-organizer-scoping design.md Decision 3），
+// 入口不再依角色隱藏；活動列表本身已只列出目前 Organizer 名下的活動。
+describe('EventListPage 銷售報表入口', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.mocked(adminApi.getAdminEvents).mockReset()
-    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([buildEvent({ id: 'event-1' }), buildEvent({ id: 'event-2', title: 'Festival' })])
   })
 
-  // 預設的 RouterLink stub 不保留 to 物件，改用會把路由名稱輸出成屬性的 stub 以便辨識是哪個連結。
+  // 預設的 RouterLink stub 不保留 to 物件，改用會把路由名稱與參數輸出成屬性的 stub 以便辨識是哪個連結。
   const RouterLinkStub = {
     props: ['to'],
-    template: `<a :data-route-name="to.name"><slot /></a>`,
+    template: `<a :data-route-name="to.name" :data-event-id="to.params?.eventId"><slot /></a>`,
   }
 
-  function mountPageWithRouteNames() {
-    return mount(EventListPage, { global: { plugins: [ElementPlus], stubs: { RouterLink: RouterLinkStub } } })
-  }
-
-  function salesReportLinks(wrapper: ReturnType<typeof mountPageWithRouteNames>) {
-    return wrapper.findAll('[data-route-name="admin-sales-report"]')
-  }
-
-  it('Admin 角色看得到每筆活動的銷售報表入口', async () => {
-    useAuthStore().member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true }
-    const wrapper = mountPageWithRouteNames()
-    await flushPromises()
-
-    expect(salesReportLinks(wrapper)).toHaveLength(1)
-  })
-
-  it('非 Admin 的 Organizer 成員看不到銷售報表入口', async () => {
+  it('[AWU-NAV-003] 非 Admin 使用者看得到每筆活動的銷售報表入口，且連結指向對應活動的銷售報表路由', async () => {
     useAuthStore().member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true }
-    const wrapper = mountPageWithRouteNames()
+    const wrapper = mount(EventListPage, { global: { plugins: [ElementPlus], stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 
-    expect(salesReportLinks(wrapper)).toHaveLength(0)
+    const links = wrapper.findAll('[data-route-name="admin-sales-report"]')
+    expect(links.map((link) => link.attributes('data-event-id'))).toEqual(['event-1', 'event-2'])
+    expect(links.every((link) => link.text() === '銷售報表')).toBe(true)
   })
 })
 

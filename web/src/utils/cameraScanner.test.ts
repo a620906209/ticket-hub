@@ -17,19 +17,19 @@ describe('shouldDecodeNow', () => {
 })
 
 describe('classifyCameraError', () => {
-  it('NotAllowedError 分類為 permission-denied', () => {
+  it('[ADMIN-REDEEM-MANUAL-FALLBACK-RETRIABLE] NotAllowedError 分類為 permission-denied', () => {
     expect(classifyCameraError(new DOMException('denied', 'NotAllowedError'))).toBe('permission-denied')
   })
 
-  it('NotFoundError 分類為 camera-unavailable', () => {
+  it('[ADMIN-REDEEM-MANUAL-FALLBACK-RETRIABLE] NotFoundError 分類為 camera-unavailable', () => {
     expect(classifyCameraError(new DOMException('no camera', 'NotFoundError'))).toBe('camera-unavailable')
   })
 
-  it('OverconstrainedError（後鏡頭 constraint 不滿足）分類為 camera-unavailable', () => {
+  it('[ADMIN-REDEEM-MANUAL-FALLBACK-RETRIABLE] OverconstrainedError（後鏡頭 constraint 不滿足）分類為 camera-unavailable', () => {
     expect(classifyCameraError(new DOMException('constraint', 'OverconstrainedError'))).toBe('camera-unavailable')
   })
 
-  it('其他例外分類為 error', () => {
+  it('[ADMIN-REDEEM-MANUAL-FALLBACK-RETRIABLE] 其他例外分類為 error', () => {
     expect(classifyCameraError(new DOMException('unknown', 'AbortError'))).toBe('error')
     expect(classifyCameraError(new Error('unexpected'))).toBe('error')
   })

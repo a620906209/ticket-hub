@@ -72,7 +72,7 @@ afterEach(() => {
 
 describe('相機初始化與能力偵測（決策 1／決策 4）', () => {
   // 對應 AC: ADMIN-REDEEM-MANUAL-FALLBACK-UNSUPPORTED
-  it('不支援時直接進入 unsupported，不嘗試呼叫 getUserMedia', async () => {
+  it('[ADMIN-REDEEM-MANUAL-FALLBACK-UNSUPPORTED] 不支援時直接進入 unsupported，不嘗試呼叫 getUserMedia', async () => {
     const { scanner, openCameraStream } = createScanner({ isCameraCapable: () => false })
 
     scanner.mount()
@@ -87,7 +87,7 @@ describe('相機初始化與能力偵測（決策 1／決策 4）', () => {
     ['permission-denied', 'permission-denied'],
     ['camera-unavailable', 'camera-unavailable'],
     ['error', 'error'],
-  ] as const)('getUserMedia 例外分類為 %s 時進入對應狀態', async (classified, expected) => {
+  ] as const)('[ADMIN-REDEEM-MANUAL-FALLBACK-RETRIABLE] getUserMedia 例外分類為 %s 時進入對應狀態', async (classified, expected) => {
     const { scanner } = createScanner({
       openCameraStream: vi.fn().mockRejectedValue(new Error('boom')),
       classifyCameraError: () => classified,
@@ -111,7 +111,7 @@ describe('相機初始化與能力偵測（決策 1／決策 4）', () => {
   })
 
   // 對應 AC: ADMIN-REDEEM-MANUAL-RETRY-CAMERA-STILL-FAILS
-  it('重新嘗試相機後以新的失敗原因更新狀態，不卡在載入中畫面', async () => {
+  it('[ADMIN-REDEEM-MANUAL-RETRY-CAMERA-STILL-FAILS] 重新嘗試相機後以新的失敗原因更新狀態，不卡在載入中畫面', async () => {
     const openCameraStream = vi
       .fn()
       .mockRejectedValueOnce(new Error('no camera'))
@@ -134,7 +134,7 @@ describe('相機初始化與能力偵測（決策 1／決策 4）', () => {
 
 describe('背景/前景切換與 race condition 保護（決策 4）', () => {
   // 對應 AC: ADMIN-REDEEM-BACKGROUND-PROCESSING-COMPLETES
-  it('hidden 時停止偵測迴圈並釋放 stream track；visible 時 processing 不重送核銷請求', async () => {
+  it('[ADMIN-REDEEM-BACKGROUND-PROCESSING-COMPLETES] hidden 時停止偵測迴圈並釋放 stream track；visible 時 processing 不重送核銷請求', async () => {
     const { promise: redeemPromise, resolve } = createDeferred<{ kind: 'success' }>()
     vi.mocked(performRedemption).mockReturnValue(redeemPromise as ReturnType<typeof performRedemption>)
     const { scanner, frames, stopCameraStream } = createScanner()
@@ -163,7 +163,7 @@ describe('背景/前景切換與 race condition 保護（決策 4）', () => {
   // 對應 AC: ADMIN-REDEEM-BACKGROUND-PROCESSING-COMPLETES（核銷請求「在背景時」完成，
   // 而不是像上一個測試那樣先 visible 才 resolve——這裡要驗證 document.hidden 為 true
   // 期間 resolve 時，不會提前顯示結果、啟動倒數、或在背景中重新呼叫相機）
-  it('核銷請求在背景時（document.hidden 為 true）完成，不提前顯示結果或啟動倒數，直到切回前景才顯示', async () => {
+  it('[ADMIN-REDEEM-BACKGROUND-PROCESSING-COMPLETES] 核銷請求在背景時（document.hidden 為 true）完成，不提前顯示結果或啟動倒數，直到切回前景才顯示', async () => {
     const { promise: redeemPromise, resolve } = createDeferred<{ kind: 'not-found' }>()
     vi.mocked(performRedemption).mockReturnValue(redeemPromise as ReturnType<typeof performRedemption>)
     const { scanner, openCameraStream } = createScanner()
@@ -195,13 +195,14 @@ describe('背景/前景切換與 race condition 保護（決策 4）', () => {
 
     expect(scanner.state.value).toBe('result')
     expect(scanner.scanResult.value).toBe('not-found')
+    expect(performRedemption).toHaveBeenCalledTimes(1)
 
     hiddenSpy.mockRestore()
   })
 
   // 對應 AC: ADMIN-REDEEM-BACKGROUND-RESUME
-  it('切背景前為 scanning，visible 時重新初始化相機（重新呼叫 getUserMedia）', async () => {
-    const { scanner, openCameraStream } = createScanner()
+  it('[ADMIN-REDEEM-BACKGROUND-RESUME] 切背景前為 scanning，hidden 時釋放 stream、visible 時重新初始化相機（重新呼叫 getUserMedia）', async () => {
+    const { scanner, openCameraStream, stopCameraStream } = createScanner()
 
     scanner.mount()
     await Promise.resolve()
@@ -210,12 +211,14 @@ describe('背景/前景切換與 race condition 保護（決策 4）', () => {
     expect(openCameraStream).toHaveBeenCalledTimes(1)
 
     scanner.handleHidden()
+    expect(stopCameraStream).toHaveBeenCalledWith(FAKE_STREAM)
     scanner.handleVisible()
     await Promise.resolve()
     await Promise.resolve()
 
     expect(openCameraStream).toHaveBeenCalledTimes(2)
     expect(scanner.state.value).toBe('scanning')
+    expect(performRedemption).not.toHaveBeenCalled()
   })
 
   it('切背景前為 result，visible 時保留結果內容並重啟倒數，不立即重新初始化相機', async () => {
@@ -343,7 +346,7 @@ describe('背景/前景切換與 race condition 保護（決策 4）', () => {
 
 describe('當輪 dedupe（決策 7）', () => {
   // 對應 AC: ADMIN-REDEEM-SCAN-DEDUPE
-  it('result 顯示期間持續回報相同內容，redeemTicket 只被呼叫一次', async () => {
+  it('[ADMIN-REDEEM-SCAN-DEDUPE] result 顯示期間持續回報相同內容，redeemTicket 只被呼叫一次', async () => {
     vi.mocked(performRedemption).mockResolvedValue({ kind: 'success' })
     const { scanner } = createScanner()
 
@@ -361,7 +364,7 @@ describe('當輪 dedupe（決策 7）', () => {
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-RETRY-AFTER-ERROR
-  it('系統錯誤後恢復 scanning，再次掃到相同內容會重新呼叫（不被永久忽略）', async () => {
+  it('[ADMIN-REDEEM-SCAN-RETRY-AFTER-ERROR] 系統錯誤後恢復 scanning，再次掃到相同內容會重新呼叫（不被永久忽略）', async () => {
     vi.mocked(performRedemption).mockResolvedValue({ kind: 'system-error' })
     const { scanner } = createScanner()
 
@@ -382,13 +385,29 @@ describe('當輪 dedupe（決策 7）', () => {
   })
 })
 
+describe('無法辨識的掃描內容', () => {
+  // 對應 AC: ADMIN-REDEEM-SCAN-UNRECOGNIZED：無法解析的內容 MUST NOT 送出核銷請求
+  it('[ADMIN-REDEEM-SCAN-UNRECOGNIZED] 掃到無法辨識的內容時顯示無法辨識，不呼叫核銷', async () => {
+    const { scanner } = createScanner()
+    scanner.mount()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    scanner.handleDetectedContent('not-a-ticket-qr')
+    await Promise.resolve()
+
+    expect(performRedemption).not.toHaveBeenCalled()
+    expect(scanner.scanResult.value).toBe('unrecognized')
+  })
+})
+
 describe('手動輸入核銷（決策 5／決策 6）', () => {
   it.each([
-    ['success', 'success'],
-    ['already-redeemed', 'already-redeemed'],
-    ['not-found', 'not-found'],
-    ['system-error', 'system-error'],
-  ] as const)('%s 情境：signature 固定傳 null，結果顯示為 %s', async (outcomeKind, expectedResult) => {
+    ['ADMIN-REDEEM-MANUAL-SUCCESS', 'success', 'success'],
+    ['ADMIN-REDEEM-MANUAL-CONFLICT', 'already-redeemed', 'already-redeemed'],
+    ['ADMIN-REDEEM-MANUAL-NOT-FOUND', 'not-found', 'not-found'],
+    ['ADMIN-REDEEM-MANUAL-SYSTEM-ERROR', 'system-error', 'system-error'],
+  ] as const)('[%s] %s 情境：signature 固定傳 null，結果顯示為 %s', async (_scenario, outcomeKind, expectedResult) => {
     vi.mocked(performRedemption).mockResolvedValue({ kind: outcomeKind })
     const { scanner } = createScanner({ isCameraCapable: () => false })
     scanner.mount()
@@ -398,12 +417,13 @@ describe('手動輸入核銷（決策 5／決策 6）', () => {
     await submitted
     await Promise.resolve()
 
+    expect(performRedemption).toHaveBeenCalledTimes(1)
     expect(performRedemption).toHaveBeenCalledWith(VALID_GUID, null)
     expect(scanner.scanResult.value).toBe(expectedResult)
     expect(scanner.state.value).toBe('result')
   })
 
-  it('格式不正確時不呼叫 API，回傳 formatValid: false', async () => {
+  it('[ADMIN-REDEEM-MANUAL-INVALID-FORMAT] 格式不正確時不呼叫 API，回傳 formatValid: false', async () => {
     const { scanner } = createScanner({ isCameraCapable: () => false })
     scanner.mount()
     await Promise.resolve()
@@ -415,28 +435,33 @@ describe('手動輸入核銷（決策 5／決策 6）', () => {
   })
 
   // 對應決策 4：手動輸入是在相機不可用的狀態下進行，結果顯示完不得誤觸自動重試相機
-  it('相機本就不可用時，手動核銷完成後結果顯示完維持原本的不可用狀態，不自動重試相機', async () => {
-    vi.mocked(performRedemption).mockResolvedValue({ kind: 'success' })
-    const openCameraStream = vi.fn().mockRejectedValue(new Error('boom'))
-    const { scanner } = createScanner({ openCameraStream, classifyCameraError: () => 'camera-unavailable' })
-    scanner.mount()
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(scanner.state.value).toBe('camera-unavailable')
-    const callsBefore = openCameraStream.mock.calls.length
+  // 對應 AC: ADMIN-REDEEM-MANUAL-FALLBACK-RETRIABLE（三種可重試的失敗原因下仍可完成手動核銷）
+  it.each(['camera-unavailable', 'permission-denied', 'error'] as const)(
+    '[ADMIN-REDEEM-MANUAL-FALLBACK-RETRIABLE] 相機為 %s 時，手動核銷以 (id, null) 送出，結果顯示完維持原本狀態，不自動重試相機',
+    async (cameraState) => {
+      vi.mocked(performRedemption).mockResolvedValue({ kind: 'success' })
+      const openCameraStream = vi.fn().mockRejectedValue(new Error('boom'))
+      const { scanner } = createScanner({ openCameraStream, classifyCameraError: () => cameraState })
+      scanner.mount()
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(scanner.state.value).toBe(cameraState)
+      const callsBefore = openCameraStream.mock.calls.length
 
-    await scanner.submitManualRedemption(VALID_GUID)
-    vi.advanceTimersByTime(1500)
-    await Promise.resolve()
+      await scanner.submitManualRedemption(VALID_GUID)
+      vi.advanceTimersByTime(1500)
+      await Promise.resolve()
 
-    expect(scanner.state.value).toBe('camera-unavailable')
-    expect(openCameraStream.mock.calls.length).toBe(callsBefore)
-  })
+      expect(performRedemption).toHaveBeenCalledWith(VALID_GUID, null)
+      expect(scanner.state.value).toBe(cameraState)
+      expect(openCameraStream.mock.calls.length).toBe(callsBefore)
+    },
+  )
 })
 
 describe('結果顯示停留時間與恢復（決策 3）', () => {
   // 對應 AC: ADMIN-REDEEM-SCAN-AUTO-RESUME
-  it('成功結果 1.5 秒後自動恢復可掃描狀態', async () => {
+  it('[ADMIN-REDEEM-SCAN-AUTO-RESUME] 成功結果 1.5 秒後自動恢復可掃描狀態', async () => {
     vi.mocked(performRedemption).mockResolvedValue({ kind: 'success' })
     const { scanner } = createScanner()
     scanner.mount()
@@ -457,7 +482,7 @@ describe('結果顯示停留時間與恢復（決策 3）', () => {
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-AUTO-RESUME
-  it('錯誤類結果 4 秒後自動恢復；「立即繼續掃描」可提前恢復', async () => {
+  it('[ADMIN-REDEEM-SCAN-AUTO-RESUME] 錯誤類結果 4 秒後自動恢復；「立即繼續掃描」可提前恢復', async () => {
     vi.mocked(performRedemption).mockResolvedValue({ kind: 'not-found' })
     const { scanner } = createScanner()
     scanner.mount()
@@ -512,7 +537,7 @@ describe('result 顯示期間 video 元素卸載又重新掛載（實測發現�
 
 describe('掃描模式常駐手動輸入切換（決策 6）', () => {
   // 對應 AC: ADMIN-REDEEM-MANUAL-SWITCH
-  it('scanning 狀態下可切換到手動輸入，不需等待相機判定失敗', async () => {
+  it('[ADMIN-REDEEM-MANUAL-SWITCH] scanning 狀態下可切換到手動輸入，不需等待相機判定失敗', async () => {
     const { scanner } = createScanner()
     scanner.mount()
     await Promise.resolve()

@@ -4,7 +4,7 @@ public static class AuthorizationPolicies
 {
     public const string AdminOnly = "AdminOnly";
 
-    /// <summary>本次僅定義，不套用至任何既有 Controller；套用是依賴本能力的後續變更（例如
-    /// event-management-organizer-scoping）的範圍，見 organizer-management tasks.md 4.3a。</summary>
+    /// <summary>要求 Access Token 帶合法 <c>OrganizerId</c> claim（已切換至一個 Organizer）；只驗 claim 格式、不即時查表。
+    /// 套用於活動／場館（event-management-organizer-scoping）與訂單／核銷／銷售報表（order-report-redemption-organizer-scoping）端點。</summary>
     public const string RequireOrganizerContext = "RequireOrganizerContext";
 }

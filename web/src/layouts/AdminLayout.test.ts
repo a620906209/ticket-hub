@@ -37,8 +37,11 @@ describe('AdminLayout', () => {
     await router.push('/admin/venues')
   })
 
-  // 對應 AC: ADMIN-REDEEM-NAV-ENTRY
-  it('導覽選單渲染出「票券核銷」項目，且連結指向 /admin/redeem', async () => {
+  // 對應 AC: ADMIN-REDEEM-NAV-ENTRY（8.7.13）：非 Admin 的 Organizer 成員點擊選單後，真實 router 的 beforeEach 守衛
+  // 放行並停在核銷頁——同時證明「可點選」「目標路徑正確」「守衛放行非 Admin 成員」。
+  it('[ADMIN-REDEEM-NAV-ENTRY] 非 Admin 的 Organizer 成員點擊「票券核銷」選單後導覽至 /admin/redeem', async () => {
+    const authStore = useAuthStore()
+    authStore.member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true }
     const wrapper = mountLayout()
 
     const menuItem = wrapper.findAll('.el-menu-item').find((item) => item.text() === '票券核銷')
@@ -48,7 +51,10 @@ describe('AdminLayout', () => {
     await flushPromises()
 
     // ElMenu 的 router 模式經由 router.push 非同步導覽（含 beforeEach 守衛），單次 flushPromises 在高負載下不保證已完成。
-    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/admin/redeem'))
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/admin/redeem')
+      expect(router.currentRoute.value.name).toBe('admin-redeem')
+    })
   })
 })
 
@@ -90,18 +96,25 @@ describe('AdminLayout 導覽列目前 Organizer 名稱顯示', () => {
   })
 })
 
-// 訂單／核銷／審核頁路由守衛仍要求 Admin 角色（AWU-GUARD-004／006），非 Admin 的 Organizer 成員
-// 看到這些選單只會點進去被導回買家首頁，因此選單 MUST 依角色隱藏。
+// 訂單、核銷頁面與場館、活動相同，只要求已切換 Organizer（AWU-GUARD-007），選單對所有人顯示；
+// 審核頁仍要求 Admin 角色（AWU-GUARD-004），只對 Admin 顯示。
 describe('AdminLayout 導覽選單依角色顯示', () => {
-  const adminOnlyMenuLabels = ['訂單管理', '票券核銷', '主辦方審核']
+  const generalMenuLabels = ['場館管理', '活動管理', '訂單管理', '票券核銷']
 
   beforeEach(async () => {
     setActivePinia(createPinia())
     vi.mocked(organizersApi.getMyOrganizers).mockReset()
     vi.mocked(organizersApi.getMyOrganizers).mockResolvedValue([])
+    vi.mocked(organizersApi.getPendingOrganizers).mockReset()
+    vi.mocked(organizersApi.getPendingOrganizers).mockResolvedValue([])
   })
 
-  it('已切換 Organizer 的非 Admin 成員只看到場館、活動選單', async () => {
+  function readMenuLabels(wrapper: ReturnType<typeof mountLayout>): string[] {
+    return wrapper.find('.admin-nav-menu').findAll('.el-menu-item').map((item) => item.text())
+  }
+
+  // 用完全相等而非 arrayContaining，同時證明沒有「主辦方審核」、也沒有一般選單被誤藏。
+  it('[AWU-NAV-001] 已切換 Organizer 的非 Admin 成員看到場館、活動、訂單、核銷選單，看不到審核選單', async () => {
     const authStore = useAuthStore()
     authStore.accessToken = fakeAccessTokenWithOrganizerId('org-1')
     authStore.member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true }
@@ -110,11 +123,10 @@ describe('AdminLayout 導覽選單依角色顯示', () => {
     const wrapper = mountLayout()
     await flushPromises()
 
-    const labels = wrapper.find('.admin-nav-menu').findAll('.el-menu-item').map((item) => item.text())
-    expect(labels).toEqual(['場館管理', '活動管理'])
+    expect(readMenuLabels(wrapper)).toEqual(generalMenuLabels)
   })
 
-  it('Admin 角色看得到訂單、核銷、審核選單', async () => {
+  it('[AWU-NAV-002] 已切換 Organizer 的 Admin 看到全部選單，含審核選單', async () => {
     const authStore = useAuthStore()
     authStore.accessToken = fakeAccessTokenWithOrganizerId('org-1')
     authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true }
@@ -123,7 +135,20 @@ describe('AdminLayout 導覽選單依角色顯示', () => {
     const wrapper = mountLayout()
     await flushPromises()
 
-    const labels = wrapper.find('.admin-nav-menu').findAll('.el-menu-item').map((item) => item.text())
-    expect(labels).toEqual(expect.arrayContaining(adminOnlyMenuLabels))
+    expect(readMenuLabels(wrapper)).toEqual([...generalMenuLabels, '主辦方審核'])
+  })
+
+  // 點選一般項目導向選擇主辦方頁由 AWU-GUARD-002（router/index.test.ts）驗證，這裡不重複。
+  it('[AWU-NAV-004] 尚未切換 Organizer 的 Admin 在審核頁仍看得到一般選單與審核選單', async () => {
+    const authStore = useAuthStore()
+    authStore.accessToken = 'access-token'
+    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true }
+    await router.push('/admin/organizers')
+
+    const wrapper = mountLayout()
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('admin-organizers')
+    expect(readMenuLabels(wrapper)).toEqual([...generalMenuLabels, '主辦方審核'])
   })
 })
