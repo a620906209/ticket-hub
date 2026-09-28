@@ -5,20 +5,35 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 
 ## Requirements
 
-### Requirement: Admin 後台路由僅限 Admin 角色進入
-系統 SHALL 在使用者導覽至任何 `/admin/*` 路由時檢查目前登入角色；非 Admin（含未登入）SHALL 被導向登入頁或買家端首頁，不得進入後台頁面內容。
+### Requirement: 後台路由僅限已切換 Organizer 或審核頁面的 Admin 進入
+系統 SHALL 在使用者導覽至任何 `/admin/*` 路由時檢查目前登入狀態，依頁面分三類：
+- **活動、場館頁面（本次變更範圍）**：SHALL 要求 Access Token 帶有 `OrganizerId` claim（即已切換至一個 Approved Organizer），未帶者（含未登入、含尚未切換 Organizer 的一般 Member 或 Admin）SHALL 被導向登入頁或「選擇主辦方」頁面，不得進入頁面內容
+- **訂單、核銷頁面（本次變更不處理，維持既有規則）**：SHALL 沿用既有「角色為 `Admin`」規則，本次不受影響；待後續變更 `order-report-redemption-organizer-scoping` 上線後才會改為與活動、場館頁面相同的 `OrganizerId` claim 規則
+- **`organizer-management` 變更已新增的 Organizer 審核頁面（`/admin/organizers`）**：SHALL 額外要求角色為 `Admin`，不要求已切換 Organizer——本次為這個既有規則加上明確的 Requirement 文字，行為本身不變
 
-#### Scenario: 未登入使用者直接進入後台路由
+#### Scenario: AWU-GUARD-001 未登入使用者直接進入後台路由
 - **WHEN** 未登入的使用者直接開啟任一 `/admin/*` 網址
 - **THEN** 系統導向登入頁，不顯示後台頁面內容
 
-#### Scenario: 一般會員嘗試進入後台路由
-- **WHEN** 已登入但角色為一般會員的使用者開啟任一 `/admin/*` 網址
-- **THEN** 系統導向買家端首頁，不顯示後台頁面內容
+#### Scenario: AWU-GUARD-002 已登入但尚未切換 Organizer 的使用者進入活動或場館頁面
+- **WHEN** 已登入、但 Access Token 未帶 `OrganizerId` claim 的使用者開啟活動或場館頁面
+- **THEN** 系統導向「選擇主辦方」頁面，不顯示該後台頁面內容
 
-#### Scenario: Admin 登入後可進入後台
-- **WHEN** 角色為 Admin 的使用者登入成功
-- **THEN** 系統導向 Admin 後台首頁
+#### Scenario: AWU-GUARD-003 已切換 Organizer 後可進入活動或場館頁面
+- **WHEN** 已成功切換至一個 Approved Organizer 的使用者開啟活動或場館頁面
+- **THEN** 系統顯示對應後台頁面內容
+
+#### Scenario: AWU-GUARD-004 非 Admin 角色嘗試進入審核頁面
+- **WHEN** 角色非 `Admin` 的已登入使用者（不論是否已切換 Organizer）開啟 `/admin/organizers` 審核頁面
+- **THEN** 系統導向買家端首頁，不顯示審核頁面內容
+
+#### Scenario: AWU-GUARD-005 Admin 角色可進入審核頁面，不需切換 Organizer
+- **WHEN** 角色為 `Admin` 的使用者開啟 `/admin/organizers` 審核頁面，且尚未切換至任何 Organizer
+- **THEN** 系統顯示審核頁面內容
+
+#### Scenario: AWU-GUARD-006 訂單、核銷頁面本次仍維持角色為 Admin 才能進入
+- **WHEN** 已切換至一個 Approved Organizer、但角色不是 `Admin` 的使用者開啟訂單或核銷頁面
+- **THEN** 系統依既有規則導向買家端首頁（沿用本次變更前的行為），不因為已切換 Organizer 就放行——這兩個頁面待 `order-report-redemption-organizer-scoping` 上線後才會改用 `OrganizerId` claim 規則
 
 ### Requirement: Admin 可透過介面管理場館與座位圖
 系統 SHALL 提供場館列表頁與建立場館／座位圖的表單，呼叫既有 `event-management` API 完成建立。場館列表 SHALL 透過場地查詢 API 取得目前資料庫中所有場館的真實資料，重新整理頁面後清單 SHALL 保留（不再是僅存於瀏覽器分頁 session 的暫存清單）；建立場館或座位圖成功後，系統 SHALL 重新呼叫查詢 API 刷新列表，不依賴任何前端快取層。Admin 點選場館列表中的某一列時，SHALL 顯示該場館底下的座位圖摘要（Id、座位數）；快速連續點選不同場館時，只有對應目前選定場館的查詢回應可以套用，較晚抵達但對應較舊選擇的回應 MUST 被捨棄（比照建立活動表單場館下拉選單的過期回應防護）。座位圖摘要清單中，Admin SHALL 可以展開任一座位圖查看其完整座位清單（分區代碼＋座位號碼）。建立座位圖表單 SHALL 同時支援「手動新增單一座位」與「批次產生」兩種輸入方式——批次產生以分區代碼＋起始號碼＋結束號碼一次展開成整批座位，供大量連號座位使用；兩種方式產生的座位在同一次建立座位圖時 SHALL 可以合併送出。
