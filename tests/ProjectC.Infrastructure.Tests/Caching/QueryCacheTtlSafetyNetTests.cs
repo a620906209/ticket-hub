@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ProjectC.Application.Common;
 using ProjectC.Application.Events.GetEvents;
@@ -33,6 +34,7 @@ public class QueryCacheTtlSafetyNetTests
     {
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public void Add(Event @event) => throw new NotSupportedException();
         public void Update(Event @event) => throw new NotSupportedException();
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -60,7 +62,8 @@ public class QueryCacheTtlSafetyNetTests
     private async Task<Guid> SeedEventAsync(Guid venueId, Guid seatMapId)
     {
         await using var dbContext = _postgresFixture.CreateDbContext();
-        var @event = new Event(Guid.NewGuid(), "TTL Test Event", DateTime.UtcNow.AddDays(1), venueId, seatMapId);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "TTL Test Event", DateTime.UtcNow.AddDays(1), venueId, seatMapId, organizerId);
         dbContext.Events.Add(@event);
         await dbContext.SaveChangesAsync();
         return @event.Id;
@@ -254,7 +257,7 @@ public class QueryCacheTtlSafetyNetTests
                     new EventRepository(writeDbContext), new SeatMapRepository(writeDbContext), new TicketTypeRepository(writeDbContext),
                     new UnitOfWork(writeDbContext), new CreateTicketTypeRequestValidator(), queryCache);
                 var result = await createHandler.HandleAsync(
-                    eventId, new CreateTicketTypeRequest("新票種", 500m, RequiresSeat: false, AvailableQuantity: 20), CancellationToken.None);
+                    eventId, (await writeDbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId)).OrganizerId, new CreateTicketTypeRequest("新票種", 500m, RequiresSeat: false, AvailableQuantity: 20), CancellationToken.None);
                 result.IsSuccess.Should().BeTrue();
                 newTicketTypeId = result.Value;
             }

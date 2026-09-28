@@ -51,7 +51,8 @@ public class QueryCacheEventInvalidationOrderingTests
     private async Task<Guid> SeedEventAsync(Guid venueId, Guid seatMapId)
     {
         await using var dbContext = _fixture.CreateDbContext();
-        var @event = new Event(Guid.NewGuid(), "Existing Concert", DateTime.UtcNow.AddDays(1), venueId, seatMapId);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Existing Concert", DateTime.UtcNow.AddDays(1), venueId, seatMapId, organizerId);
         dbContext.Events.Add(@event);
         await dbContext.SaveChangesAsync();
         return @event.Id;
@@ -63,6 +64,11 @@ public class QueryCacheEventInvalidationOrderingTests
     {
         var (venueId, seatMapId) = await SeedVenueAndSeatMapAsync();
         var memberId = await SeedMemberAsync();
+        Guid organizerId;
+        await using (var organizerDbContext = _fixture.CreateDbContext())
+        {
+            organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(organizerDbContext);
+        }
         var queryCache = new FakeQueryCache();
 
         await using (var readDbContext = _fixture.CreateDbContext())
@@ -100,6 +106,7 @@ public class QueryCacheEventInvalidationOrderingTests
 
             var result = await createEventHandler.HandleAsync(
                 memberId,
+                organizerId,
                 new CreateEventRequest("New Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId),
                 CancellationToken.None);
 

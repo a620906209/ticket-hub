@@ -68,7 +68,7 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
     [Fact]
     public async Task JoinQueue_AsAdminRole_Returns201AndCreatesEntry()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
 
         var response = await adminClient.PostAsJsonAsync(
@@ -81,7 +81,7 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
     [Fact]
     public async Task JoinQueue_WithoutAuthentication_Returns401()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
         var anonymousClient = _factory.CreateClient();
 
@@ -93,7 +93,7 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
     [Fact]
     public async Task JoinQueue_WhenRequestBodyCarriesAnotherMemberId_IgnoresItAndUsesCallersOwnJwtIdentity()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
 
         var otherClient = await CreateAuthenticatedMemberClientAsync();
@@ -123,7 +123,7 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
     [Fact]
     public async Task GetMyQueueStatus_WithoutAnyCaptchaField_StillRespondsNormally()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
         var memberClient = await CreateAuthenticatedMemberClientAsync();
 

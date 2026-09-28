@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Authentication;
+using ProjectC.Domain.Organizers;
 
 namespace ProjectC.Application.Authentication.Refresh;
 
@@ -55,10 +56,16 @@ public sealed class RefreshTokenHandler
 
         existingToken.MarkAsUsed();
 
+        // 若目前這筆 Refresh Token 記錄帶有 OrganizerId（由切換操作情境寫入，見 organizer-management
+        // design.md 決策 2），換發時 MUST 重新驗證其仍然有效：呼叫者仍是該 Organizer 的成員、且該
+        // Organizer 狀態仍為 Approved。驗證未通過（已被停權，或成員資格不存在）則新 Token 一律不帶
+        // OrganizerId／claim（fail-closed，見 ORG-REFRESH-003／004）。
+        var organizerIdForNewToken = await ResolveOrganizerIdForRefreshAsync(existingToken.OrganizerId, member.Id, cancellationToken);
+
         var plainTextRefreshToken = _tokenService.GenerateOpaqueToken();
         var newTokenHash = _tokenService.HashOpaqueToken(plainTextRefreshToken);
         var expiresAt = _dateTimeProvider.UtcNow.AddDays(_authOptions.RefreshTokenExpirationDays);
-        var newToken = RefreshToken.Issue(member.Id, newTokenHash, expiresAt, existingToken.Id);
+        var newToken = RefreshToken.Issue(member.Id, newTokenHash, expiresAt, existingToken.Id, organizerIdForNewToken);
         _dbContext.RefreshTokens.Add(newToken);
 
         try
@@ -71,8 +78,26 @@ public sealed class RefreshTokenHandler
             return Result<AuthTokensDto>.Failure(Error.Unauthorized(InvalidTokenMessage));
         }
 
-        var accessToken = _tokenService.GenerateAccessToken(member);
+        var accessToken = _tokenService.GenerateAccessToken(member, organizerIdForNewToken);
         return Result<AuthTokensDto>.Success(new AuthTokensDto(accessToken, plainTextRefreshToken));
+    }
+
+    private async Task<Guid?> ResolveOrganizerIdForRefreshAsync(Guid? currentOrganizerId, Guid memberId, CancellationToken cancellationToken)
+    {
+        if (currentOrganizerId is not { } organizerId)
+        {
+            return null;
+        }
+
+        var isStillMember = await _dbContext.OrganizerMembers
+            .AnyAsync(om => om.OrganizerId == organizerId && om.MemberId == memberId, cancellationToken);
+        if (!isStillMember)
+        {
+            return null;
+        }
+
+        var organizer = await _dbContext.Organizers.FirstOrDefaultAsync(o => o.Id == organizerId, cancellationToken);
+        return organizer is { Status: OrganizerStatus.Approved } ? organizerId : null;
     }
 
     private async Task RevokeAllTokensAsync(Guid memberId, CancellationToken cancellationToken)

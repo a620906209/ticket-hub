@@ -172,3 +172,23 @@ export interface SalesReport {
   unclassifiedTicketsSold: number
   unclassifiedRevenue: number
 }
+
+// status: "Pending" / "Approved" / "Rejected" / "Suspended"（見 organizer-management spec.md）。
+export interface OrganizerSummary {
+  id: string
+  name: string
+  status: string
+}
+
+export interface PendingOrganizer {
+  id: string
+  name: string
+  createdByMemberId: string
+  createdByDisplayName: string
+  createdAtUtc: string
+}
+
+// 切換操作情境成功的回應。刻意不含 Refresh Token 明文（見 organizer-management design.md 決策 1）。
+export interface SwitchOrganizerContextResult {
+  accessToken: string
+}

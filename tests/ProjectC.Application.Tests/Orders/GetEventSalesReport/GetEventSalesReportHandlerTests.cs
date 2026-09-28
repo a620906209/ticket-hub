@@ -22,7 +22,7 @@ public class GetEventSalesReportHandlerTests
 
     private Event SeedEvent()
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         _eventRepository.Data.Add(@event);
         return @event;
     }
@@ -61,7 +61,7 @@ public class GetEventSalesReportHandlerTests
         var venue = new Venue(Guid.NewGuid(), "Test Venue");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
         seatMap.AddSeat("A", "1");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), venue.Id, seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), venue.Id, seatMap.Id, Guid.NewGuid());
         _eventRepository.Data.Add(@event);
         var seatTicketType = @event.CreateTicketType("A", 500m, seatMap);
         var countTicketType = @event.CreateCountBasedTicketType("VIP", 300m, 100);

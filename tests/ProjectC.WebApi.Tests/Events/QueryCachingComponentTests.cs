@@ -24,9 +24,11 @@ public class QueryCachingComponentTests
         return created!.Id;
     }
 
-    private static async Task<(Guid EventId, Guid VenueId)> SeedEventAsync(CachingComponentTestWebApplicationFactory factory, string zoneCode = "A")
+    // 回傳建立活動的同一個 client：建立票種會核對活動是否屬於呼叫端目前 Organizer（EVT-TICKET-004），
+    // 換成另一個 client 會被視同活動不存在。
+    private static async Task<(Guid EventId, Guid VenueId, HttpClient AdminClient)> SeedEventAsync(CachingComponentTestWebApplicationFactory factory, string zoneCode = "A")
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(factory);
 
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
@@ -41,7 +43,7 @@ public class QueryCachingComponentTests
             new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId));
         var eventId = await ReadCreatedIdAsync(eventResponse);
 
-        return (eventId, venueId);
+        return (eventId, venueId, adminClient);
     }
 
     // QC-EVT-001／002（tasks.md 2.6）。
@@ -52,7 +54,7 @@ public class QueryCachingComponentTests
         await factory.InitializeAsync();
         try
         {
-            var (eventId, _) = await SeedEventAsync(factory);
+            var (eventId, _, _) = await SeedEventAsync(factory);
             var client = factory.CreateClient();
 
             var firstResponse = await client.GetAsync("/api/events");
@@ -81,8 +83,7 @@ public class QueryCachingComponentTests
         await factory.InitializeAsync();
         try
         {
-            var (eventId, _) = await SeedEventAsync(factory, zoneCode: "A");
-            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(factory);
+            var (eventId, _, adminClient) = await SeedEventAsync(factory, zoneCode: "A");
             await adminClient.PostAsJsonAsync($"/api/admin/events/{eventId}/ticket-types", new CreateTicketTypeRequest("A", 500m));
             var client = factory.CreateClient();
 

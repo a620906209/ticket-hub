@@ -12,13 +12,13 @@ public class TicketTypeTests
     {
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         seatMap.AddSeat(zoneCode, "1");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
         return (@event, seatMap);
     }
 
     private static TicketType CreateCountBasedTicketType(int availableQuantity = 10)
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         return @event.CreateCountBasedTicketType("站票", 500m, availableQuantity);
     }
 
@@ -86,7 +86,7 @@ public class TicketTypeTests
     [Fact]
     public void CreateCountBasedTicketType_WhenQuantityIsPositive_CreatesTicketType()
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         var ticketType = @event.CreateCountBasedTicketType("站票", 500m, 100);
 
@@ -101,7 +101,7 @@ public class TicketTypeTests
     [InlineData(-1)]
     public void CreateCountBasedTicketType_WhenQuantityIsZeroOrNegative_ThrowsArgumentOutOfRangeException(int quantity)
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         var act = () => @event.CreateCountBasedTicketType("站票", 500m, quantity);
 
@@ -113,7 +113,7 @@ public class TicketTypeTests
     [InlineData(-1)]
     public void CreateCountBasedTicketType_WhenPriceIsZeroOrNegative_ThrowsArgumentOutOfRangeException(decimal price)
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         var act = () => @event.CreateCountBasedTicketType("站票", price, 10);
 

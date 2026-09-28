@@ -31,7 +31,7 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
     /// <summary>建立一場活動，含一個 A 區座位與對應票種，回傳 (EventId, EventSeatId, TicketTypeId)。</summary>
     private async Task<(Guid EventId, Guid EventSeatId, Guid TicketTypeId)> SeedEventWithSeatAndTicketTypeAsync(string zoneCode = "A")
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
 
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
@@ -171,7 +171,7 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task PlaceOrder_WithSeatZoneNotMatchingTicketTypeZoneWithinSameEvent_Returns400()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Two Zone Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
         var seatMapResponse = await adminClient.PostAsJsonAsync(

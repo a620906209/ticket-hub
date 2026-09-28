@@ -21,6 +21,9 @@ public class EventRepository : IEventRepository
     public async Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken)
         => await _dbContext.Events.ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
+        => await _dbContext.Events.Where(e => e.OrganizerId == organizerId).ToListAsync(cancellationToken);
+
     public void Add(Event @event) => _dbContext.Events.Add(@event);
 
     // GetByIdAsync 是 no-tracking，這裡用 DbSet.Update() 明確附加並標記為 Modified，

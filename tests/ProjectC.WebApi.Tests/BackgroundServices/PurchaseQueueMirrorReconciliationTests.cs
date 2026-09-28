@@ -337,7 +337,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var venue = new ProjectC.Domain.Venues.Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new ProjectC.Domain.Venues.SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new ProjectC.Domain.Events.Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new ProjectC.Domain.Events.Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         @event.EnableQueueMode();
         var ticketType = @event.CreateCountBasedTicketType("站票", 300m, 10);
         dbContext.Venues.Add(venue);
@@ -625,6 +626,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
 
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
 
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 
         public void Add(Event @event) => _inner.Add(@event);
@@ -721,7 +724,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
     {
         var venue = new ProjectC.Domain.Venues.Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new ProjectC.Domain.Venues.SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         @event.EnableQueueMode();
         var ticketType = @event.CreateCountBasedTicketType("站票", 300m, 10);
         dbContext.Venues.Add(venue);
@@ -799,6 +803,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         }
 
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
+
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
 
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 

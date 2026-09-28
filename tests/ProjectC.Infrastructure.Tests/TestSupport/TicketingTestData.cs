@@ -16,7 +16,8 @@ public static class TicketingTestData
         for (var i = 0; i < seatCount; i++)
             seatMap.AddSeat("A", $"{i + 1}");
 
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext, ct);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         var eventSeats = @event.CreateEventSeats(seatMap);
 
         dbContext.Venues.Add(venue);

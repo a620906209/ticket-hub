@@ -21,7 +21,7 @@ public class GetMyQueueStatusHandlerTests
 
         public Event SeedEvent(bool isQueueModeEnabled = true)
         {
-            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
             if (isQueueModeEnabled) @event.EnableQueueMode();
             EventRepository.Data.Add(@event);
             return @event;

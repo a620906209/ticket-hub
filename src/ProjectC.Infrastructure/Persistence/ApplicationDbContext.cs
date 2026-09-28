@@ -4,6 +4,7 @@ using ProjectC.Domain.Authentication;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
+using ProjectC.Domain.Organizers;
 using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
@@ -20,6 +21,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<Member> Members => Set<Member>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<Organizer> Organizers => Set<Organizer>();
+    public DbSet<OrganizerMember> OrganizerMembers => Set<OrganizerMember>();
 
     // 這些 DbSet 刻意不加進 IApplicationDbContext 介面：售票資料一律透過 Repository 存取
     // （design.md 決策 3），只有 Repository 實作內部需要直接用這個具體類別。

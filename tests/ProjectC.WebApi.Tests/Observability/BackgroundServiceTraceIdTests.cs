@@ -57,15 +57,9 @@ public class BackgroundServiceTraceIdTests : IClassFixture<ObservabilityWebAppli
     /// 走進 LogWarning 分支，才能在同一輪次內拿到可觀察的多筆日誌。</summary>
     private async Task<Guid> SeedExpiredPendingOrderThatWillFailToCancelAsync()
     {
-        // AuthTestHelper.CreateAuthenticatedAdminClientAsync 只接受 CustomWebApplicationFactory，
-        // 這裡改用同一支 helper 底層用的三個泛用方法自己組（Register → PromoteToAdmin → Login），
-        // 對任何 WebApplicationFactory<Program> 都適用，不需要擴大既有 helper 的參數型別。
-        var adminEmail = AuthTestHelper.NewEmail();
-        await AuthTestHelper.RegisterAsync(_factory.CreateClient(), adminEmail);
-        await AuthTestHelper.PromoteToAdminAsync(_factory.Services, adminEmail);
-        var adminTokens = await AuthTestHelper.LoginAsync(_factory.CreateClient(), adminEmail);
-        var adminClient = _factory.CreateClient();
-        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminTokens.AccessToken);
+        // 建立活動需要已切換 Organizer（event-management-organizer-scoping），這支 helper 接受任何
+        // WebApplicationFactory<Program>。
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
 
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("TraceId Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);

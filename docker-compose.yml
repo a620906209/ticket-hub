@@ -74,6 +74,11 @@ services:
       Auth__RefreshTokenExpirationDays: ${AUTH_REFRESH_TOKEN_EXPIRATION_DAYS}
       Auth__PasswordResetTokenExpirationMinutes: ${AUTH_PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES}
       TicketSigning__SigningKey: ${TICKET_SIGNING_KEY}
+      # 本機展示用初始 Admin + Approved Organizer（event-management-organizer-scoping tasks.md 6.2），
+      # 只在 Development 執行；未在 .env 設定時為空字串，seeder 直接略過。
+      DevelopmentSeed__AdminEmail: ${DEV_SEED_ADMIN_EMAIL:-}
+      DevelopmentSeed__AdminPassword: ${DEV_SEED_ADMIN_PASSWORD:-}
+      DevelopmentSeed__OrganizerName: ${DEV_SEED_ORGANIZER_NAME:-Demo Organizer}
       # compose service name（非 localhost），純量設定鍵（非 Serilog:WriteTo 陣列），見 observability
       # design.md 決策 1 附錄的實作修正——appsettings.json 預設空值不啟用 Seq sink，這裡才是真正的位址來源。
       Seq__ServerUrl: http://seq:5341

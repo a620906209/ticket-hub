@@ -7,7 +7,9 @@ import { getTicketTypes } from '../../api/events'
 import type { AdminEventSummary, TicketType } from '../../types/apiResponses'
 import { maxLengthRule, positiveNumberRule, requiredPositiveIntegerRule, requiredRule } from '../../utils/validators'
 import { toErrorMessage } from '../../utils/errors'
+import { useAuthStore } from '../../stores/auth'
 
+const authStore = useAuthStore()
 const events = ref<AdminEventSummary[]>([])
 const loading = ref(false)
 const listError = ref('')
@@ -178,7 +180,9 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="110">
+      <!-- 銷售報表後端維持 AdminOnly（event-management-organizer-scoping design.md Decision 1 範圍澄清），
+           非 Admin 的 Organizer 成員點了只會被路由守衛導回買家首頁，因此不顯示。 -->
+      <el-table-column v-if="authStore.isAdmin" label="操作" width="110">
         <template #default="{ row }">
           <router-link :to="{ name: 'admin-sales-report', params: { eventId: row.id } }">
             <el-button size="small">銷售報表</el-button>

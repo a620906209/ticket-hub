@@ -9,7 +9,7 @@ using ProjectC.WebApi.Common;
 
 namespace ProjectC.WebApi.Controllers;
 
-[Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+[Authorize(Policy = AuthorizationPolicies.RequireOrganizerContext)]
 [ApiController]
 [Route("api/admin/venues")]
 public class AdminVenuesController : ControllerBase

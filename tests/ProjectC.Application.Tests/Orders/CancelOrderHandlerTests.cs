@@ -15,7 +15,7 @@ public class CancelOrderHandlerTests
     {
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         var seat = seatMap.AddSeat("A", "1");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
         var eventSeat = @event.CreateEventSeats(seatMap).Single(s => s.SeatId == seat.Id);
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
 

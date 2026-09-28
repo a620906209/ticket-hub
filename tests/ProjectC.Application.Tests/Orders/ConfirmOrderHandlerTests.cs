@@ -15,7 +15,7 @@ public class ConfirmOrderHandlerTests
     {
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         var seat = seatMap.AddSeat("A", "1");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
         var eventSeat = @event.CreateEventSeats(seatMap).Single(s => s.SeatId == seat.Id);
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
 
@@ -49,7 +49,7 @@ public class ConfirmOrderHandlerTests
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         var seatA = seatMap.AddSeat("A", "1");
         var seatB = seatMap.AddSeat("B", "1");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
         var eventSeats = @event.CreateEventSeats(seatMap).ToList();
         var eventSeatA = eventSeats.Single(s => s.SeatId == seatA.Id);
         var eventSeatB = eventSeats.Single(s => s.SeatId == seatB.Id);
@@ -96,7 +96,7 @@ public class ConfirmOrderHandlerTests
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         var seats = new[] { seatMap.AddSeat("A", "1"), seatMap.AddSeat("A", "2"), seatMap.AddSeat("A", "3") };
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
         var eventSeats = @event.CreateEventSeats(seatMap).ToList();
         var ticketType = @event.CreateTicketType("A", 500m, seatMap);
         var selections = seats.Select(s => new SeatSelection(eventSeats.Single(es => es.SeatId == s.Id), ticketType)).ToList();
@@ -122,7 +122,7 @@ public class ConfirmOrderHandlerTests
     public async Task Handle_WhenOrderHasCountItemWithQuantityFive_IssuesFiveTicketsAllLinkedToThatOrderItem()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         var ticketType = @event.CreateCountBasedTicketType("GA", 300m, 100);
 
         var createHandler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
@@ -148,7 +148,7 @@ public class ConfirmOrderHandlerTests
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         var seatA = seatMap.AddSeat("A", "1");
         var seatB = seatMap.AddSeat("A", "2");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
         var eventSeats = @event.CreateEventSeats(seatMap).ToList();
         var eventSeatA = eventSeats.Single(s => s.SeatId == seatA.Id);
         var eventSeatB = eventSeats.Single(s => s.SeatId == seatB.Id);
@@ -257,7 +257,7 @@ public class ConfirmOrderHandlerTests
 
         var otherSeatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         var otherSeat = otherSeatMap.AddSeat("A", "1");
-        var otherEvent = new Event(Guid.NewGuid(), "Other Show", DateTime.UtcNow.AddDays(2), Guid.NewGuid(), otherSeatMap.Id);
+        var otherEvent = new Event(Guid.NewGuid(), "Other Show", DateTime.UtcNow.AddDays(2), Guid.NewGuid(), otherSeatMap.Id, Guid.NewGuid());
         var otherEventSeat = otherEvent.CreateEventSeats(otherSeatMap).Single(s => s.SeatId == otherSeat.Id);
         var mismatchedSeatsById = new Dictionary<Guid, EventSeat> { [seatId] = otherEventSeat };
 

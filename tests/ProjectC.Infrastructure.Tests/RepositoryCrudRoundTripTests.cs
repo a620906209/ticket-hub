@@ -49,7 +49,8 @@ public class RepositoryCrudRoundTripTests
             seatMap.AddSeat("A", "1");
             seatMapRepo.Add(seatMap);
 
-            var @event = new Event(eventId, "CRUD Event", DateTime.UtcNow.AddDays(10), venueId, seatMapId);
+            var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+            var @event = new Event(eventId, "CRUD Event", DateTime.UtcNow.AddDays(10), venueId, seatMapId, organizerId);
             eventRepo.Add(@event);
 
             var eventSeats = @event.CreateEventSeats(seatMap);

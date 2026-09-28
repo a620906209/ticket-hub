@@ -64,6 +64,8 @@ public class JoinPurchaseQueueHandlerIntegrationTests
 
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
 
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+
         public void Add(Event @event) => _inner.Add(@event);
 
         public void Update(Event @event) => _inner.Update(@event);
@@ -75,7 +77,8 @@ public class JoinPurchaseQueueHandlerIntegrationTests
     {
         var venue = new Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         if (isQueueModeEnabled)
         {
             @event.EnableQueueMode();

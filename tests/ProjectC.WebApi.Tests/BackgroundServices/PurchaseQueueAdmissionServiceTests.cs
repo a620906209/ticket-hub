@@ -52,7 +52,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
     {
         var venue = new Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         if (isQueueModeEnabled)
         {
             @event.EnableQueueMode();
@@ -372,7 +373,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var venue = new Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         @event.EnableQueueMode();
         var ticketType = @event.CreateCountBasedTicketType("站票", 300m, 10);
         dbContext.Venues.Add(venue);
@@ -505,6 +507,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
         }
 
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
+
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
 
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 

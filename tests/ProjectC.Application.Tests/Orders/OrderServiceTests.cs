@@ -59,7 +59,7 @@ public class OrderServiceTests
         {
             var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
             var seat = seatMap.AddSeat(seatZoneCode, "1");
-            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id);
+            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
             var eventSeat = @event.CreateEventSeats(seatMap).Single(s => s.SeatId == seat.Id);
 
             if (ticketTypeZoneCode != seatZoneCode)
@@ -80,7 +80,7 @@ public class OrderServiceTests
             var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
             var seatTemplates = Enumerable.Range(1, seatCount).Select(n => seatMap.AddSeat(zoneCode, n.ToString())).ToList();
             var @event = new Event(
-                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, maxTicketsPerOrder: maxTicketsPerOrder);
+                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), maxTicketsPerOrder: maxTicketsPerOrder);
             var eventSeats = @event.CreateEventSeats(seatMap).ToList();
             var ticketType = @event.CreateTicketType(zoneCode, 500m, seatMap);
 
@@ -97,7 +97,7 @@ public class OrderServiceTests
         {
             var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
             var @event = new Event(
-                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, maxTicketsPerOrder: maxTicketsPerOrder);
+                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), maxTicketsPerOrder: maxTicketsPerOrder);
             var ticketType = @event.CreateCountBasedTicketType("站票", price, availableQuantity);
 
             EventRepository.Data.Add(@event);
@@ -421,7 +421,7 @@ public class OrderServiceTests
         var (_, _, eventSeat, seatTicketType) = fixture.SeedEventWithSeatAndTicketType();
         var @event = fixture.EventRepository.Data.Single(e => e.Id == eventSeat.EventId);
         // 限購上限要掛在同一場活動上，重新建一個帶 maxTicketsPerOrder 的活動並搬移既有的座位/票種資料。
-        var eventWithLimit = new Event(@event.Id, @event.Title, @event.StartAtUtc, @event.VenueId, @event.SeatMapId, maxTicketsPerOrder: 3);
+        var eventWithLimit = new Event(@event.Id, @event.Title, @event.StartAtUtc, @event.VenueId, @event.SeatMapId, @event.OrganizerId, maxTicketsPerOrder: 3);
         fixture.EventRepository.Data.Remove(@event);
         fixture.EventRepository.Data.Add(eventWithLimit);
         var countTicketType = eventWithLimit.CreateCountBasedTicketType("站票", 300m, 5);

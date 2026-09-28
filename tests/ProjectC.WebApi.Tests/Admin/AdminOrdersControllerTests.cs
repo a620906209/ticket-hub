@@ -32,7 +32,7 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
 
     private async Task<Guid> SeedPendingOrderAsync()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Admin Orders Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
         var seatMapResponse = await adminClient.PostAsJsonAsync(

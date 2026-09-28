@@ -46,7 +46,8 @@ public class PurchaseQueueAdmissionServiceLeaderElectionBranchTests : IClassFixt
     {
         var venue = new Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         @event.EnableQueueMode();
         var member = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Test Buyer", "hash");
         var entry = new PurchaseQueueEntry(Guid.NewGuid(), @event.Id, member.Id, DateTime.UtcNow.AddMinutes(-10));

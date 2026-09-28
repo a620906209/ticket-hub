@@ -25,6 +25,7 @@ async function handleLogout(): Promise<void> {
             <span class="member-trigger">{{ authStore.member?.displayName }}</span>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item @click="router.push({ name: 'my-organizers' })">我的主辦方</el-dropdown-item>
                 <el-dropdown-item @click="handleLogout">登出</el-dropdown-item>
               </el-dropdown-menu>
             </template>

@@ -38,7 +38,7 @@ public sealed class CreateEventHandler
         _queryCache = queryCache;
     }
 
-    public async Task<Result<Guid>> HandleAsync(Guid createdByMemberId, CreateEventRequest request, CancellationToken cancellationToken)
+    public async Task<Result<Guid>> HandleAsync(Guid createdByMemberId, Guid organizerId, CreateEventRequest request, CancellationToken cancellationToken)
     {
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
@@ -64,6 +64,7 @@ public sealed class CreateEventHandler
             request.StartAtUtc,
             request.VenueId,
             request.SeatMapId,
+            organizerId,
             request.Description,
             request.PosterUrl,
             request.MaxTicketsPerOrder,

@@ -46,7 +46,7 @@ public class ExpiredOrderCleanupServiceTests : IClassFixture<CustomWebApplicatio
     /// （比照 AuthTestHelper.PromoteToAdminAsync 直接改寫私有欄位的既有手法）。</summary>
     private async Task<(Guid OrderId, Guid EventId, Guid EventSeatId)> SeedExpiredPendingOrderWithSeatAsync()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Cleanup Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
         var seatMapResponse = await adminClient.PostAsJsonAsync(
@@ -88,7 +88,7 @@ public class ExpiredOrderCleanupServiceTests : IClassFixture<CustomWebApplicatio
     /// 同時涵蓋計數行項（design.md Risks，7.5）。</summary>
     private async Task<(Guid OrderId, Guid TicketTypeId)> SeedExpiredPendingCountingOrderAsync(int availableQuantity = 10, int quantity = 3)
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Cleanup Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
         var seatMapResponse = await adminClient.PostAsJsonAsync(

@@ -10,7 +10,7 @@ public class EventSeatTests
     {
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         var seat = seatMap.AddSeat("A", "1");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
         return @event.CreateEventSeats(seatMap).Single(s => s.SeatId == seat.Id);
     }
 

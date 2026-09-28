@@ -40,7 +40,7 @@ public class AdminTicketsControllerTests : IClassFixture<CustomWebApplicationFac
     // 這是唯一能取得真實 Ticket ID 的方式，比照 AdminOrdersControllerTests 的種子資料手法。
     private async Task<Guid> SeedIssuedTicketAsync()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Admin Tickets Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
         var seatMapResponse = await adminClient.PostAsJsonAsync(

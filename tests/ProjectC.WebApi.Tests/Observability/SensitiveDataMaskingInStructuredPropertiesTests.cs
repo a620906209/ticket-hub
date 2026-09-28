@@ -48,7 +48,7 @@ public class SensitiveDataMaskingInStructuredPropertiesTests : IClassFixture<Obs
     [Fact]
     public async Task ConfirmOrder_NotificationLog_EmailPropertyIsMaskedNotRawValue()
     {
-        var adminClient = await CreateAuthenticatedAdminClientAsync();
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var venueId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Masking Test Venue")));
         var seatMapId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync(
             $"/api/admin/venues/{venueId}/seat-maps", new CreateSeatMapRequest([new SeatRequest("A", "1")])));

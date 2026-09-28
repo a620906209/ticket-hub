@@ -619,6 +619,8 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
             return await _inner.GetAllAsync(cancellationToken);
         }
 
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 
         public void Add(Event @event) => _inner.Add(@event);

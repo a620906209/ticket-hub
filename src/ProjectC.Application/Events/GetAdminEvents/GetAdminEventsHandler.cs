@@ -23,9 +23,9 @@ public sealed class GetAdminEventsHandler
         _dateTimeProvider = dateTimeProvider;
     }
 
-    public async Task<IReadOnlyList<AdminEventSummaryDto>> HandleAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<AdminEventSummaryDto>> HandleAsync(Guid organizerId, CancellationToken cancellationToken)
     {
-        var events = await _eventRepository.GetAllAsync(cancellationToken);
+        var events = await _eventRepository.GetByOrganizerIdAsync(organizerId, cancellationToken);
 
         var memberIds = events
             .Where(e => e.CreatedByMemberId is not null)

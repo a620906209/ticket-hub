@@ -17,7 +17,7 @@ public class TicketIssuedNotificationContentFactoryTests
     }
 
     private static Event CreateEvent(string title = "Concert")
-        => new(Guid.NewGuid(), title, Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        => new(Guid.NewGuid(), title, Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
     private static Member CreateBuyer(string email = "buyer@example.com")
         => Member.Register(email, "Test Buyer", "hash");

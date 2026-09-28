@@ -10,6 +10,7 @@ using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Members;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Application.Tickets.CreateTicketType;
+using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.WebApi.Tests.TestSupport;
@@ -56,10 +57,10 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateEvent_WithValidVenueAndSeatMap_ReturnsCreated()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             "/api/admin/events",
             new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId));
 
@@ -69,10 +70,10 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateEvent_WithBlankTitle_Returns400()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             "/api/admin/events",
             new CreateEventRequest("  ", DateTime.UtcNow.AddDays(30), venueId, seatMapId));
 
@@ -82,23 +83,42 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateEvent_WithNonExistentVenueOrSeatMap_Returns404()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             "/api/admin/events",
             new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid()));
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    // [EVT-AUTHZ-002] 已登入但尚未切換 Organizer 的使用者（含單純 Admin 角色未切換）呼叫管理端點 MUST 403，不建立任何資源。
+    [Fact]
+    public async Task CreateEvent_AsAdminWithoutSwitchingOrganizer_Returns403AndDoesNotCreateEvent()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        const string title = "CreateEvent_AsAdminWithoutSwitchingOrganizer probe";
+
+        var response = await adminClient.PostAsJsonAsync(
+            "/api/admin/events",
+            new CreateEventRequest(title, DateTime.UtcNow.AddDays(30), venueId, seatMapId));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var listResponse = await organizerClient.GetAsync("/api/admin/events");
+        var events = await listResponse.Content.ReadFromJsonAsync<List<AdminEventSummaryDto>>();
+        events.Should().NotContain(e => e.Title == title);
+    }
+
     [Fact]
     public async Task CreateTicketType_WithExistingZoneAndValidPrice_ReturnsCreated()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient, zoneCode: "A");
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient, zoneCode: "A");
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             $"/api/admin/events/{eventId}/ticket-types",
             new CreateTicketTypeRequest("A", 500m));
 
@@ -108,11 +128,11 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateTicketType_WithInvalidPrice_Returns400()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient, zoneCode: "A");
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient, zoneCode: "A");
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             $"/api/admin/events/{eventId}/ticket-types",
             new CreateTicketTypeRequest("A", 0m));
 
@@ -122,11 +142,11 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateTicketType_WithZoneNotInSeatMap_Returns400()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient, zoneCode: "A");
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient, zoneCode: "A");
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             $"/api/admin/events/{eventId}/ticket-types",
             new CreateTicketTypeRequest("B", 500m));
 
@@ -136,13 +156,36 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateTicketType_WithNonExistentEvent_Returns404()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             $"/api/admin/events/{Guid.NewGuid()}/ticket-types",
             new CreateTicketTypeRequest("A", 500m));
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    // [EVT-TICKET-004] 活動屬於其他 Organizer 時視同不存在（IDOR 防護），不得建立任何票種，不得回傳 403。
+    [Fact]
+    public async Task CreateTicketType_ForEventBelongingToAnotherOrganizer_Returns404AndDoesNotCreateTicketType()
+    {
+        var (ownerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(ownerClient, zoneCode: "A");
+        var eventId = await CreateEventAsync(ownerClient, venueId, seatMapId);
+        var (otherOrganizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        // 對照組：活動所屬 Organizer 自己建立的票種，證明事後查詢確實看得到這個活動的票種，「查無」斷言才有證明力。
+        var ownerResponse = await ownerClient.PostAsJsonAsync(
+            $"/api/admin/events/{eventId}/ticket-types",
+            new CreateTicketTypeRequest("A", 500m));
+        ownerResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var response = await otherOrganizerClient.PostAsJsonAsync(
+            $"/api/admin/events/{eventId}/ticket-types",
+            new CreateTicketTypeRequest("A", 777m));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var ticketTypes = await _factory.CreateClient().GetFromJsonAsync<List<TicketTypeDto>>($"/api/events/{eventId}/ticket-types");
+        ticketTypes.Should().ContainSingle().Which.Price.Should().Be(500m, "只應有擁有者建立的票種，跨 Organizer 的請求不得寫入");
     }
 
     [Fact]
@@ -151,11 +194,11 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         // 外部審查第四輪抓到的阻斷問題：MUST 用匿名物件送出只有舊欄位的原始 JSON，
         // 用強型別 CreateTicketTypeRequest 物件建構測不出「欄位缺失」這個情境
         // （強型別物件永遠會序列化出 RequiresSeat 的預設值，不是真的缺欄位）。
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient, zoneCode: "A");
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient, zoneCode: "A");
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             $"/api/admin/events/{eventId}/ticket-types",
             new { ZoneCode = "A", Price = 500m });
 
@@ -163,33 +206,61 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
             "缺 RequiresSeat 欄位的舊格式請求 MUST 視為綁座位模式，依既有分區驗證規則成功建立");
     }
 
-    // ---- 建立活動記錄建立者（透過 GET /api/admin/events 查詢驗證，POST 的成功回應只有 { id }） ----
+    // ---- 建立活動記錄建立者、所屬 Organizer（透過 GET /api/admin/events 查詢驗證，POST 的成功回應只有 { id }） ----
 
     [Fact]
     public async Task CreateEvent_ThenGetAdminEvents_RecordsCreatedByMemberId()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var myProfileResponse = await adminClient.GetAsync("/api/members/me");
-        var adminMemberId = (await myProfileResponse.Content.ReadFromJsonAsync<MemberProfileDto>())!.Id;
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var myProfileResponse = await organizerClient.GetAsync("/api/members/me");
+        var memberId = (await myProfileResponse.Content.ReadFromJsonAsync<MemberProfileDto>())!.Id;
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
-        var response = await adminClient.GetAsync("/api/admin/events");
+        var response = await organizerClient.GetAsync("/api/admin/events");
 
         var events = await response.Content.ReadFromJsonAsync<List<AdminEventSummaryDto>>();
-        events.Should().ContainSingle(e => e.Id == eventId && e.CreatedByMemberId == adminMemberId);
+        events.Should().ContainSingle(e => e.Id == eventId && e.CreatedByMemberId == memberId);
     }
 
-    // ---- 查詢活動列表（Admin 專用端點）需要 Admin 角色 ----
+    // [EVT-LIST-001] 後台專用活動列表查詢僅回傳呼叫端目前 Organizer 名下的活動。
+    [Fact]
+    public async Task GetEvents_WithEventsFromAnotherOrganizer_ReturnsOnlyOwnOrganizerEvents()
+    {
+        var (ownerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(ownerClient);
+        var ownEventId = await CreateEventAsync(ownerClient, venueId, seatMapId);
+        var (otherOrganizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (otherVenueId, otherSeatMapId) = await CreateVenueWithSeatMapAsync(otherOrganizerClient);
+        await CreateEventAsync(otherOrganizerClient, otherVenueId, otherSeatMapId);
+
+        var response = await ownerClient.GetAsync("/api/admin/events");
+
+        var events = await response.Content.ReadFromJsonAsync<List<AdminEventSummaryDto>>();
+        events.Should().ContainSingle(e => e.Id == ownEventId);
+    }
+
+    // ---- 查詢活動列表（Admin 專用端點）需要已切換至一個 Approved Organizer ----
 
     [Fact]
-    public async Task GetEvents_AsAdmin_Returns200()
+    public async Task GetEvents_AsApprovedOrganizerMember_Returns200()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+
+        var response = await organizerClient.GetAsync("/api/admin/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // [EVT-AUTHZ-002] 已登入但尚未切換 Organizer 者（含單純 Admin 角色）呼叫管理端點 MUST 403。
+    [Fact]
+    public async Task GetEvents_AsAdminWithoutSwitchingOrganizer_Returns403()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
 
         var response = await adminClient.GetAsync("/api/admin/events");
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -234,8 +305,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     public async Task SetQueueMode_AsAdminWithEnabledTrue_Returns204AndEnablesQueueMode()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
         var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = true });
 
@@ -247,8 +319,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     public async Task SetQueueMode_AsAdminWithEnabledFalseAfterEnabling_Returns204AndDisablesQueueMode()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
         await PatchQueueModeAsync(adminClient, eventId, new { enabled = true });
 
         var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = false });
@@ -263,9 +336,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var memberClient = _factory.CreateClient();
         var tokens = await AuthTestHelper.RegisterAndLoginAsync(memberClient);
         memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
         var response = await PatchQueueModeAsync(memberClient, eventId, new { enabled = true });
 
@@ -277,9 +350,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     public async Task SetQueueMode_WithoutAuthentication_Returns401AndDoesNotChangeState()
     {
         var anonymousClient = _factory.CreateClient();
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
         var response = await PatchQueueModeAsync(anonymousClient, eventId, new { enabled = true });
 
@@ -291,8 +364,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     public async Task SetQueueMode_WithMissingEnabledField_Returns400AndDoesNotChangeState()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
         var response = await PatchQueueModeAsync(adminClient, eventId, new { });
 
@@ -315,8 +389,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     public async Task SetQueueMode_WithEnabledAsWrongJsonType_Returns400AndDoesNotChangeState()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
         var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = "false" });
 
@@ -330,8 +405,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     public async Task GetSalesReport_AsAdmin_Returns200()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient);
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
         var response = await adminClient.GetAsync($"/api/admin/events/{eventId}/sales-report");
 
@@ -379,9 +455,10 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         // 比反序列化回同一個 C# 型別更能抓到「欄位名稱不是駝峰」這類問題，因為反序列化預設對
         // 屬性名稱大小寫不敏感，PascalCase 誤寫也會反序列化成功、測不出來）。
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(adminClient, zoneCode: "A");
-        var eventId = await CreateEventAsync(adminClient, venueId, seatMapId);
-        var ticketTypeResponse = await adminClient.PostAsJsonAsync(
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient, zoneCode: "A");
+        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
+        var ticketTypeResponse = await organizerClient.PostAsJsonAsync(
             $"/api/admin/events/{eventId}/ticket-types",
             new CreateTicketTypeRequest("A", 500m));
         var ticketTypeId = await ReadCreatedIdAsync(ticketTypeResponse);

@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
+import { createPinia, setActivePinia } from 'pinia'
 import EventListPage from './EventListPage.vue'
 import * as adminApi from '../../api/admin'
 import * as eventsApi from '../../api/events'
 import type { AdminEventSummary, TicketType } from '../../types/apiResponses'
+import { useAuthStore } from '../../stores/auth'
 
 vi.mock('../../api/admin')
 vi.mock('../../api/events')
@@ -91,6 +93,7 @@ function mountPageForTicketTypeForm() {
 
 describe('EventListPage 活動列表：建立者/建立時間/售票狀況', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     vi.mocked(adminApi.getAdminEvents).mockReset()
   })
 
@@ -150,8 +153,49 @@ describe('EventListPage 活動列表：建立者/建立時間/售票狀況', () 
   })
 })
 
+// 銷售報表後端維持 AdminOnly（event-management-organizer-scoping design.md Decision 1），非 Admin 的
+// Organizer 成員看得到入口卻只會被路由守衛導回買家首頁，因此入口 MUST 只對 Admin 顯示。
+describe('EventListPage 銷售報表入口依角色顯示', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(adminApi.getAdminEvents).mockReset()
+    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([buildEvent()])
+  })
+
+  // 預設的 RouterLink stub 不保留 to 物件，改用會把路由名稱輸出成屬性的 stub 以便辨識是哪個連結。
+  const RouterLinkStub = {
+    props: ['to'],
+    template: `<a :data-route-name="to.name"><slot /></a>`,
+  }
+
+  function mountPageWithRouteNames() {
+    return mount(EventListPage, { global: { plugins: [ElementPlus], stubs: { RouterLink: RouterLinkStub } } })
+  }
+
+  function salesReportLinks(wrapper: ReturnType<typeof mountPageWithRouteNames>) {
+    return wrapper.findAll('[data-route-name="admin-sales-report"]')
+  }
+
+  it('Admin 角色看得到每筆活動的銷售報表入口', async () => {
+    useAuthStore().member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true }
+    const wrapper = mountPageWithRouteNames()
+    await flushPromises()
+
+    expect(salesReportLinks(wrapper)).toHaveLength(1)
+  })
+
+  it('非 Admin 的 Organizer 成員看不到銷售報表入口', async () => {
+    useAuthStore().member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true }
+    const wrapper = mountPageWithRouteNames()
+    await flushPromises()
+
+    expect(salesReportLinks(wrapper)).toHaveLength(0)
+  })
+})
+
 describe('EventListPage 建立票種：座位制／計數制（RequiresSeat 開關）', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     vi.mocked(adminApi.getAdminEvents).mockReset()
     vi.mocked(adminApi.createTicketType).mockReset()
     vi.mocked(eventsApi.getTicketTypes).mockReset()
@@ -170,7 +214,8 @@ describe('EventListPage 建立票種：座位制／計數制（RequiresSeat 開�
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(adminApi.createTicketType).toHaveBeenCalledWith('event-1', 'A', 100, true, undefined)
+    // el-form 的 validate 走 async-validator，在高負載下單次 flushPromises 不保證驗證與送出已完成，改為等待條件成立。
+    await vi.waitFor(() => expect(adminApi.createTicketType).toHaveBeenCalledWith('event-1', 'A', 100, true, undefined))
   })
 
   it('關閉開關並填寫票種名稱、票價、可售總量，建立票種送出 RequiresSeat = false 與 AvailableQuantity', async () => {
@@ -187,7 +232,7 @@ describe('EventListPage 建立票種：座位制／計數制（RequiresSeat 開�
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
-    expect(adminApi.createTicketType).toHaveBeenCalledWith('event-1', '站立區', 500, false, 200)
+    await vi.waitFor(() => expect(adminApi.createTicketType).toHaveBeenCalledWith('event-1', '站立區', 500, false, 200))
   })
 
   it('關閉開關但可售總量留空，顯示驗證錯誤、不呼叫 createTicketType', async () => {

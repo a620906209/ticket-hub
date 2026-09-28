@@ -8,12 +8,13 @@ public class RefreshToken
     public RefreshTokenStatus Status { get; private set; }
     public DateTime ExpiresAt { get; private set; }
     public Guid? PreviousTokenId { get; private set; }
+    public Guid? OrganizerId { get; private set; }
 
     private RefreshToken()
     {
     }
 
-    public static RefreshToken Issue(Guid memberId, string tokenHash, DateTime expiresAt, Guid? previousTokenId = null)
+    public static RefreshToken Issue(Guid memberId, string tokenHash, DateTime expiresAt, Guid? previousTokenId = null, Guid? organizerId = null)
     {
         return new RefreshToken
         {
@@ -23,7 +24,14 @@ public class RefreshToken
             Status = RefreshTokenStatus.Active,
             ExpiresAt = expiresAt,
             PreviousTokenId = previousTokenId,
+            OrganizerId = organizerId,
         };
+    }
+
+    /// <summary>切換操作情境的原地更新：只改 <see cref="OrganizerId"/>，不觸發 Token 輪替（見 organizer-management design.md 決策 1）。</summary>
+    public void UpdateOrganizerContext(Guid organizerId)
+    {
+        OrganizerId = organizerId;
     }
 
     public bool IsActive(DateTime nowUtc) => Status == RefreshTokenStatus.Active && ExpiresAt > nowUtc;

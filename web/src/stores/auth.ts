@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import * as authApi from '../api/auth'
 import { ApiError, configureHttpClientAuth, configureHttpClientRefresh } from '../api/httpClient'
+import { decodeJwtPayload } from '../utils/jwt'
 import type { MemberProfile } from '../types/apiResponses'
 
 const REFRESH_TOKEN_STORAGE_KEY = 'ticketing.refreshToken'
@@ -26,6 +27,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => accessToken.value !== null && member.value !== null)
   const isAdmin = computed(() => member.value?.role === 'Admin')
+
+  // 目前操作中的 Organizer Id，解碼自 Access Token 的 OrganizerId claim（不驗證簽章，見 utils/jwt.ts）；
+  // 尚未切換過任何 Organizer 時 Access Token 不帶這個 claim，回傳 null（見設計文件決策 1）。
+  const organizerId = computed(() => {
+    if (!accessToken.value) return null
+    return decodeJwtPayload<{ OrganizerId?: string }>(accessToken.value)?.OrganizerId ?? null
+  })
 
   // httpClient 不直接 import 這個 store（避免循環相依），改由 store 建立時把「怎麼拿目前 token」
   // 與「怎麼換發」注入進去；refreshSession 是下面的函式宣告，會被提升（hoisting），這裡先呼叫沒問題。
@@ -112,15 +120,31 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** 供切換操作情境的呼叫端使用：切換端點需要呼叫者目前持有的 Refresh Token 明文（見設計文件決策 1）。 */
+  function getCurrentRefreshToken(): string | null {
+    return getStoredRefreshToken()
+  }
+
+  /**
+   * 切換操作情境成功後套用新 Access Token。刻意不比照 login/refresh 呼叫 storeRefreshToken——
+   * 切換端點回應 MUST NOT 包含新的 Refresh Token，呼叫端沿用原本持有的那一組（ORG-SWITCH-007）。
+   */
+  function applySwitchedAccessToken(newAccessToken: string): void {
+    accessToken.value = newAccessToken
+  }
+
   return {
     accessToken,
     member,
     bootstrapError,
     isAuthenticated,
     isAdmin,
+    organizerId,
     login,
     logout,
     refreshSession,
     bootstrapAsync,
+    getCurrentRefreshToken,
+    applySwitchedAccessToken,
   }
 })

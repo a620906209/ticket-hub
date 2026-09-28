@@ -46,7 +46,7 @@ public class TicketsControllerTests : IClassFixture<CustomWebApplicationFactory>
 
     private async Task<(HttpClient BuyerClient, Guid TicketId)> SeedIssuedTicketAsync()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var venueId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Buyer Ticket Test Venue")));
         var seatMapId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync(
             $"/api/admin/venues/{venueId}/seat-maps", new CreateSeatMapRequest([new SeatRequest("A", "1")])));
