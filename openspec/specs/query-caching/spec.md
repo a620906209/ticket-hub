@@ -1,5 +1,8 @@
-## ADDED Requirements
+# query-caching Specification
 
+## Purpose
+TBD - created by archiving change query-caching. Update Purpose after archive.
+## Requirements
 ### Requirement: 活動列表查詢採 Redis cache-aside 快取
 系統 SHALL 為買家可匿名存取的公開活動列表查詢端點 `GET /api/events`（`EventsController.GetEvents`／`GetEventsHandler`）導入 cache-aside 快取：查詢時先讀取固定 key `query-cache:events:list` 的快取內容，命中時直接回傳快取內容、不查詢資料庫；未命中時查詢資料庫取得完整活動列表，並在回傳前將結果寫入該快取 key。快取內容 MUST 與未快取時資料庫查詢的回應內容一致（欄位、順序皆相同），不因導入快取而改變既有回應格式。本 Requirement MUST NOT 適用於 `AdminEventsController.GetEvents`（`GetAdminEventsHandler`，`GET /api/admin/events`）——這是給 Admin 用的另一個獨立查詢端點，方法名稱雖然相同，但不在本次快取範圍內，不讀寫 `query-cache:events:list`。
 
@@ -42,18 +45,18 @@
 系統 SHALL 在下列既有操作的資料庫交易提交成功後，明確清除 `query-cache:events:list`：建立活動（`CreateEventHandler`）、開關活動的熱門搶購模式（`SetEventQueueModeHandler`）。清除快取的呼叫 MUST NOT 影響觸發它的原操作本身是否成功——原操作的資料庫交易一旦提交成功即視為成功，快取清除是交易提交後的後續動作。
 
 #### Scenario: QC-EVT-INV-001 建立活動後清除活動列表快取
-- **WHEN** Admin 成功建立一場新活動，且 `query-cache:events:list` 快取當時存在
+- **WHEN** 已切換至一個 Approved Organizer 的使用者成功建立一場新活動，且 `query-cache:events:list` 快取當時存在
 - **THEN** 系統於建立交易提交成功後清除該快取 key，下一次查詢 `GET /api/events` 會重新查詢資料庫並看到新建立的活動
 
 #### Scenario: QC-EVT-INV-002 開關熱門搶購模式後清除活動列表快取
-- **WHEN** Admin 成功開啟或關閉某活動的熱門搶購模式，且 `query-cache:events:list` 快取當時存在
+- **WHEN** 已切換至一個 Approved Organizer 的使用者成功開啟或關閉自己名下某活動的熱門搶購模式，且 `query-cache:events:list` 快取當時存在
 - **THEN** 系統於該操作的資料庫交易提交成功後清除該快取 key，下一次查詢 `GET /api/events` 會看到更新後的 `IsQueueModeEnabled`
 
 ### Requirement: 票種列表快取於相關異動時明確失效
 系統 SHALL 在下列既有操作的資料庫交易提交成功後，明確清除受影響活動對應的 `query-cache:ticket-types:event:{eventId}`：為活動建立新票種（`CreateTicketTypeHandler`）、純計數票種因訂單建立而扣減庫存（`TicketType.Reserve`）、純計數票種因訂單取消或逾時釋放而歸還庫存（`TicketType.Release`）。只清除實際受影響活動的快取 key，不影響其他活動的票種列表快取。
 
 #### Scenario: QC-TT-INV-001 建立票種後清除該活動的票種列表快取
-- **WHEN** Admin 成功為活動建立一個新票種，且該活動的票種列表快取當時存在
+- **WHEN** 已切換至一個 Approved Organizer 的使用者成功為自己名下活動建立一個新票種，且該活動的票種列表快取當時存在
 - **THEN** 系統於建立交易提交成功後清除該活動對應的快取 key
 
 #### Scenario: QC-TT-INV-002 訂單成功建立扣減庫存後清除該活動的票種列表快取
@@ -120,7 +123,7 @@
 - **THEN** 系統記錄 Warning 等級的結構化 log，照常查詢資料庫並回傳結果，不回報查詢失敗
 
 #### Scenario: QC-FAIL-002 Redis 無法連線時異動操作不受影響
-- **WHEN** Admin 建立活動、建立票種或開關熱門搶購模式，或買家的訂單異動觸發庫存扣減/歸還，此時 Redis 無法連線導致快取失效呼叫失敗
+- **WHEN** 已切換至一個 Approved Organizer 的使用者建立活動、建立票種或開關熱門搶購模式，或買家的訂單異動觸發庫存扣減/歸還，此時 Redis 無法連線導致快取失效呼叫失敗
 - **THEN** 系統記錄 Warning 等級的結構化 log，原操作仍視為成功（依其資料庫交易結果判斷），不因快取失效失敗而回報該操作失敗
 
 ### Requirement: 查詢端點的匿名存取範圍與快取共享安全性維持既有行為
@@ -139,3 +142,4 @@
 #### Scenario: QC-ACCESS-003 eventId 格式錯誤時請求在路由層被拒絕
 - **WHEN** 呼叫 `GET /api/events/{id}/ticket-types`，路徑中的 `id` 不是合法的 GUID 格式
 - **THEN** 系統回傳 `404 Not Found`（既有 `{id:guid}` 路由限制行為）——這是 ASP.NET Core 路由層的框架保證：不匹配路由樣板的請求不會解析出 Controller/Action，`GetTicketTypesHandler` 與其依賴的 Repository／`IQueryCache` 因此不可能被呼叫，此為框架機制本身提供的保證，不需要額外的執行期監測手段才能確認
+

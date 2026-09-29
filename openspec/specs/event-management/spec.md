@@ -6,7 +6,7 @@ TBD - created by archiving change ticketing-event-management. Update Purpose aft
 ### Requirement: 後台管理 API 需要已切換至一個 Approved Organizer
 系統 SHALL 要求呼叫後台管理端點者持有效 JWT，且該 JWT 帶有格式合法（可解析為非 `Guid.Empty` 的 `Guid`，見 `organizer-management` 能力「`RequireOrganizerContext` Authorization Policy MUST 驗證 claim 格式並 fail-closed」需求）的 `OrganizerId` claim（即已透過 `organizer-management` 能力的切換操作情境端點，切換至一個自己所屬且狀態為 `Approved` 的 Organizer）；未提供有效 Token 或 Token 未帶合法 `OrganizerId` claim MUST 被拒絕。單純持有 `MemberRole.Admin` 角色、但尚未切換至任何 Organizer 的請求，MUST 被視同未帶 `OrganizerId` claim，同樣被拒絕。
 
-本 Requirement 涵蓋的「後台管理端點」，本次交付範圍內明確為以下 8 個既有端點（不含 `AdminEventsController` 上維持 `AdminOnly` 授權、本次不動的銷售報表查詢與熱門搶購模式開關，見 design.md Decision 1「範圍澄清」）：
+本 Requirement 涵蓋的「後台管理端點」，本次交付範圍內明確為以下 8 個既有端點（不含 `AdminEventsController` 上屬於其他能力的端點：銷售報表查詢屬 `sales-report` 能力、熱門搶購模式開關屬 `purchase-queue` 能力；兩者的授權規則、Scenario 與測試皆由各自能力定義，不屬於本 Requirement 與 `EVT-AUTHZ-001`～`EVT-AUTHZ-005` 的涵蓋範圍）：
 1. 建立 Venue（`AdminVenuesController`）
 2. 建立 SeatMap（`AdminVenuesController`）
 3. 查詢場地列表（`AdminVenuesController`）
@@ -207,3 +207,4 @@ TBD - created by archiving change ticketing-event-management. Update Purpose aft
 #### Scenario: EVT-MIGRATE-005 回填腳本重跑不產生重複資料
 - **WHEN** 對已成功執行過一次回填的資料庫，完整重新執行整支回填腳本（模擬 migration 中途失敗後的人工重跑）
 - **THEN** 資料庫中仍只有一筆固定 GUID 的轉入用 `Organizer`；每一位既有 Admin 角色 Member 仍各自只有一筆掛在該 Organizer 下的 `OrganizerMember`，不產生重複記錄；所有既有 `Event.OrganizerId` 維持不變（第一次回填的結果不被覆寫或改動）
+
