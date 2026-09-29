@@ -14,17 +14,18 @@ public class GetAdminEventsHandlerTests
     private readonly FakeEventSeatRepository _eventSeatRepository = new();
     private readonly FakeDateTimeProvider _dateTimeProvider = new();
     private readonly GetAdminEventsHandler _handler;
+    private static readonly Guid OrganizerId = Guid.NewGuid();
 
     public GetAdminEventsHandlerTests()
     {
         _handler = new GetAdminEventsHandler(_eventRepository, _dbContext, _eventSeatRepository, _dateTimeProvider);
     }
 
-    private (Event Event, SeatMap SeatMap) SeedEvent(Guid? createdByMemberId = null)
+    private (Event Event, SeatMap SeatMap) SeedEvent(Guid? createdByMemberId = null, Guid? organizerId = null)
     {
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         var @event = new Event(
-            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id,
+            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, organizerId ?? OrganizerId,
             createdByMemberId: createdByMemberId, createdAtUtc: createdByMemberId is null ? null : _dateTimeProvider.UtcNow);
         _eventRepository.Data.Add(@event);
         return (@event, seatMap);
@@ -37,7 +38,7 @@ public class GetAdminEventsHandlerTests
         _dbContext.MemberData.Add(member);
         SeedEvent(createdByMemberId: member.Id);
 
-        var result = await _handler.HandleAsync(CancellationToken.None);
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
 
         result.Single().CreatedByDisplayName.Should().Be("Admin One");
     }
@@ -47,7 +48,7 @@ public class GetAdminEventsHandlerTests
     {
         SeedEvent(createdByMemberId: null);
 
-        var result = await _handler.HandleAsync(CancellationToken.None);
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
 
         result.Single().CreatedByDisplayName.Should().BeNull();
     }
@@ -57,7 +58,7 @@ public class GetAdminEventsHandlerTests
     {
         SeedEvent(createdByMemberId: Guid.NewGuid());
 
-        var result = await _handler.HandleAsync(CancellationToken.None);
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
 
         result.Single().CreatedByDisplayName.Should().BeNull();
     }
@@ -78,7 +79,7 @@ public class GetAdminEventsHandlerTests
         soldEventSeat.ConfirmSold(soldOrderId, now);
         _eventSeatRepository.Data.AddRange(eventSeats);
 
-        var result = await _handler.HandleAsync(CancellationToken.None);
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
 
         var summary = result.Single();
         summary.AvailableSeatCount.Should().Be(1);
@@ -96,7 +97,7 @@ public class GetAdminEventsHandlerTests
         eventSeats.Single(s => s.SeatId == seat.Id).Hold(Guid.NewGuid(), now.AddMinutes(-1), now.AddMinutes(-10));
         _eventSeatRepository.Data.AddRange(eventSeats);
 
-        var result = await _handler.HandleAsync(CancellationToken.None);
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
 
         var summary = result.Single();
         summary.AvailableSeatCount.Should().Be(1);
@@ -108,7 +109,7 @@ public class GetAdminEventsHandlerTests
     {
         SeedEvent();
 
-        var result = await _handler.HandleAsync(CancellationToken.None);
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
 
         var summary = result.Single();
         summary.AvailableSeatCount.Should().Be(0);
@@ -131,7 +132,7 @@ public class GetAdminEventsHandlerTests
         eventSeatsB[0].Hold(Guid.NewGuid(), now.AddMinutes(10), now);
         _eventSeatRepository.Data.AddRange(eventSeatsB);
 
-        var result = await _handler.HandleAsync(CancellationToken.None);
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
 
         result.Single(e => e.Id == eventA.Id).AvailableSeatCount.Should().Be(1);
         result.Single(e => e.Id == eventA.Id).HeldSeatCount.Should().Be(0);
@@ -142,8 +143,20 @@ public class GetAdminEventsHandlerTests
     [Fact]
     public async Task HandleAsync_WithNoEvents_ReturnsEmptyList()
     {
-        var result = await _handler.HandleAsync(CancellationToken.None);
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
 
         result.Should().BeEmpty();
+    }
+
+    // [EVT-LIST-001] 僅回傳呼叫端目前 Organizer 名下的活動，不含其他 Organizer 的活動。
+    [Fact]
+    public async Task HandleAsync_WithEventsFromMultipleOrganizers_ReturnsOnlyCallersOrganizerEvents()
+    {
+        var (ownEvent, _) = SeedEvent(organizerId: OrganizerId);
+        SeedEvent(organizerId: Guid.NewGuid());
+
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+
+        result.Should().ContainSingle(e => e.Id == ownEvent.Id);
     }
 }

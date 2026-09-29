@@ -15,8 +15,20 @@ public class OrderRepository : IOrderRepository
     public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => _dbContext.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
 
-    public async Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken)
-        => await _dbContext.Orders.Include(o => o.Items).ToListAsync(cancellationToken);
+    public async Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
+        => await _dbContext.Orders
+            .Include(o => o.Items)
+            .Where(o => _dbContext.Events.Any(e => e.Id == o.EventId && e.OrganizerId == organizerId))
+            .ToListAsync(cancellationToken);
+
+    public async Task<Guid?> GetOrganizerIdByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
+        => await (
+            from order in _dbContext.Orders
+            from item in order.Items
+            join @event in _dbContext.Events on order.EventId equals @event.Id
+            where item.Id == orderItemId
+            select (Guid?)@event.OrganizerId)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)
         => await _dbContext.Orders

@@ -16,6 +16,7 @@ public class CreateTicketTypeHandlerTests
     private readonly FakeUnitOfWork _unitOfWork = new();
     private readonly FakeQueryCache _queryCache = new();
     private readonly CreateTicketTypeHandler _handler;
+    private static readonly Guid OrganizerId = Guid.NewGuid();
 
     public CreateTicketTypeHandlerTests()
     {
@@ -23,14 +24,14 @@ public class CreateTicketTypeHandlerTests
             _eventRepository, _seatMapRepository, _ticketTypeRepository, _unitOfWork, new CreateTicketTypeRequestValidator(), _queryCache);
     }
 
-    private Guid SeedEventWithZone(string zoneCode)
+    private Guid SeedEventWithZone(string zoneCode, Guid? organizerId = null)
     {
         var venueId = Guid.NewGuid();
         var seatMap = new SeatMap(Guid.NewGuid(), venueId);
         seatMap.AddSeat(zoneCode, "1");
         _seatMapRepository.Data.Add(seatMap);
 
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), venueId, seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), venueId, seatMap.Id, organizerId ?? OrganizerId);
         _eventRepository.Data.Add(@event);
 
         return @event.Id;
@@ -42,7 +43,7 @@ public class CreateTicketTypeHandlerTests
         var eventId = SeedEventWithZone("A");
         var request = new CreateTicketTypeRequest("A", 500m);
 
-        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _ticketTypeRepository.Data.Should().ContainSingle(t => t.Id == result.Value && t.Price == 500m);
@@ -54,7 +55,7 @@ public class CreateTicketTypeHandlerTests
         var eventId = SeedEventWithZone("A");
         var request = new CreateTicketTypeRequest("A", 0m);
 
-        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
@@ -67,7 +68,7 @@ public class CreateTicketTypeHandlerTests
         var eventId = SeedEventWithZone("A");
         var request = new CreateTicketTypeRequest("B", 500m);
 
-        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
@@ -79,7 +80,22 @@ public class CreateTicketTypeHandlerTests
     {
         var request = new CreateTicketTypeRequest("A", 500m);
 
-        var result = await _handler.HandleAsync(Guid.NewGuid(), request, CancellationToken.None);
+        var result = await _handler.HandleAsync(Guid.NewGuid(), OrganizerId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        _ticketTypeRepository.Data.Should().BeEmpty();
+    }
+
+    // [EVT-TICKET-004] 活動屬於其他 Organizer 時視同不存在，避免 IDOR，不得回傳 403。
+    [Fact]
+    public async Task HandleAsync_WithEventBelongingToAnotherOrganizer_ReturnsNotFoundAndDoesNotCreateTicketType()
+    {
+        var otherOrganizerId = Guid.NewGuid();
+        var eventId = SeedEventWithZone("A", organizerId: otherOrganizerId);
+        var request = new CreateTicketTypeRequest("A", 500m);
+
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.NotFound);
@@ -92,7 +108,7 @@ public class CreateTicketTypeHandlerTests
         var eventId = SeedEventWithZone("A");
         var request = new CreateTicketTypeRequest("站票", 500m, RequiresSeat: false, AvailableQuantity: 100);
 
-        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         var ticketType = _ticketTypeRepository.Data.Single(t => t.Id == result.Value);
@@ -109,7 +125,7 @@ public class CreateTicketTypeHandlerTests
         var eventId = SeedEventWithZone("A");
         var request = new CreateTicketTypeRequest("站票", 500m, RequiresSeat: false, AvailableQuantity: quantity);
 
-        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
@@ -122,7 +138,7 @@ public class CreateTicketTypeHandlerTests
         var eventId = SeedEventWithZone("A");
         var request = new CreateTicketTypeRequest("A", 500m, RequiresSeat: true, AvailableQuantity: 10);
 
-        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
@@ -136,7 +152,7 @@ public class CreateTicketTypeHandlerTests
         var eventId = SeedEventWithZone("A");
         var request = new CreateTicketTypeRequest("A", 500m);
 
-        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         _queryCache.RemoveCalls.Should().ContainSingle(key => key == GetTicketTypesHandler.BuildCacheKey(eventId));
@@ -148,7 +164,7 @@ public class CreateTicketTypeHandlerTests
         var eventId = SeedEventWithZone("A");
         var request = new CreateTicketTypeRequest("A", 0m);
 
-        var result = await _handler.HandleAsync(eventId, request, CancellationToken.None);
+        var result = await _handler.HandleAsync(eventId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         _queryCache.RemoveCalls.Should().BeEmpty();

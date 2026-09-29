@@ -29,13 +29,24 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
-    public async Task CreateVenue_AsAdmin_ReturnsCreated()
+    public async Task CreateVenue_AsApprovedOrganizerMember_ReturnsCreated()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+
+        var response = await organizerClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Taipei Arena"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    // [EVT-AUTHZ-002] 已登入但尚未切換 Organizer 的使用者（含單純 Admin 角色未切換）呼叫管理端點 MUST 403。
+    [Fact]
+    public async Task CreateVenue_AsAdminWithoutSwitchingOrganizer_Returns403()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
 
         var response = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Taipei Arena"));
 
-        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -64,10 +75,10 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateSeatMap_WithUniqueSeats_ReturnsCreated()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var venueId = await CreateVenueAsync(adminClient);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var venueId = await CreateVenueAsync(organizerClient);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             $"/api/admin/venues/{venueId}/seat-maps",
             new CreateSeatMapRequest([new SeatRequest("A", "1"), new SeatRequest("A", "2")]));
 
@@ -77,10 +88,10 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateSeatMap_WithDuplicateSeat_ReturnsConflict()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var venueId = await CreateVenueAsync(adminClient);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var venueId = await CreateVenueAsync(organizerClient);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             $"/api/admin/venues/{venueId}/seat-maps",
             new CreateSeatMapRequest([new SeatRequest("A", "1"), new SeatRequest("A", "1")]));
 
@@ -90,9 +101,9 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task CreateSeatMap_WithNonExistentVenue_Returns404()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
 
-        var response = await adminClient.PostAsJsonAsync(
+        var response = await organizerClient.PostAsJsonAsync(
             $"/api/admin/venues/{Guid.NewGuid()}/seat-maps",
             new CreateSeatMapRequest([new SeatRequest("A", "1")]));
 
@@ -102,12 +113,12 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
     // ---- 查詢場地列表／明細／座位圖明細 ----
 
     [Fact]
-    public async Task GetVenues_AsAdmin_ReturnsOk()
+    public async Task GetVenues_AsApprovedOrganizerMember_ReturnsOk()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var venueId = await CreateVenueAsync(adminClient, "GetVenues Test Venue");
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var venueId = await CreateVenueAsync(organizerClient, "GetVenues Test Venue");
 
-        var response = await adminClient.GetAsync("/api/admin/venues");
+        var response = await organizerClient.GetAsync("/api/admin/venues");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var venues = await response.Content.ReadFromJsonAsync<List<VenueSummaryDto>>();
@@ -115,16 +126,16 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
     }
 
     [Fact]
-    public async Task GetVenueById_AsAdmin_ReturnsVenueWithSeatMaps()
+    public async Task GetVenueById_AsApprovedOrganizerMember_ReturnsVenueWithSeatMaps()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var venueId = await CreateVenueAsync(adminClient, "GetVenueById Test Venue");
-        var seatMapResponse = await adminClient.PostAsJsonAsync(
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var venueId = await CreateVenueAsync(organizerClient, "GetVenueById Test Venue");
+        var seatMapResponse = await organizerClient.PostAsJsonAsync(
             $"/api/admin/venues/{venueId}/seat-maps",
             new CreateSeatMapRequest([new SeatRequest("A", "1"), new SeatRequest("A", "2")]));
         var seatMapId = (await seatMapResponse.Content.ReadFromJsonAsync<CreatedResponse>())!.Id;
 
-        var response = await adminClient.GetAsync($"/api/admin/venues/{venueId}");
+        var response = await organizerClient.GetAsync($"/api/admin/venues/{venueId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var detail = await response.Content.ReadFromJsonAsync<VenueDetailDto>();
@@ -135,24 +146,24 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task GetVenueById_WithNonExistentVenue_Returns404()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
 
-        var response = await adminClient.GetAsync($"/api/admin/venues/{Guid.NewGuid()}");
+        var response = await organizerClient.GetAsync($"/api/admin/venues/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task GetSeatMapById_AsAdmin_ReturnsSeats()
+    public async Task GetSeatMapById_AsApprovedOrganizerMember_ReturnsSeats()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var venueId = await CreateVenueAsync(adminClient, "GetSeatMapById Test Venue");
-        var seatMapResponse = await adminClient.PostAsJsonAsync(
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var venueId = await CreateVenueAsync(organizerClient, "GetSeatMapById Test Venue");
+        var seatMapResponse = await organizerClient.PostAsJsonAsync(
             $"/api/admin/venues/{venueId}/seat-maps",
             new CreateSeatMapRequest([new SeatRequest("A", "1")]));
         var seatMapId = (await seatMapResponse.Content.ReadFromJsonAsync<CreatedResponse>())!.Id;
 
-        var response = await adminClient.GetAsync($"/api/admin/venues/{venueId}/seat-maps/{seatMapId}");
+        var response = await organizerClient.GetAsync($"/api/admin/venues/{venueId}/seat-maps/{seatMapId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var detail = await response.Content.ReadFromJsonAsync<SeatMapDetailDto>();
@@ -163,15 +174,15 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
     [Fact]
     public async Task GetSeatMapById_WithSeatMapBelongingToAnotherVenue_Returns404()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var venueId = await CreateVenueAsync(adminClient, "GetSeatMapById Owning Venue");
-        var otherVenueId = await CreateVenueAsync(adminClient, "GetSeatMapById Other Venue");
-        var seatMapResponse = await adminClient.PostAsJsonAsync(
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var venueId = await CreateVenueAsync(organizerClient, "GetSeatMapById Owning Venue");
+        var otherVenueId = await CreateVenueAsync(organizerClient, "GetSeatMapById Other Venue");
+        var seatMapResponse = await organizerClient.PostAsJsonAsync(
             $"/api/admin/venues/{venueId}/seat-maps",
             new CreateSeatMapRequest([new SeatRequest("A", "1")]));
         var seatMapId = (await seatMapResponse.Content.ReadFromJsonAsync<CreatedResponse>())!.Id;
 
-        var response = await adminClient.GetAsync($"/api/admin/venues/{otherVenueId}/seat-maps/{seatMapId}");
+        var response = await organizerClient.GetAsync($"/api/admin/venues/{otherVenueId}/seat-maps/{seatMapId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }

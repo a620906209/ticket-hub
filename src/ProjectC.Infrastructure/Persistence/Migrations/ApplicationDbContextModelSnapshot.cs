@@ -63,6 +63,9 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("MemberId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("OrganizerId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("PreviousTokenId")
                         .HasColumnType("uuid");
 
@@ -82,6 +85,8 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("MemberId");
+
+                    b.HasIndex("OrganizerId");
 
                     b.HasIndex("TokenHash")
                         .IsUnique();
@@ -111,6 +116,9 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.Property<int?>("MaxTicketsPerOrder")
                         .HasColumnType("integer");
 
+                    b.Property<Guid>("OrganizerId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("PosterUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -132,6 +140,8 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByMemberId");
+
+                    b.HasIndex("OrganizerId");
 
                     b.HasIndex("SeatMapId");
 
@@ -267,6 +277,66 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.HasIndex("TicketTypeId");
 
                     b.ToTable("OrderItems", (string)null);
+                });
+
+            modelBuilder.Entity("ProjectC.Domain.Organizers.Organizer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByMemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("ReviewedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedByMemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByMemberId");
+
+                    b.HasIndex("ReviewedByMemberId");
+
+                    b.ToTable("Organizers", (string)null);
+                });
+
+            modelBuilder.Entity("ProjectC.Domain.Organizers.OrganizerMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("OrganizerId", "MemberId")
+                        .IsUnique();
+
+                    b.ToTable("OrganizerMembers", (string)null);
                 });
 
             modelBuilder.Entity("ProjectC.Domain.PurchaseQueue.PurchaseQueueEntry", b =>
@@ -427,12 +497,26 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.ToTable("Venues", (string)null);
                 });
 
+            modelBuilder.Entity("ProjectC.Domain.Authentication.RefreshToken", b =>
+                {
+                    b.HasOne("ProjectC.Domain.Organizers.Organizer", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("ProjectC.Domain.Events.Event", b =>
                 {
                     b.HasOne("ProjectC.Domain.Members.Member", null)
                         .WithMany()
                         .HasForeignKey("CreatedByMemberId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("ProjectC.Domain.Organizers.Organizer", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("ProjectC.Domain.Venues.SeatMap", null)
                         .WithMany()
@@ -494,6 +578,35 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TicketTypeId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ProjectC.Domain.Organizers.Organizer", b =>
+                {
+                    b.HasOne("ProjectC.Domain.Members.Member", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByMemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ProjectC.Domain.Members.Member", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedByMemberId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("ProjectC.Domain.Organizers.OrganizerMember", b =>
+                {
+                    b.HasOne("ProjectC.Domain.Members.Member", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ProjectC.Domain.Organizers.Organizer", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ProjectC.Domain.PurchaseQueue.PurchaseQueueEntry", b =>

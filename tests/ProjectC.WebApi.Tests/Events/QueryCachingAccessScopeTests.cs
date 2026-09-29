@@ -31,7 +31,7 @@ public class QueryCachingAccessScopeTests
         await factory.InitializeAsync();
         try
         {
-            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(factory);
+            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(factory);
             var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Test Venue"));
             var venueId = await ReadCreatedIdAsync(venueResponse);
             var seatMapResponse = await adminClient.PostAsJsonAsync(
@@ -62,7 +62,7 @@ public class QueryCachingAccessScopeTests
         await factory.InitializeAsync();
         try
         {
-            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(factory);
+            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(factory);
             var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Test Venue"));
             var venueId = await ReadCreatedIdAsync(venueResponse);
             var seatMapResponse = await adminClient.PostAsJsonAsync(
@@ -102,7 +102,7 @@ public class QueryCachingAccessScopeTests
         await factory.InitializeAsync();
         try
         {
-            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(factory);
+            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(factory);
             var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Test Venue"));
             var venueId = await ReadCreatedIdAsync(venueResponse);
             var seatMapResponse = await adminClient.PostAsJsonAsync(
@@ -140,7 +140,7 @@ public class QueryCachingAccessScopeTests
         await factory.InitializeAsync();
         try
         {
-            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(factory);
+            var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(factory);
             var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Test Venue"));
             var venueId = await ReadCreatedIdAsync(venueResponse);
             var seatMapResponse = await adminClient.PostAsJsonAsync(

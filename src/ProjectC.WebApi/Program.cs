@@ -2,6 +2,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,12 @@ using ProjectC.Application.Orders.GetMyOrderDetail;
 using ProjectC.Application.Orders.GetMyOrders;
 using ProjectC.Application.Orders.GetOrders;
 using ProjectC.Application.Orders.GetEventSalesReport;
+using ProjectC.Application.Organizers.ApplyForOrganizer;
+using ProjectC.Application.Organizers.GetMyOrganizers;
+using ProjectC.Application.Organizers.GetPendingOrganizers;
+using ProjectC.Application.Organizers.ReviewOrganizer;
+using ProjectC.Application.Organizers.SuspendOrganizer;
+using ProjectC.Application.Organizers.SwitchOrganizerContext;
 using ProjectC.Application.PurchaseQueue.GetMyQueueStatus;
 using ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
 using ProjectC.Application.Tickets.CreateTicketType;
@@ -51,6 +58,7 @@ using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 using ProjectC.Infrastructure.Caching;
+using ProjectC.Infrastructure.Persistence.Seeding;
 using ProjectC.Infrastructure.Captcha;
 using ProjectC.Infrastructure.DistributedLocking;
 using ProjectC.Infrastructure.Notifications;
@@ -265,6 +273,11 @@ try
     builder.Services.AddTransient<IPasswordHasher, BCryptPasswordHasher>();
     builder.Services.AddTransient<ITokenService, JwtTokenService>();
 
+    // 本機開發展示用初始資料（event-management-organizer-scoping tasks.md 6.2），帳密由 .env 注入、未設定即略過，
+    // 不需要 ValidateOnStart。Scoped：持有 ApplicationDbContext（見 CLAUDE.md DI 生命週期原則）。
+    builder.Services.Configure<DevelopmentSeedOptions>(builder.Configuration.GetSection(DevelopmentSeedOptions.SectionName));
+    builder.Services.AddScoped<DevelopmentDataSeeder>();
+
     builder.Services.AddValidatorsFromAssemblyContaining<RegisterMemberRequestValidator>();
 
     builder.Services.AddScoped<CreateVenueHandler>();
@@ -293,6 +306,13 @@ try
     builder.Services.AddScoped<SetEventQueueModeHandler>();
     builder.Services.AddScoped<JoinPurchaseQueueHandler>();
     builder.Services.AddScoped<GetMyQueueStatusHandler>();
+
+    builder.Services.AddScoped<ApplyForOrganizerHandler>();
+    builder.Services.AddScoped<GetMyOrganizersHandler>();
+    builder.Services.AddScoped<GetPendingOrganizersHandler>();
+    builder.Services.AddScoped<ReviewOrganizerHandler>();
+    builder.Services.AddScoped<SuspendOrganizerHandler>();
+    builder.Services.AddScoped<SwitchOrganizerContextHandler>();
 
     // Testing 環境（見 CustomWebApplicationFactory.UseEnvironment("Testing")）不啟動真實背景服務，
     // 否則所有既有 WebApi 整合測試都會連帶啟動一個對著自己 Testcontainers 資料庫跑的清理服務
@@ -336,8 +356,13 @@ try
             };
         });
 
+    // Singleton：RequireOrganizerContextHandler 無狀態、thread-safe，比照 ASP.NET Core 官方建議的
+    // IAuthorizationHandler 註冊慣例（本次僅定義 Policy，不套用至任何既有 Controller，見 4.3a）。
+    builder.Services.AddSingleton<IAuthorizationHandler, RequireOrganizerContextHandler>();
+
     builder.Services.AddAuthorizationBuilder()
-        .AddPolicy(AuthorizationPolicies.AdminOnly, policy => policy.RequireRole("Admin"));
+        .AddPolicy(AuthorizationPolicies.AdminOnly, policy => policy.RequireRole("Admin"))
+        .AddPolicy(AuthorizationPolicies.RequireOrganizerContext, policy => policy.Requirements.Add(new RequireOrganizerContextRequirement()));
 
     // place-order/confirm-order 是分區鍵為會員 Id 的獨立命名 Fixed Window policy，各自累計、不共用計數
     // （rate-limiting-queue design.md 決策 1）；login 呼叫當下使用者尚未通過驗證，改以來源 IP 分區
@@ -437,6 +462,13 @@ try
     // （captcha-verification design.md 決策 14、6）。
     app.Services.GetRequiredService<CaptchaOptions>();
     app.Services.GetRequiredService<CaptchaRateLimitingOptions>();
+
+    // 只在 Development 執行（整合測試用 Testing 環境、正式環境皆不執行）；正式環境的既有 Admin 由 migration 回填涵蓋。
+    if (app.Environment.IsDevelopment())
+    {
+        using var seedScope = app.Services.CreateScope();
+        await seedScope.ServiceProvider.GetRequiredService<DevelopmentDataSeeder>().SeedAsync(CancellationToken.None);
+    }
 
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())

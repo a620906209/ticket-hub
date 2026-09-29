@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ProjectC.Application.Common;
 using ProjectC.Application.Events.GetEvents;
@@ -33,6 +34,7 @@ public class QueryCacheTtlSafetyNetTests
     {
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public void Add(Event @event) => throw new NotSupportedException();
         public void Update(Event @event) => throw new NotSupportedException();
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -60,10 +62,29 @@ public class QueryCacheTtlSafetyNetTests
     private async Task<Guid> SeedEventAsync(Guid venueId, Guid seatMapId)
     {
         await using var dbContext = _postgresFixture.CreateDbContext();
-        var @event = new Event(Guid.NewGuid(), "TTL Test Event", DateTime.UtcNow.AddDays(1), venueId, seatMapId);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "TTL Test Event", DateTime.UtcNow.AddDays(1), venueId, seatMapId, organizerId);
         dbContext.Events.Add(@event);
         await dbContext.SaveChangesAsync();
         return @event.Id;
+    }
+
+    // WSL2 VM 牆上時鐘實測約每 30 秒回跳 2–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多。
+    private static readonly TimeSpan ClockStepBackTolerance = TimeSpan.FromSeconds(6);
+
+    /// <summary>
+    /// 輪詢直到 Redis 自身已淘汰該 key，且必須在 TTL + 時鐘回跳餘裕內完成。不用固定 Task.Delay：時鐘回跳時
+    /// 固定等待可能不足以跨過 TTL 而誤判（flaky）。上限貼近 TTL 而非寬鬆的固定值，TTL 若被誤設為過長的值仍會失敗。
+    /// </summary>
+    private static async Task WaitUntilKeyExpiredAsync(IConnectionMultiplexer connection, string key, TimeSpan ttl)
+    {
+        // Stopwatch 為單調時鐘，不受牆上時鐘回跳影響。
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        while (await connection.GetDatabase().KeyExistsAsync(key))
+        {
+            stopwatch.Elapsed.Should().BeLessThan(ttl + ClockStepBackTolerance, "快取必須在 TTL（加上時鐘回跳餘裕）內由 Redis 淘汰");
+            await Task.Delay(100);
+        }
     }
 
     // QC-TTL-002a（tasks.md 6.2a）。
@@ -74,8 +95,10 @@ public class QueryCacheTtlSafetyNetTests
         await redis.InitializeAsync();
         try
         {
-            var options = new QueryCacheOptions { EventListTtlSeconds = 1, TicketTypesTtlSeconds = 10 };
-            var queryCache = new RedisQueryCache(redis.CreateConnection(), NullLogger<RedisQueryCache>.Instance);
+            // TTL 3 秒：最後一步須在 TTL 內命中重新寫入的快取，過短的 TTL 在高負載下會提前過期而誤判。
+            var options = new QueryCacheOptions { EventListTtlSeconds = 3, TicketTypesTtlSeconds = 10 };
+            var connection = redis.CreateConnection();
+            var queryCache = new RedisQueryCache(connection, NullLogger<RedisQueryCache>.Instance);
 
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
@@ -85,7 +108,7 @@ public class QueryCacheTtlSafetyNetTests
             var (venueId, seatMapId) = await SeedVenueAndSeatMapAsync();
             var newEventId = await SeedEventAsync(venueId, seatMapId);
 
-            await Task.Delay(TimeSpan.FromSeconds(1.5));
+            await WaitUntilKeyExpiredAsync(connection, GetEventsHandler.CacheKey, TimeSpan.FromSeconds(options.EventListTtlSeconds));
 
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
@@ -112,8 +135,9 @@ public class QueryCacheTtlSafetyNetTests
         {
             // TicketTypesTtlSeconds 與 6.2a 的 EventListTtlSeconds 是兩個獨立設定值：這裡刻意把
             // EventListTtlSeconds 設一個很長的值，證明本測試只依賴 TicketTypesTtlSeconds。
-            var options = new QueryCacheOptions { EventListTtlSeconds = 60, TicketTypesTtlSeconds = 1 };
-            var queryCache = new RedisQueryCache(redis.CreateConnection(), NullLogger<RedisQueryCache>.Instance);
+            var options = new QueryCacheOptions { EventListTtlSeconds = 60, TicketTypesTtlSeconds = 3 };
+            var connection = redis.CreateConnection();
+            var queryCache = new RedisQueryCache(connection, NullLogger<RedisQueryCache>.Instance);
             var (venueId, seatMapId) = await SeedVenueAndSeatMapAsync();
             var eventId = await SeedEventAsync(venueId, seatMapId);
 
@@ -133,7 +157,7 @@ public class QueryCacheTtlSafetyNetTests
                 newTicketTypeId = ticketType.Id;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(1.5));
+            await WaitUntilKeyExpiredAsync(connection, GetTicketTypesHandler.BuildCacheKey(eventId), TimeSpan.FromSeconds(options.TicketTypesTtlSeconds));
 
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
@@ -200,7 +224,8 @@ public class QueryCacheTtlSafetyNetTests
         try
         {
             var options = new QueryCacheOptions { EventListTtlSeconds = 2, TicketTypesTtlSeconds = 10 };
-            var queryCache = new RedisQueryCache(redis.CreateConnection(), NullLogger<RedisQueryCache>.Instance);
+            var connection = redis.CreateConnection();
+            var queryCache = new RedisQueryCache(connection, NullLogger<RedisQueryCache>.Instance);
 
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
@@ -211,10 +236,13 @@ public class QueryCacheTtlSafetyNetTests
             var actBeforeExpiry = () => new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options).HandleAsync(CancellationToken.None);
             await actBeforeExpiry.Should().NotThrowAsync("明顯小於 TTL（0.5 秒 < 2 秒）應仍命中快取，不查詢資料庫");
 
-            await Task.Delay(TimeSpan.FromSeconds(2));
-            await using var dbContext2 = _postgresFixture.CreateDbContext();
-            var actAfterExpiry = () => new GetEventsHandler(new EventRepository(dbContext2), queryCache, options).HandleAsync(CancellationToken.None);
-            await actAfterExpiry.Should().NotThrowAsync("超過 TTL 後（累計 2.5 秒 > 2 秒緩衝）應重新查詢資料庫");
+            // 「合理容忍範圍」以累計等待時間計（WaitUntilKeyExpiredAsync 上限為 TTL + 時鐘回跳餘裕），而非固定 Task.Delay：
+            // Redis 以牆上時鐘計算到期，WSL2 時鐘回跳 2–3 秒時固定等待可能不足。
+            await WaitUntilKeyExpiredAsync(connection, GetEventsHandler.CacheKey, TimeSpan.FromSeconds(options.EventListTtlSeconds));
+            // 用 AlwaysThrowingEventRepository 證明真的回到資料庫查詢；改前使用真正的 Repository，
+            // 命中與未命中都不會拋例外，這個斷言無法失敗。
+            var actAfterExpiry = () => new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options).HandleAsync(CancellationToken.None);
+            await actAfterExpiry.Should().ThrowAsync<InvalidOperationException>("超過 TTL 後快取已淘汰，應重新查詢資料庫");
         }
         finally
         {
@@ -230,8 +258,11 @@ public class QueryCacheTtlSafetyNetTests
         await redis.InitializeAsync();
         try
         {
-            var options = new QueryCacheOptions { EventListTtlSeconds = 60, TicketTypesTtlSeconds = 2 };
-            var queryCache = new RedisQueryCache(redis.CreateConnection(), NullLogger<RedisQueryCache>.Instance);
+            // TTL 取 5 秒而非更短：步驟 5 必須在 TTL 內命中 R 寫入的舊快取，完整測試套件平行執行時負載高、
+            // WSL2 時鐘也會跳動，過短的 TTL 會讓快取在 S 查詢前就過期而誤判。
+            var options = new QueryCacheOptions { EventListTtlSeconds = 60, TicketTypesTtlSeconds = 5 };
+            var connection = redis.CreateConnection();
+            var queryCache = new RedisQueryCache(connection, NullLogger<RedisQueryCache>.Instance);
             var (venueId, seatMapId) = await SeedVenueAndSeatMapAsync();
             var eventId = await SeedEventAsync(venueId, seatMapId);
 
@@ -254,7 +285,7 @@ public class QueryCacheTtlSafetyNetTests
                     new EventRepository(writeDbContext), new SeatMapRepository(writeDbContext), new TicketTypeRepository(writeDbContext),
                     new UnitOfWork(writeDbContext), new CreateTicketTypeRequestValidator(), queryCache);
                 var result = await createHandler.HandleAsync(
-                    eventId, new CreateTicketTypeRequest("新票種", 500m, RequiresSeat: false, AvailableQuantity: 20), CancellationToken.None);
+                    eventId, (await writeDbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId)).OrganizerId, new CreateTicketTypeRequest("新票種", 500m, RequiresSeat: false, AvailableQuantity: 20), CancellationToken.None);
                 result.IsSuccess.Should().BeTrue();
                 newTicketTypeId = result.Value;
             }
@@ -273,7 +304,8 @@ public class QueryCacheTtlSafetyNetTests
             sResult.Value.Should().NotContain(t => t.Id == newTicketTypeId, "這是本次改動接受的既知限制：短暫復活的舊快取");
 
             // 步驟 6：等待 TTL 到期，確認陳舊快取最終仍會過期並看到新票種。
-            await Task.Delay(TimeSpan.FromSeconds(2.5));
+            await WaitUntilKeyExpiredAsync(connection, GetTicketTypesHandler.BuildCacheKey(eventId), TimeSpan.FromSeconds(options.TicketTypesTtlSeconds));
+
             await using var verifyDbContext = _postgresFixture.CreateDbContext();
             var finalResult = await new GetTicketTypesHandler(new EventRepository(verifyDbContext), new TicketTypeRepository(verifyDbContext), queryCache, options)
                 .HandleAsync(eventId, CancellationToken.None);
@@ -326,8 +358,9 @@ public class QueryCacheTtlSafetyNetTests
             var queryCache = new RedisQueryCache(connection, NullLogger<RedisQueryCache>.Instance);
             var key = $"ttl-test:{Guid.NewGuid():N}";
 
-            await queryCache.SetAsync(key, "value", TimeSpan.FromSeconds(1), CancellationToken.None);
-            await Task.Delay(TimeSpan.FromSeconds(1.5));
+            var ttl = TimeSpan.FromSeconds(1);
+            await queryCache.SetAsync(key, "value", ttl, CancellationToken.None);
+            await WaitUntilKeyExpiredAsync(connection, key, ttl);
 
             var result = await queryCache.GetAsync<string>(key, CancellationToken.None);
             result.IsHit.Should().BeFalse();

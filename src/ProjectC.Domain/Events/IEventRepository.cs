@@ -6,6 +6,10 @@ public interface IEventRepository
 
     Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken);
 
+    /// <summary>只回傳指定 Organizer 名下的活動；過濾 MUST 在資料庫端執行，不得把其他 Organizer 的活動
+    /// 載入記憶體再過濾（見 event-management-organizer-scoping design.md「安全確認-資料庫」）。</summary>
+    Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken);
+
     void Add(Event @event);
 
     /// <summary>將既有活動標記為已修改，供 <c>SetEventQueueModeHandler</c> 之類的一般欄位更新使用。</summary>

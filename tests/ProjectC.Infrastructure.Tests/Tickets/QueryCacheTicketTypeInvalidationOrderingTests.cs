@@ -41,7 +41,8 @@ public class QueryCacheTicketTypeInvalidationOrderingTests
         await using var dbContext = _fixture.CreateDbContext();
         var venue = new Venue(Guid.NewGuid(), "Test Venue");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), venue.Id, seatMap.Id, organizerId);
         dbContext.Venues.Add(venue);
         dbContext.SeatMaps.Add(seatMap);
         dbContext.Events.Add(@event);
@@ -97,7 +98,7 @@ public class QueryCacheTicketTypeInvalidationOrderingTests
                 queryCache);
 
             var result = await handler.HandleAsync(
-                eventId, new CreateTicketTypeRequest("新票種", 500m, RequiresSeat: false, AvailableQuantity: 20), CancellationToken.None);
+                eventId, (await writeDbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId)).OrganizerId, new CreateTicketTypeRequest("新票種", 500m, RequiresSeat: false, AvailableQuantity: 20), CancellationToken.None);
             result.IsSuccess.Should().BeTrue();
             newTicketTypeId = result.Value;
         }

@@ -31,13 +31,14 @@ public class RedeemTicketConcurrencyTests
     private static RedeemTicketHandler CreateRedeemTicketHandler(ApplicationDbContext dbContext)
         => new(
             new TicketRepository(dbContext),
+            new OrderRepository(dbContext),
             new UnitOfWork(dbContext),
             new SystemDateTimeProvider(),
             new HmacTicketSigningService(new TicketSigningOptions { SigningKey = "concurrency-test-ticket-signing-key-not-for-prod-32+" }));
 
     // 走真實的「下單 → 確認付款」流程觸發出票（比照 AdminTicketsControllerTests 的種子資料手法），
     // 確保建立出來的 Ticket 具備真實、通過所有驗證規則的 OrderItemId 外鍵。
-    private async Task<Guid> SeedIssuedTicketAsync(ApplicationDbContext dbContext)
+    private async Task<(Guid TicketId, Guid OrganizerId)> SeedIssuedTicketAsync(ApplicationDbContext dbContext)
     {
         var (eventId, eventSeatIds) = await TicketingTestData.SeedEventWithSeatsAsync(dbContext, seatCount: 1);
         var ticketTypeId = await TicketingTestData.SeedTicketTypeAsync(dbContext, eventId);
@@ -61,22 +62,23 @@ public class RedeemTicketConcurrencyTests
             .Select(i => i.Id)
             .ToListAsync();
         var ticket = await dbContext.Tickets.AsNoTracking().SingleAsync(t => orderItemIds.Contains(t.OrderItemId));
-        return ticket.Id;
+        var organizerId = await dbContext.Events.AsNoTracking().Where(e => e.Id == eventId).Select(e => e.OrganizerId).SingleAsync();
+        return (ticket.Id, organizerId);
     }
 
     [Fact]
     public async Task HandleAsync_TwoConcurrentRedeemsOnSameIssuedTicket_OnlyOneSucceedsAndTheOtherIsRejected()
     {
         await using var seedDbContext = _fixture.CreateDbContext();
-        var ticketId = await SeedIssuedTicketAsync(seedDbContext);
+        var (ticketId, organizerId) = await SeedIssuedTicketAsync(seedDbContext);
 
         await using var dbContextA = _fixture.CreateDbContext();
         await using var dbContextB = _fixture.CreateDbContext();
         var handlerA = CreateRedeemTicketHandler(dbContextA);
         var handlerB = CreateRedeemTicketHandler(dbContextB);
 
-        var taskA = handlerA.HandleAsync(ticketId, null, CancellationToken.None);
-        var taskB = handlerB.HandleAsync(ticketId, null, CancellationToken.None);
+        var taskA = handlerA.HandleAsync(ticketId, organizerId, null, CancellationToken.None);
+        var taskB = handlerB.HandleAsync(ticketId, organizerId, null, CancellationToken.None);
         var results = await Task.WhenAll(taskA, taskB);
 
         results.Count(r => r.IsSuccess).Should().Be(1, "兩個並發核銷同一張票，只能有一個成功，另一個 MUST 被拒絕而非誤報成功");

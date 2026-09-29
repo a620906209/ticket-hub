@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Members;
 
@@ -18,18 +19,23 @@ public class JwtTokenService : ITokenService
         _jwtOptions = jwtOptions.Value;
     }
 
-    public string GenerateAccessToken(Member member)
+    public string GenerateAccessToken(Member member, Guid? organizerId = null)
     {
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtOptions.SigningKey));
         var signingCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, member.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, member.Email),
-            new Claim(ClaimTypes.Role, member.Role.ToString()),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(JwtRegisteredClaimNames.Sub, member.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, member.Email),
+            new(ClaimTypes.Role, member.Role.ToString()),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
+
+        if (organizerId is { } value)
+        {
+            claims.Add(new Claim(CustomClaimTypes.OrganizerId, value.ToString()));
+        }
 
         var token = new JwtSecurityToken(
             issuer: _jwtOptions.Issuer,

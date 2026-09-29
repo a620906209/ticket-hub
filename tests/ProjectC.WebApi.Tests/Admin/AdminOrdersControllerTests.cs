@@ -1,15 +1,8 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
-using ProjectC.Application.Events.CreateEvent;
-using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Orders.GetOrderById;
 using ProjectC.Application.Orders.GetOrders;
-using ProjectC.Application.Orders.PlaceOrder;
-using ProjectC.Application.Tickets.CreateTicketType;
-using ProjectC.Application.Venues.CreateSeatMap;
-using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.WebApi.Tests.TestSupport;
 
 namespace ProjectC.WebApi.Tests.Admin;
@@ -23,73 +16,52 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
         _factory = factory;
     }
 
-    private static async Task<Guid> ReadCreatedIdAsync(HttpResponseMessage response)
-    {
-        response.EnsureSuccessStatusCode();
-        var created = await response.Content.ReadFromJsonAsync<CreatedResponse>();
-        return created!.Id;
-    }
+    private Task<OrganizerScopedTestData.SeededOrder> SeedPendingOrderAsync(HttpClient organizerClient)
+        => OrganizerScopedTestData.SeedPendingOrderAsync(_factory, organizerClient);
 
-    private async Task<Guid> SeedPendingOrderAsync()
-    {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Admin Orders Test Venue"));
-        var venueId = await ReadCreatedIdAsync(venueResponse);
-        var seatMapResponse = await adminClient.PostAsJsonAsync(
-            $"/api/admin/venues/{venueId}/seat-maps", new CreateSeatMapRequest([new SeatRequest("A", "1")]));
-        var seatMapId = await ReadCreatedIdAsync(seatMapResponse);
-        var eventResponse = await adminClient.PostAsJsonAsync(
-            "/api/admin/events", new CreateEventRequest("Admin Orders Test Event", DateTime.UtcNow.AddDays(30), venueId, seatMapId));
-        var eventId = await ReadCreatedIdAsync(eventResponse);
-        var ticketTypeResponse = await adminClient.PostAsJsonAsync(
-            $"/api/admin/events/{eventId}/ticket-types", new CreateTicketTypeRequest("A", 500m));
-        var ticketTypeId = await ReadCreatedIdAsync(ticketTypeResponse);
+    // 未帶 OrganizerId claim 的兩種身份：一般 Member，以及 Admin 角色但未切換 Organizer
+    // （證明 Admin 角色不再能繞過 Organizer 切換）。
+    private async Task<IReadOnlyList<(string Identity, HttpClient Client)>> CreateClientsWithoutOrganizerContextAsync()
+        =>
+        [
+            ("Member", await OrganizerScopedTestData.CreateAuthenticatedMemberClientAsync(_factory)),
+            ("Admin", await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory)),
+        ];
 
-        var publicClient = _factory.CreateClient();
-        var seatsResponse = await publicClient.GetAsync($"/api/events/{eventId}/seats");
-        var seats = await seatsResponse.Content.ReadFromJsonAsync<List<EventSeatDto>>();
-        var eventSeatId = seats!.Single().EventSeatId;
+    // ---- 授權規則 ----
 
-        var buyerClient = _factory.CreateClient();
-        var tokens = await AuthTestHelper.RegisterAndLoginAsync(buyerClient);
-        buyerClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
-        var placeResponse = await buyerClient.PostAsJsonAsync(
-            "/api/orders", new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeatId, ticketTypeId)]));
-
-        return await ReadCreatedIdAsync(placeResponse);
-    }
-
-    private async Task<HttpClient> CreateAuthenticatedMemberClientAsync()
-    {
-        var client = _factory.CreateClient();
-        var tokens = await AuthTestHelper.RegisterAndLoginAsync(client);
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
-        return client;
-    }
-
-    // ---- 查看訂單需要 Admin 角色 ----
-
+    // [ORD-AUTHZ-001] 已切換至 Approved Organizer（非 Admin）即可呼叫列表與明細端點
     [Fact]
-    public async Task GetOrders_AsAdmin_Returns200()
+    public async Task GetOrdersAndGetOrderById_AsApprovedOrganizerNonAdmin_Returns200()
     {
-        await SeedPendingOrderAsync();
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await SeedPendingOrderAsync(organizerClient);
 
-        var response = await adminClient.GetAsync("/api/admin/orders");
+        var listResponse = await organizerClient.GetAsync("/api/admin/orders");
+        var detailResponse = await organizerClient.GetAsync($"/api/admin/orders/{seeded.OrderId}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        detailResponse.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    // [ORD-AUTHZ-002]
     [Fact]
-    public async Task GetOrders_AsNonAdminMember_Returns403()
+    public async Task GetOrdersAndGetOrderById_WithoutOrganizerContext_Returns403ForMemberAndAdmin()
     {
-        var memberClient = await CreateAuthenticatedMemberClientAsync();
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await SeedPendingOrderAsync(organizerClient);
 
-        var response = await memberClient.GetAsync("/api/admin/orders");
+        foreach (var (identity, client) in await CreateClientsWithoutOrganizerContextAsync())
+        {
+            var listResponse = await client.GetAsync("/api/admin/orders");
+            var detailResponse = await client.GetAsync($"/api/admin/orders/{seeded.OrderId}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            listResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{identity} 未切換 Organizer 呼叫列表");
+            detailResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{identity} 未切換 Organizer 呼叫明細");
+        }
     }
 
+    // [ORD-AUTHZ-003]
     [Fact]
     public async Task GetOrders_WithoutAuthentication_Returns401()
     {
@@ -100,65 +72,102 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
-    [Fact]
-    public async Task GetOrderById_AsNonAdminMember_Returns403()
-    {
-        var orderId = await SeedPendingOrderAsync();
-        var memberClient = await CreateAuthenticatedMemberClientAsync();
-
-        var response = await memberClient.GetAsync($"/api/admin/orders/{orderId}");
-
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-    }
-
+    // [ORD-AUTHZ-003]
     [Fact]
     public async Task GetOrderById_WithoutAuthentication_Returns401()
     {
-        var orderId = await SeedPendingOrderAsync();
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await SeedPendingOrderAsync(organizerClient);
         var client = _factory.CreateClient();
 
-        var response = await client.GetAsync($"/api/admin/orders/{orderId}");
+        var response = await client.GetAsync($"/api/admin/orders/{seeded.OrderId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
-    // ---- 查詢所有訂單列表 ----
-
+    // [ORD-AUTHZ-004] RequireOrganizerContext 不即時查表：停權前核發、未過期的 Access Token 在過期前仍可通過。
+    // 這是 design.md Decision 2 的既知有界延遲視窗；若此測試失敗，代表 Policy 行為改變，spec 必須同步修改。
     [Fact]
-    public async Task GetOrders_ReturnsCreatedOrder()
+    public async Task GetOrders_WithTokenIssuedBeforeOrganizerSuspended_IsStillAcceptedUntilExpiry()
     {
-        var orderId = await SeedPendingOrderAsync();
+        var (organizerClient, organizerId) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await SeedPendingOrderAsync(organizerClient);
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
 
-        var response = await adminClient.GetAsync("/api/admin/orders");
+        var suspendResponse = await adminClient.PatchAsync($"/api/admin/organizers/{organizerId}/suspend", null);
+        suspendResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
+        var response = await organizerClient.GetAsync("/api/admin/orders");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
         var orders = await response.Content.ReadFromJsonAsync<List<OrderSummaryDto>>();
-        orders.Should().ContainSingle(o => o.Id == orderId && o.Status == "Pending");
+        orders.Should().Contain(o => o.Id == seeded.OrderId);
     }
 
-    // ---- 查詢單筆訂單明細 ----
+    // ---- 訂單列表（租戶過濾） ----
 
+    // [ORD-LIST-001]
+    [Fact]
+    public async Task GetOrders_ReturnsOnlyCallerOrganizerOrders()
+    {
+        var (organizerAClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (organizerBClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var orderA = await SeedPendingOrderAsync(organizerAClient);
+        var orderB = await SeedPendingOrderAsync(organizerBClient);
+
+        var response = await organizerAClient.GetAsync("/api/admin/orders");
+
+        var orders = await response.Content.ReadFromJsonAsync<List<OrderSummaryDto>>();
+        orders!.Select(o => o.Id).Should().BeEquivalentTo([orderA.OrderId]);
+        orders.Should().ContainSingle(o => o.Id == orderA.OrderId && o.Status == "Pending");
+        orders.Should().NotContain(o => o.Id == orderB.OrderId);
+    }
+
+    // ---- 訂單明細 ----
+
+    // [ORD-DETAIL-001]
     [Fact]
     public async Task GetOrderById_WithExistingOrder_ReturnsDetailWithItems()
     {
-        var orderId = await SeedPendingOrderAsync();
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await SeedPendingOrderAsync(organizerClient);
 
-        var response = await adminClient.GetAsync($"/api/admin/orders/{orderId}");
+        var response = await organizerClient.GetAsync($"/api/admin/orders/{seeded.OrderId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var detail = await response.Content.ReadFromJsonAsync<OrderDetailDto>();
-        detail!.Id.Should().Be(orderId);
+        detail!.Id.Should().Be(seeded.OrderId);
         detail.Items.Should().HaveCount(1);
     }
 
+    // [ORD-DETAIL-002]
     [Fact]
     public async Task GetOrderById_WithNonExistentOrder_Returns404()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
 
-        var response = await adminClient.GetAsync($"/api/admin/orders/{Guid.NewGuid()}");
+        var response = await organizerClient.GetAsync($"/api/admin/orders/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    // [ORD-DETAIL-003] 其他 Organizer 的訂單視同不存在：狀態碼與 body 皆與真正不存在時相同（除 ID 外逐字相同）
+    [Fact]
+    public async Task GetOrderById_WithOtherOrganizerOrder_Returns404WithSameBodyAsMissingOrder()
+    {
+        var (organizerAClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (organizerBClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var orderB = await SeedPendingOrderAsync(organizerBClient);
+        var missingOrderId = Guid.NewGuid();
+
+        var otherOrganizerResponse = await organizerAClient.GetAsync($"/api/admin/orders/{orderB.OrderId}");
+        var missingResponse = await organizerAClient.GetAsync($"/api/admin/orders/{missingOrderId}");
+
+        otherOrganizerResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var otherOrganizerBody = await NotFoundResponseBody.ReadNormalizedAsync(otherOrganizerResponse, orderB.OrderId);
+        var missingBody = await NotFoundResponseBody.ReadNormalizedAsync(missingResponse, missingOrderId);
+        otherOrganizerBody.Should().Be(missingBody);
+        otherOrganizerBody.Should().NotContain("buyerId").And.NotContain("items");
     }
 }

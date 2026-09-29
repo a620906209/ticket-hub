@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
@@ -33,22 +34,11 @@ public class SensitiveDataMaskingInStructuredPropertiesTests : IClassFixture<Obs
         return created!.Id;
     }
 
-    private async Task<HttpClient> CreateAuthenticatedAdminClientAsync()
-    {
-        var email = AuthTestHelper.NewEmail();
-        await AuthTestHelper.RegisterAsync(_factory.CreateClient(), email);
-        await AuthTestHelper.PromoteToAdminAsync(_factory.Services, email);
-        var tokens = await AuthTestHelper.LoginAsync(_factory.CreateClient(), email);
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
-        return client;
-    }
-
     // 對應 AC: OBS-EMAIL-MASKED-IN-STRUCTURED-PROPERTIES
     [Fact]
     public async Task ConfirmOrder_NotificationLog_EmailPropertyIsMaskedNotRawValue()
     {
-        var adminClient = await CreateAuthenticatedAdminClientAsync();
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
         var venueId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Masking Test Venue")));
         var seatMapId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync(
             $"/api/admin/venues/{venueId}/seat-maps", new CreateSeatMapRequest([new SeatRequest("A", "1")])));
@@ -99,12 +89,15 @@ public class SensitiveDataMaskingInStructuredPropertiesTests : IClassFixture<Obs
     public async Task Redeem_WithTamperedSignature_SignatureNeverAppearsInAnyLoggedProperty()
     {
         const string tamperedSignature = "definitely-not-a-real-signature-marker-xyz";
-        var adminClient = await CreateAuthenticatedAdminClientAsync();
+        // 核銷端點要求已切換 Organizer；未切換會在授權階段就 403，簽章根本進不到 Handler，這個測試會空洞通過。
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
 
-        var response = await adminClient.PatchAsync(
+        var response = await organizerClient.PatchAsync(
             $"/api/admin/tickets/{Guid.NewGuid()}/redeem",
             JsonContent.Create(new RedeemTicketRequest(tamperedSignature)));
-        _ = response;
+
+        // 400 InvalidTicketSignature 證明請求確實通過授權、簽章已進入 Handler 驗證路徑。
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         foreach (var evt in _factory.LogSink.Events)
         {

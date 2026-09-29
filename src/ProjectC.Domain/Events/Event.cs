@@ -10,6 +10,7 @@ public sealed class Event
     public DateTime StartAtUtc { get; }
     public Guid VenueId { get; }
     public Guid SeatMapId { get; }
+    public Guid OrganizerId { get; }
     public string? Description { get; }
     public string? PosterUrl { get; }
     public int? MaxTicketsPerOrder { get; }
@@ -23,6 +24,7 @@ public sealed class Event
         DateTime startAtUtc,
         Guid venueId,
         Guid seatMapId,
+        Guid organizerId,
         string? description = null,
         string? posterUrl = null,
         int? maxTicketsPerOrder = null,
@@ -37,6 +39,8 @@ public sealed class Event
             throw new ArgumentException("Venue is required.", nameof(venueId));
         if (seatMapId == Guid.Empty)
             throw new ArgumentException("Seat map is required.", nameof(seatMapId));
+        if (organizerId == Guid.Empty)
+            throw new ArgumentException("Organizer is required.", nameof(organizerId));
         if (maxTicketsPerOrder is <= 0)
             throw new ArgumentException("Max tickets per order must be positive when set.", nameof(maxTicketsPerOrder));
 
@@ -45,6 +49,7 @@ public sealed class Event
         StartAtUtc = startAtUtc;
         VenueId = venueId;
         SeatMapId = seatMapId;
+        OrganizerId = organizerId;
         Description = description;
         PosterUrl = posterUrl;
         MaxTicketsPerOrder = maxTicketsPerOrder;

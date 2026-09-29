@@ -19,7 +19,7 @@ public class GetEventsHandlerTests
         _handler = new GetEventsHandler(_eventRepository, _queryCache, _options);
     }
 
-    private static Event NewEvent() => new(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+    private static Event NewEvent() => new(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
     [Fact]
     public async Task HandleAsync_WhenCacheMisses_QueriesDatabaseAndWritesResultToCacheWithConfiguredTtl()

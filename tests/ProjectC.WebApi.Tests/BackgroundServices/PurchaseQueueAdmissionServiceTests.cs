@@ -18,7 +18,7 @@ using ProjectC.WebApi.Tests.TestSupport;
 namespace ProjectC.WebApi.Tests.BackgroundServices;
 
 // purchase-queue spec：排隊入場名額依先後順序推進（PQ-ADMIT-001~006）、等待中的排隊紀錄沒有自身逾時機制
-// （PQ-WAIT-001）、Admin 關閉熱門搶購模式後既有排隊紀錄不主動清理（PQ-TOGGLE-001~002）、建立訂單成功後
+// （PQ-WAIT-001）、關閉熱門搶購模式後，既有排隊紀錄不主動清理（PQ-TOGGLE-001~002）、建立訂單成功後
 // 標記排隊紀錄為已完成，名額即時釋放（PQ-COMPLETE-002）。purchase-queue-redis-admission 改動後：
 // 入場推進的互斥/決策改由 Redis Lua Script 原子完成，Postgres 仍是持久化真相來源；以下測試絕大多數
 // 直接沿用既有的「只在 Postgres 種資料」設定手法而不需修改——AdvanceEventQueueAsync 在推進前一律先執行
@@ -52,7 +52,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
     {
         var venue = new Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         if (isQueueModeEnabled)
         {
             @event.EnableQueueMode();
@@ -290,37 +291,87 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
             PurchaseQueueEntryStatus.Admitted, "Waiting 沒有自身逾時機制，不因等待過久而被跳過或標記為 Expired");
     }
 
+    private async Task<List<(Guid Id, PurchaseQueueEntryStatus Status, DateTime JoinedAtUtc)>> ReadEntriesOfEventAsync(Guid eventId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var entries = await dbContext.PurchaseQueueEntries.AsNoTracking()
+            .Where(e => e.EventId == eventId)
+            .OrderBy(e => e.JoinedAtUtc)
+            .ToListAsync();
+        return entries.Select(e => (e.Id, e.Status, e.JoinedAtUtc)).ToList();
+    }
+
+    private static async Task SetQueueModeAsync(ApplicationDbContext dbContext, Guid eventId, bool isEnabled)
+    {
+        var @event = await dbContext.Events.SingleAsync(e => e.Id == eventId);
+        if (isEnabled)
+        {
+            @event.EnableQueueMode();
+        }
+        else
+        {
+            @event.DisableQueueMode();
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    // [PQ-TOGGLE-001] 模擬「開啟中 → 關閉」：關閉後背景推進不處理該活動，既有紀錄不刪除、不改寫。
     [Fact]
     public async Task AdvanceQueueOnceAsync_WhenQueueModeIsDisabled_SkipsTheEventAndLeavesWaitingEntriesUnchanged()
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var eventId = await SeedQueueModeEventAsync(dbContext, isQueueModeEnabled: false);
-        var waiting = await SeedWaitingEntryAsync(dbContext, eventId, DateTime.UtcNow.AddMinutes(-10));
+        var eventId = await SeedQueueModeEventAsync(dbContext, isQueueModeEnabled: true);
+        var now = DateTime.UtcNow;
+        await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-30));
+        await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-20));
+        await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-10));
+        // 基準值從 DB 讀回，避免 DateTime 精度（Postgres 為微秒）造成誤判。
+        var baseline = await ReadEntriesOfEventAsync(eventId);
+        baseline.Should().HaveCount(3);
+        await SetQueueModeAsync(dbContext, eventId, isEnabled: false);
 
-        await CreateService().AdvanceQueueOnceAsync(CancellationToken.None);
+        await CreateService(maxConcurrentAdmittedBuyers: 3).AdvanceQueueOnceAsync(CancellationToken.None);
 
-        (await ReadStatusAsync(waiting.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting, "關閉熱門搶購模式的活動不應被背景服務處理");
+        var afterAdvance = await ReadEntriesOfEventAsync(eventId);
+        afterAdvance.Should().Equal(baseline, "關閉熱門搶購模式的活動不應被背景服務處理，既有紀錄不刪除、狀態與加入時間不變");
+        afterAdvance.Should().OnlyContain(e => e.Status == PurchaseQueueEntryStatus.Waiting);
     }
 
+    // [PQ-TOGGLE-002] 走完「開啟 → 關閉 → 重新開啟」：沿用原順序推進，不要求重新加入、不重置加入時間。
     [Fact]
     public async Task AdvanceQueueOnceAsync_AfterReEnablingQueueMode_ResumesAdmittingInOriginalJoinOrder()
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var eventId = await SeedQueueModeEventAsync(dbContext, isQueueModeEnabled: false);
+        var eventId = await SeedQueueModeEventAsync(dbContext, isQueueModeEnabled: true);
         var now = DateTime.UtcNow;
-        var earlier = await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-30));
-        var later = await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-10));
+        var earliest = await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-30));
+        var middle = await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-20));
+        var latest = await SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-10));
+        var baseline = await ReadEntriesOfEventAsync(eventId);
+        var baselineIdsAndJoinTimes = baseline.Select(e => (e.Id, e.JoinedAtUtc)).ToList();
 
-        var @event = await dbContext.Events.SingleAsync(e => e.Id == eventId);
-        @event.EnableQueueMode();
-        await dbContext.SaveChangesAsync();
+        await SetQueueModeAsync(dbContext, eventId, isEnabled: false);
+        await CreateService(maxConcurrentAdmittedBuyers: 3).AdvanceQueueOnceAsync(CancellationToken.None);
+        (await ReadEntriesOfEventAsync(eventId)).Should().OnlyContain(e => e.Status == PurchaseQueueEntryStatus.Waiting);
 
+        await SetQueueModeAsync(dbContext, eventId, isEnabled: true);
         await CreateService(maxConcurrentAdmittedBuyers: 1).AdvanceQueueOnceAsync(CancellationToken.None);
 
-        (await ReadStatusAsync(earlier.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted, "重新開啟後仍應依原本的 JoinedAtUtc 順序推進");
-        (await ReadStatusAsync(later.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting);
+        (await ReadStatusAsync(earliest.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted, "重新開啟後仍應依原本的 JoinedAtUtc 順序推進");
+        (await ReadStatusAsync(middle.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting);
+        (await ReadStatusAsync(latest.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting);
+
+        await CreateService(maxConcurrentAdmittedBuyers: 2).AdvanceQueueOnceAsync(CancellationToken.None);
+
+        (await ReadStatusAsync(earliest.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted);
+        (await ReadStatusAsync(middle.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted);
+        (await ReadStatusAsync(latest.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting);
+        (await ReadEntriesOfEventAsync(eventId)).Select(e => (e.Id, e.JoinedAtUtc)).Should().Equal(
+            baselineIdsAndJoinTimes, "不得要求會員重新加入（產生新紀錄）或重置加入時間");
     }
 
     [Fact]
@@ -372,7 +423,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var venue = new Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         @event.EnableQueueMode();
         var ticketType = @event.CreateCountBasedTicketType("站票", 300m, 10);
         dbContext.Venues.Add(venue);
@@ -505,6 +557,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
         }
 
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
+
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
 
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 

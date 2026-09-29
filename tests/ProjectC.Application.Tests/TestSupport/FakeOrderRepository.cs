@@ -9,8 +9,20 @@ public sealed class FakeOrderRepository : IOrderRepository
     public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => Task.FromResult(Data.FirstOrDefault(o => o.Id == id));
 
-    public Task<IReadOnlyList<Order>> GetAllAsync(CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<Order>>(Data.ToList());
+    // Order 只以 EventId 參照 Event，假物件無法自行 join；改由測試直接指定每個 EventId 所屬的 OrganizerId。
+    public Dictionary<Guid, Guid> OrganizerIdByEventId { get; } = new();
+
+    public Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<Order>>(Data
+            .Where(o => OrganizerIdByEventId.TryGetValue(o.EventId, out var owner) && owner == organizerId)
+            .ToList());
+
+    public Task<Guid?> GetOrganizerIdByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
+    {
+        var order = Data.FirstOrDefault(o => o.Items.Any(i => i.Id == orderItemId));
+        Guid? organizerId = order is not null && OrganizerIdByEventId.TryGetValue(order.EventId, out var owner) ? owner : null;
+        return Task.FromResult(organizerId);
+    }
 
     public Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<Order>>(Data.Where(order => order.BuyerId == buyerId).ToList());

@@ -3,21 +3,6 @@
 ## Purpose
 TBD - created by archiving change sales-report. Update Purpose after archive.
 ## Requirements
-### Requirement: 查詢銷售報表需要 Admin 角色
-系統 SHALL 要求呼叫單一活動銷售報表查詢端點者持有效 JWT 且角色為 Admin；未提供有效 Token 或角色非 Admin MUST 被拒絕。
-
-#### Scenario: Admin 成功查詢銷售報表
-- **WHEN** 持有效 JWT 且角色為 Admin 的使用者呼叫指定活動的銷售報表查詢端點
-- **THEN** 系統受理該請求並依端點邏輯處理
-
-#### Scenario: 非 Admin 會員查詢銷售報表
-- **WHEN** 持有效 JWT 但角色非 Admin 的使用者呼叫銷售報表查詢端點
-- **THEN** 系統回傳 403 拒絕存取
-
-#### Scenario: 未帶 Token 查詢銷售報表
-- **WHEN** 未提供 Authorization Header 或 Token 無效，呼叫銷售報表查詢端點
-- **THEN** 系統回傳 401 未授權
-
 ### Requirement: 查詢單一活動的銷售彙總報表
 系統 SHALL 提供 Admin 依活動 Id 查詢該活動即時銷售彙總報表的端點，回傳查詢當下的總營收（僅統計 `Order.Status = Paid` 的訂單，`Pending`／`Cancelled` 訂單 MUST NOT 計入）、總售出票券張數，以及依票種（`TicketType`）拆分的售出張數與營收明細。報表 SHALL 涵蓋座位制（`RequiresSeat = true`）與計數制（`RequiresSeat = false`）兩種票種，統計方式一致（依 `OrderItem.Quantity` 加總張數、`Quantity × UnitPrice` 加總營收）。所有金額 SHALL 以 `OrderItem.UnitPrice`（下單當下寫入的成交單價快照）計算，MUST NOT 重新查詢或套用 `TicketType.Price` 目前的設定值——票種價格在活動中途調整不影響已付款訂單的報表金額。查詢的活動 MUST 存在，不存在時 MUST 回報找不到資源。報表為查詢當下的即時快照，不提供任何時間序列或歷史趨勢資料，不做任何快取（每次查詢皆反映呼叫當下的資料庫實際內容）。查詢時機不受活動開始時間限制，活動建立後即可查詢（即便尚未開賣或尚未有任何訂單）。總營收、總售出票券張數這兩個金額類數字 SHALL 來自同一次資料庫聚合查詢，確保「總數 = 依票種明細加總 + 無法歸類分組加總」這個等式恆成立，不因查詢時序產生落差；票種目錄（用於補上 0 銷售的票種、以及判斷某個分組是否屬於本活動，見下一條 Requirement）是另一次獨立查詢，MUST NOT 要求與前述聚合查詢具備交易級快照一致性——票種目錄不提供刪除功能，這個獨立性在實務上不影響任何金額數字的正確性。
 
@@ -63,4 +48,27 @@ TBD - created by archiving change sales-report. Update Purpose after archive.
 #### Scenario: 沒有無法歸類的項目
 - **WHEN** 活動的已付款訂單中所有項目皆有對應且屬於本活動的 `TicketTypeId`
 - **THEN** 回應的 `UnclassifiedItemCount`／`UnclassifiedTicketsSold`／`UnclassifiedRevenue` MUST 皆為 0，前端 MUST NOT 顯示無法歸類提示
+
+### Requirement: 查詢銷售報表需要已切換至一個 Approved Organizer
+系統 SHALL 要求呼叫單一活動銷售報表查詢端點者持有效 JWT 且帶有 `OrganizerId` claim（即已切換至一個 Approved Organizer）；未提供有效 Token 或 Token 未帶 `OrganizerId` claim MUST 被拒絕。查詢的活動若存在但其 `OrganizerId` 不等於呼叫端目前 Organizer，MUST 視同找不到（404），不得回傳 403，且此 404 的回應 body MUST 與活動不存在時逐字相同（含錯誤訊息），避免揭露「這個活動存在、只是不屬於自己」。此授權同樣適用 `RequireOrganizerContext` Policy 不即時查表的既知取捨（見 `organizer-management` 能力與 `event-management` 能力 `EVT-AUTHZ-004`）：Organizer 被停權後，其成員手上停權前已核發、尚未過期的 Access Token，在自然到期前仍可查詢該 Organizer 活動的銷售報表；延遲上限為 `AccessTokenExpirationMinutes`，停權後的換發與切換由 `organizer-management` 能力立即阻擋。
+
+#### Scenario: RPT-AUTHZ-001 已切換至 Approved Organizer 的成員查詢自己活動的銷售報表成功
+- **WHEN** 持有效 JWT 且帶有 `OrganizerId` claim 的使用者，對屬於自己目前 Organizer 的活動呼叫銷售報表查詢端點
+- **THEN** 系統受理該請求並依端點邏輯處理
+
+#### Scenario: RPT-AUTHZ-002 未帶 OrganizerId claim 查詢銷售報表
+- **WHEN** 持有效 JWT、但 Token 未帶 `OrganizerId` claim 的使用者（含單純角色為 `Admin` 但尚未切換 Organizer 者）呼叫銷售報表查詢端點
+- **THEN** 系統回傳 403 拒絕存取
+
+#### Scenario: RPT-AUTHZ-003 未帶 Token 查詢銷售報表
+- **WHEN** 未提供 Authorization Header 或 Token 無效，呼叫銷售報表查詢端點
+- **THEN** 系統回傳 401 未授權
+
+#### Scenario: RPT-AUTHZ-004 查詢屬於其他 Organizer 的活動銷售報表
+- **WHEN** 已切換至 Organizer A 的使用者，對存在、但屬於 Organizer B 的活動呼叫銷售報表查詢端點
+- **THEN** 系統 MUST 回報找不到資源（404，回應 body 與查詢不存在的活動時逐字相同），不得回傳 403
+
+#### Scenario: RPT-AUTHZ-005 停權前已核發、尚未過期的 Access Token 於過期前仍可查詢銷售報表（已知延遲視窗，非缺陷）
+- **WHEN** 某 Member 持有一組停權前核發、尚未過期、帶有 Organizer 的 `OrganizerId` claim 的 Access Token，該 Organizer 隨後被停權，該 Member 在未重新換發、未重新切換的情況下，對屬於該 Organizer 的活動呼叫銷售報表查詢端點
+- **THEN** 系統 SHALL 依 `RequireOrganizerContext` Policy 的既定行為受理該請求並回傳銷售報表；延遲上限為 `AccessTokenExpirationMinutes`，換發或切換即被拒絕的負向路徑由 `organizer-management` 能力 `ORG-REFRESH-003`／`ORG-SUSPEND-001` 負責
 

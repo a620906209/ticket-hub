@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Members;
+using ProjectC.Domain.Organizers;
 using ProjectC.Domain.Venues;
 
 namespace ProjectC.Infrastructure.Persistence.Configurations;
@@ -18,6 +19,7 @@ public class EventConfiguration : IEntityTypeConfiguration<Event>
         builder.Property(e => e.StartAtUtc).IsRequired();
         builder.Property(e => e.VenueId).IsRequired();
         builder.Property(e => e.SeatMapId).IsRequired();
+        builder.Property(e => e.OrganizerId).IsRequired();
         builder.Property(e => e.Description).HasMaxLength(2000);
         builder.Property(e => e.PosterUrl).HasMaxLength(500);
         builder.Property(e => e.MaxTicketsPerOrder);
@@ -33,6 +35,11 @@ public class EventConfiguration : IEntityTypeConfiguration<Event>
         builder.HasOne<SeatMap>()
             .WithMany()
             .HasForeignKey(e => e.SeatMapId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Organizer>()
+            .WithMany()
+            .HasForeignKey(e => e.OrganizerId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // CreatedByMemberId 是稽核用的建立者參照，nullable（本次功能上線前的舊活動沒有這筆紀錄）；

@@ -20,7 +20,7 @@ public class EventTests
     {
         var seatMap = CreateSeatMap(1);
 
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
 
         @event.Title.Should().Be("Concert");
     }
@@ -30,7 +30,7 @@ public class EventTests
     [InlineData(" ")]
     public void Constructor_WhenTitleIsMissing_ThrowsArgumentException(string title)
     {
-        var act = () => new Event(Guid.NewGuid(), title, DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid());
+        var act = () => new Event(Guid.NewGuid(), title, DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         act.Should().Throw<ArgumentException>();
     }
@@ -38,9 +38,29 @@ public class EventTests
     [Fact]
     public void Constructor_WhenStartTimeIsMissing_ThrowsArgumentException()
     {
-        var act = () => new Event(Guid.NewGuid(), "Concert", default, Guid.NewGuid(), Guid.NewGuid());
+        var act = () => new Event(Guid.NewGuid(), "Concert", default, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         act.Should().Throw<ArgumentException>();
+    }
+
+    // event-management-organizer-scoping tasks.md 1.1：Event 必定歸屬某個 Organizer，
+    // 空 Guid 代表呼叫端沒有取得有效的 Organizer context，必須在 Domain 層擋下，不能寫入一筆無主活動。
+    [Fact]
+    public void Constructor_WhenOrganizerIdIsEmpty_ThrowsArgumentException()
+    {
+        var act = () => new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.Empty);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("organizerId");
+    }
+
+    [Fact]
+    public void Constructor_WhenOrganizerIdProvided_RecordsOrganizerId()
+    {
+        var organizerId = Guid.NewGuid();
+
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), organizerId);
+
+        @event.OrganizerId.Should().Be(organizerId);
     }
 
     [Theory]
@@ -49,7 +69,7 @@ public class EventTests
     public void Constructor_WhenMaxTicketsPerOrderIsNotPositive_ThrowsArgumentException(int maxTicketsPerOrder)
     {
         var act = () => new Event(
-            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(),
+            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
             maxTicketsPerOrder: maxTicketsPerOrder);
 
         act.Should().Throw<ArgumentException>();
@@ -59,7 +79,7 @@ public class EventTests
     public void Constructor_WhenMaxTicketsPerOrderIsNull_AllowsUnlimitedTicketsPerOrder()
     {
         var @event = new Event(
-            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(),
+            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
             maxTicketsPerOrder: null);
 
         @event.MaxTicketsPerOrder.Should().BeNull();
@@ -69,7 +89,7 @@ public class EventTests
     public void CreateEventSeats_WhenSeatMapHasNSeats_CreatesNAvailableEventSeats()
     {
         var seatMap = CreateSeatMap(3);
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
 
         var eventSeats = @event.CreateEventSeats(seatMap);
 
@@ -82,8 +102,8 @@ public class EventTests
     public void CreateEventSeats_ForTwoEventsSharingSameSeatMap_ProducesIndependentInventory()
     {
         var seatMap = CreateSeatMap(1);
-        var eventA = new Event(Guid.NewGuid(), "Show A", DateTime.UtcNow.AddDays(10), Guid.NewGuid(), seatMap.Id);
-        var eventB = new Event(Guid.NewGuid(), "Show B", DateTime.UtcNow.AddDays(20), Guid.NewGuid(), seatMap.Id);
+        var eventA = new Event(Guid.NewGuid(), "Show A", DateTime.UtcNow.AddDays(10), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
+        var eventB = new Event(Guid.NewGuid(), "Show B", DateTime.UtcNow.AddDays(20), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
 
         var seatsA = eventA.CreateEventSeats(seatMap);
         var seatsB = eventB.CreateEventSeats(seatMap);
@@ -102,7 +122,7 @@ public class EventTests
     public void CreateEventSeats_EachSeatTemplateMapsToExactlyOneEventSeat()
     {
         var seatMap = CreateSeatMap(5);
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
 
         var eventSeats = @event.CreateEventSeats(seatMap);
 
@@ -114,7 +134,7 @@ public class EventTests
     {
         var seatMap = CreateSeatMap(1);
         var otherSeatMap = CreateSeatMap(1);
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
 
         var act = () => @event.CreateEventSeats(otherSeatMap);
 
@@ -126,7 +146,7 @@ public class EventTests
     [Fact]
     public void Constructor_DefaultsIsQueueModeEnabledToFalse()
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         @event.IsQueueModeEnabled.Should().BeFalse();
     }
@@ -134,7 +154,7 @@ public class EventTests
     [Fact]
     public void EnableQueueMode_SetsIsQueueModeEnabledToTrue()
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
 
         @event.EnableQueueMode();
 
@@ -144,7 +164,7 @@ public class EventTests
     [Fact]
     public void DisableQueueMode_AfterEnabled_SetsIsQueueModeEnabledToFalse()
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         @event.EnableQueueMode();
 
         @event.DisableQueueMode();

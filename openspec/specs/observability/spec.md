@@ -1,4 +1,8 @@
-## ADDED Requirements
+# observability Specification
+
+## Purpose
+TBD - created by archiving change observability. Update Purpose after archive.
+## Requirements
 
 ### Requirement: 系統以結構化欄位輸出日誌
 系統 SHALL 讓所有透過 `ILogger` 記錄的日誌，在 Serilog 內部的 `LogEvent` 表示（進而流向 Seq、可被結構化查詢）中保留結構化格式；既有程式碼呼叫 `ILogger` 時使用具名參數的訊息樣板（例如 `"...{OrderId}..."`）時，該具名參數 SHALL 被保留為可獨立查詢的結構化欄位（`LogEvent.Properties`），不得僅被展開成字串插值後即遺失欄位邊界。此能力 MUST NOT 要求既有呼叫端程式碼變更。

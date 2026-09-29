@@ -14,7 +14,7 @@ beforeEach(() => {
 
 describe('performRedemption', () => {
   // 對應 AC: ADMIN-REDEEM-SCAN-SUCCESS
-  it('成功（204）回傳 success', async () => {
+  it('[ADMIN-REDEEM-SCAN-SUCCESS] 成功（204）回傳 success', async () => {
     vi.mocked(adminApi.redeemTicket).mockResolvedValue(undefined)
 
     const outcome = await performRedemption(TICKET_ID, 'sig')
@@ -23,7 +23,7 @@ describe('performRedemption', () => {
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-CONFLICT
-  it('409 回傳 already-redeemed', async () => {
+  it('[ADMIN-REDEEM-SCAN-CONFLICT] 409 回傳 already-redeemed', async () => {
     vi.mocked(adminApi.redeemTicket).mockRejectedValue(new ApiError(409, { status: 409, title: 'Conflict' }))
 
     const outcome = await performRedemption(TICKET_ID, 'sig')
@@ -32,7 +32,7 @@ describe('performRedemption', () => {
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-NOT-FOUND
-  it('404 回傳 not-found', async () => {
+  it('[ADMIN-REDEEM-SCAN-NOT-FOUND] 404 回傳 not-found', async () => {
     vi.mocked(adminApi.redeemTicket).mockRejectedValue(new ApiError(404, { status: 404, title: 'NotFound' }))
 
     const outcome = await performRedemption(TICKET_ID, 'sig')
@@ -41,7 +41,7 @@ describe('performRedemption', () => {
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-INVALID-SIGNATURE
-  it('400 且 title 為 InvalidTicketSignature 回傳 invalid-signature', async () => {
+  it('[ADMIN-REDEEM-SCAN-INVALID-SIGNATURE] 400 且 title 為 InvalidTicketSignature 回傳 invalid-signature', async () => {
     vi.mocked(adminApi.redeemTicket).mockRejectedValue(
       new ApiError(400, { status: 400, title: 'InvalidTicketSignature' }),
     )
@@ -52,7 +52,7 @@ describe('performRedemption', () => {
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-SYSTEM-ERROR（其他 400 不得歸類為簽章無效）
-  it('400 但 title 不是 InvalidTicketSignature 時回傳 system-error', async () => {
+  it('[ADMIN-REDEEM-SCAN-INVALID-SIGNATURE] 400 但 title 不是 InvalidTicketSignature 時回傳 system-error', async () => {
     vi.mocked(adminApi.redeemTicket).mockRejectedValue(new ApiError(400, { status: 400, title: 'Validation' }))
 
     const outcome = await performRedemption(TICKET_ID, 'sig')
@@ -61,25 +61,27 @@ describe('performRedemption', () => {
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-SYSTEM-ERROR（5xx 不得歸類為查無此票）
-  it('5xx 回傳 system-error', async () => {
+  it('[ADMIN-REDEEM-SCAN-SYSTEM-ERROR] 5xx 回傳 system-error，不自動重試', async () => {
     vi.mocked(adminApi.redeemTicket).mockRejectedValue(new ApiError(500, { status: 500, title: 'InternalError' }))
 
     const outcome = await performRedemption(TICKET_ID, 'sig')
 
     expect(outcome).toEqual({ kind: 'system-error' })
+    expect(adminApi.redeemTicket).toHaveBeenCalledTimes(1)
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-SYSTEM-ERROR（網路例外，非 ApiError）
-  it('網路例外（非 ApiError）回傳 system-error', async () => {
+  it('[ADMIN-REDEEM-SCAN-SYSTEM-ERROR] 網路例外（非 ApiError）回傳 system-error，不自動重試', async () => {
     vi.mocked(adminApi.redeemTicket).mockRejectedValue(new TypeError('Failed to fetch'))
 
     const outcome = await performRedemption(TICKET_ID, 'sig')
 
     expect(outcome).toEqual({ kind: 'system-error' })
+    expect(adminApi.redeemTicket).toHaveBeenCalledTimes(1)
   })
 
   // 對應 AC: ADMIN-REDEEM-SCAN-DISPATCH（解析出的 ticketId／signature 原封不動送入呼叫，未被中途轉換或遺漏）
-  it('掃描字串解析出的 ticketId 與 signature 恰好是 redeemTicket 收到的參數', async () => {
+  it('[ADMIN-REDEEM-SCAN-DISPATCH] 掃描字串解析出的 ticketId 與 signature 恰好是 redeemTicket 收到的參數', async () => {
     vi.mocked(adminApi.redeemTicket).mockResolvedValue(undefined)
     const parsed = parseTicketIdFromQrContent(`${TICKET_ID}.the-signature`)
     if (!parsed.recognized) {
@@ -90,5 +92,28 @@ describe('performRedemption', () => {
 
     expect(adminApi.redeemTicket).toHaveBeenCalledWith(TICKET_ID, 'the-signature')
     expect(adminApi.redeemTicket).toHaveBeenCalledTimes(1)
+  })
+})
+
+// 手動輸入路徑固定送出 signature: null（design.md Decision 4 開放給 Organizer 成員、不驗簽章的路徑）；
+// 前端確實送出 null，後端跨租戶 404（RDM-AUTHZ-004 手動路徑）才會涵蓋到實際走的這條路徑。
+describe('performRedemption 手動輸入路徑（signature 為 null）', () => {
+  it.each([
+    ['ADMIN-REDEEM-MANUAL-SUCCESS', undefined, 'success'],
+    ['ADMIN-REDEEM-MANUAL-CONFLICT', new ApiError(409, { status: 409, title: 'Conflict' }), 'already-redeemed'],
+    ['ADMIN-REDEEM-MANUAL-NOT-FOUND', new ApiError(404, { status: 404, title: 'NotFound' }), 'not-found'],
+    ['ADMIN-REDEEM-MANUAL-SYSTEM-ERROR', new ApiError(500, { status: 500, title: 'InternalError' }), 'system-error'],
+  ] as const)('[%s] redeemTicket 以 (id, null) 被呼叫一次', async (_scenario, rejection, expectedKind) => {
+    if (rejection) {
+      vi.mocked(adminApi.redeemTicket).mockRejectedValue(rejection)
+    } else {
+      vi.mocked(adminApi.redeemTicket).mockResolvedValue(undefined)
+    }
+
+    const outcome = await performRedemption(TICKET_ID, null)
+
+    expect(outcome).toEqual({ kind: expectedKind })
+    expect(adminApi.redeemTicket).toHaveBeenCalledTimes(1)
+    expect(adminApi.redeemTicket).toHaveBeenCalledWith(TICKET_ID, null)
   })
 })

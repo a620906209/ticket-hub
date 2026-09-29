@@ -12,6 +12,9 @@ public sealed class FakeEventRepository : IEventRepository
     public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<Event>>(Data.ToList());
 
+    public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<Event>>(Data.Where(e => e.OrganizerId == organizerId).ToList());
+
     public void Add(Event @event) => Data.Add(@event);
 
     // 比照 FakeTicketTypeRepository：Fake 不需要真的模擬鎖定，只回傳實際存在的實體。

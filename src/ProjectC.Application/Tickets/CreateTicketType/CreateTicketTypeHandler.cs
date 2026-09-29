@@ -33,7 +33,7 @@ public sealed class CreateTicketTypeHandler
         _queryCache = queryCache;
     }
 
-    public async Task<Result<Guid>> HandleAsync(Guid eventId, CreateTicketTypeRequest request, CancellationToken cancellationToken)
+    public async Task<Result<Guid>> HandleAsync(Guid eventId, Guid organizerId, CreateTicketTypeRequest request, CancellationToken cancellationToken)
     {
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
@@ -42,8 +42,9 @@ public sealed class CreateTicketTypeHandler
         }
 
         var @event = await _eventRepository.GetByIdAsync(eventId, cancellationToken);
-        if (@event is null)
+        if (@event is null || @event.OrganizerId != organizerId)
         {
+            // 活動屬於其他 Organizer 時視同不存在，避免 IDOR（見 design.md Decision 3／EVT-TICKET-004）。
             return Result<Guid>.Failure(Error.NotFound($"Event '{eventId}' was not found."));
         }
 

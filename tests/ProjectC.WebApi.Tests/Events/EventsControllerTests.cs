@@ -31,7 +31,7 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
 
     private async Task<Guid> SeedEventWithSeatAndTicketTypeAsync(string zoneCode = "A")
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
 
         var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
@@ -117,6 +117,7 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
     // ---- 安全回歸測試：公開端點不得洩漏 Admin 專用的稽核/售票統計欄位（見 admin-event-audit-and-
     // sales-status design.md 決策 8）----
 
+    // [EVT-LIST-005] event-management-organizer-scoping 起 organizerId 也屬後台專用欄位，公開端點同樣不得回傳。
     [Fact]
     public async Task GetEvents_AsAnonymous_DoesNotExposeAdminOnlyFields()
     {
@@ -135,6 +136,7 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         [
             "createdByMemberId", "createdByDisplayName", "createdAtUtc",
             "availableSeatCount", "heldSeatCount", "soldSeatCount",
+            "organizerId",
         ];
         foreach (var eventElement in events)
         {

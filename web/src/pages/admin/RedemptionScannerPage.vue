@@ -111,7 +111,7 @@ onUnmounted(scanner.unmount)
       </template>
 
       <template v-else>
-        <div class="trust-label">Admin 信任操作，未驗證簽章</div>
+        <div class="trust-label">操作人員信任操作，未驗證簽章</div>
         <p v-if="isFallbackState" class="camera-status">{{ cameraStatusText[state] }}</p>
         <el-form :model="{ manualTicketId }" @submit.prevent="handleManualSubmit">
           <el-form-item label="Ticket ID" :error="manualFormatError">

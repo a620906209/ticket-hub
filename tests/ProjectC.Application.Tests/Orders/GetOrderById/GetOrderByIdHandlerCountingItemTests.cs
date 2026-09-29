@@ -1,6 +1,7 @@
 using FluentAssertions;
 using ProjectC.Application.Orders.GetOrderById;
 using ProjectC.Application.Tests.TestSupport;
+using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 
 namespace ProjectC.Application.Tests.Orders.GetOrderById;
@@ -15,16 +16,19 @@ public class GetOrderByIdHandlerCountingItemTests
         var eventSeatId = Guid.NewGuid();
         var seatTicketTypeId = Guid.NewGuid();
         var countTicketTypeId = Guid.NewGuid();
-        var order = new Order(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Now.AddMinutes(10),
+        var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var eventRepository = new FakeEventRepository();
+        eventRepository.Data.Add(@event);
+        var order = new Order(Guid.NewGuid(), @event.Id, Guid.NewGuid(), Now.AddMinutes(10),
         [
             new OrderItem(Guid.NewGuid(), seatTicketTypeId, eventSeatId, 1, 500m),
             new OrderItem(Guid.NewGuid(), countTicketTypeId, null, 3, 300m),
         ]);
         var orderRepository = new FakeOrderRepository();
         orderRepository.Data.Add(order);
-        var handler = new GetOrderByIdHandler(orderRepository, new FakeDateTimeProvider { UtcNow = Now });
+        var handler = new GetOrderByIdHandler(orderRepository, eventRepository, new FakeDateTimeProvider { UtcNow = Now });
 
-        var result = await handler.HandleAsync(order.Id, CancellationToken.None);
+        var result = await handler.HandleAsync(order.Id, @event.OrganizerId, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.Items.Should().ContainSingle(i =>

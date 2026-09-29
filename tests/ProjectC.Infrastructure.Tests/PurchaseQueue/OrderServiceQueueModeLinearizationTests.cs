@@ -51,6 +51,8 @@ public class OrderServiceQueueModeLinearizationTests
 
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
 
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+
         public void Add(Event @event) => _inner.Add(@event);
 
         public void Update(Event @event) => _inner.Update(@event);
@@ -65,7 +67,8 @@ public class OrderServiceQueueModeLinearizationTests
     {
         var venue = new Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         if (isQueueModeEnabledInitially)
         {
             @event.EnableQueueMode();
@@ -115,9 +118,9 @@ public class OrderServiceQueueModeLinearizationTests
     }
 
     [Fact]
-    public async Task PlaceOrderAsync_WhenQueueModeIsDisabledByAdminDuringProcessing_SucceedsUsingTheLatestValueNotTheStaleReadBeforeTheTransaction()
+    public async Task PlaceOrderAsync_WhenQueueModeIsDisabledDuringProcessing_SucceedsUsingTheLatestValueNotTheStaleReadBeforeTheTransaction()
     {
-        // TP-ORDER-016：買家送出請求時活動仍是 true 且買家不具備已入場資格，但 Admin 在系統實際執行建立
+        // TP-ORDER-016：買家送出請求時活動仍是 true 且買家不具備已入場資格，但活動所屬 Organizer 的成員在系統實際執行建立
         // 邏輯之前切換為 false——系統 MUST 以切換後的最新值為準，不再檢查排隊資格，正常處理建立訂單。
         await using var seedDbContext = _fixture.CreateDbContext();
         var (eventId, ticketTypeId, buyerId) = await SeedCountBasedEventAsync(seedDbContext, isQueueModeEnabledInitially: true);

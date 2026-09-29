@@ -21,11 +21,12 @@ public sealed class GetEventSalesReportHandler
         _orderRepository = orderRepository;
     }
 
-    public async Task<Result<SalesReportDto>> HandleAsync(Guid eventId, CancellationToken cancellationToken)
+    public async Task<Result<SalesReportDto>> HandleAsync(Guid eventId, Guid organizerId, CancellationToken cancellationToken)
     {
         var @event = await _eventRepository.GetByIdAsync(eventId, cancellationToken);
-        if (@event is null)
+        if (@event is null || @event.OrganizerId != organizerId)
         {
+            // 活動屬於其他 Organizer 時視同不存在，且在查詢銷售資料前返回（RPT-AUTHZ-004）。
             return Result<SalesReportDto>.Failure(Error.NotFound($"Event '{eventId}' was not found."));
         }
 

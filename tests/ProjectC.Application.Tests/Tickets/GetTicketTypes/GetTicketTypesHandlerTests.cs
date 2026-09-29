@@ -24,7 +24,7 @@ public class GetTicketTypesHandlerTests
     {
         var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
         seatMap.AddSeat("A", "1");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
         _eventRepository.Data.Add(@event);
 
         var seatTicketType = @event.CreateTicketType("A", 500m, seatMap);
@@ -41,7 +41,7 @@ public class GetTicketTypesHandlerTests
 
     private Event AddEvent()
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         _eventRepository.Data.Add(@event);
         return @event;
     }

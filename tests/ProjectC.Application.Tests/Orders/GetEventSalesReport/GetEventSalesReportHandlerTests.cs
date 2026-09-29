@@ -1,9 +1,11 @@
 using FluentAssertions;
+using Moq;
 using ProjectC.Application.Common;
 using ProjectC.Application.Orders.GetEventSalesReport;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
+using ProjectC.Domain.Tickets;
 using ProjectC.Domain.Venues;
 
 namespace ProjectC.Application.Tests.Orders.GetEventSalesReport;
@@ -22,7 +24,7 @@ public class GetEventSalesReportHandlerTests
 
     private Event SeedEvent()
     {
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid());
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         _eventRepository.Data.Add(@event);
         return @event;
     }
@@ -30,10 +32,31 @@ public class GetEventSalesReportHandlerTests
     [Fact]
     public async Task HandleAsync_WhenEventDoesNotExist_ReturnsNotFound()
     {
-        var result = await _handler.HandleAsync(Guid.NewGuid(), CancellationToken.None);
+        var result = await _handler.HandleAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.NotFound);
+    }
+
+    // 對應 AC: RPT-AUTHZ-004（其他 Organizer 的活動與不存在的活動回傳完全相同的 Error，且不查詢銷售資料）
+    [Fact]
+    public async Task HandleAsync_WhenEventBelongsToOtherOrganizer_ReturnsSameNotFoundErrorAsMissingEvent()
+    {
+        var @event = SeedEvent();
+        // Strict mock：任何票種／銷售彙總查詢都會拋例外，證明歸屬核對在查詢銷售資料之前就返回。
+        var handler = new GetEventSalesReportHandler(
+            _eventRepository,
+            new Mock<ITicketTypeRepository>(MockBehavior.Strict).Object,
+            new Mock<IOrderRepository>(MockBehavior.Strict).Object);
+
+        var otherOrganizerResult = await handler.HandleAsync(@event.Id, Guid.NewGuid(), CancellationToken.None);
+        _eventRepository.Data.Clear();
+        var missingResult = await handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
+
+        otherOrganizerResult.IsSuccess.Should().BeFalse();
+        otherOrganizerResult.Value.Should().BeNull();
+        otherOrganizerResult.Error.Should().BeEquivalentTo(missingResult.Error);
+        otherOrganizerResult.Error!.Type.Should().Be(ErrorType.NotFound);
     }
 
     [Fact]
@@ -44,7 +67,7 @@ public class GetEventSalesReportHandlerTests
         _ticketTypeRepository.Data.Add(ticketType);
         _orderRepository.PaidItemSalesGroups = [new OrderItemSalesGroup(ticketType.Id, ItemCount: 2, QuantitySold: 5, Revenue: 1500m)];
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.TotalRevenue.Should().Be(1500m);
@@ -61,7 +84,7 @@ public class GetEventSalesReportHandlerTests
         var venue = new Venue(Guid.NewGuid(), "Test Venue");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
         seatMap.AddSeat("A", "1");
-        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), venue.Id, seatMap.Id);
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), venue.Id, seatMap.Id, Guid.NewGuid());
         _eventRepository.Data.Add(@event);
         var seatTicketType = @event.CreateTicketType("A", 500m, seatMap);
         var countTicketType = @event.CreateCountBasedTicketType("VIP", 300m, 100);
@@ -73,7 +96,7 @@ public class GetEventSalesReportHandlerTests
             new OrderItemSalesGroup(countTicketType.Id, ItemCount: 1, QuantitySold: 3, Revenue: 900m),
         ];
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         result.Value!.ByTicketType.Should().HaveCount(2);
         result.Value.TotalRevenue.Should().Be(1400m);
@@ -87,7 +110,7 @@ public class GetEventSalesReportHandlerTests
         var ticketType = @event.CreateCountBasedTicketType("VIP", 300m, 100);
         _ticketTypeRepository.Data.Add(ticketType);
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.TotalRevenue.Should().Be(0m);
@@ -104,7 +127,7 @@ public class GetEventSalesReportHandlerTests
         _ticketTypeRepository.Data.Add(unsoldTicketType);
         _orderRepository.PaidItemSalesGroups = [new OrderItemSalesGroup(soldTicketType.Id, ItemCount: 1, QuantitySold: 1, Revenue: 300m)];
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         var unsoldDetail = result.Value!.ByTicketType.Single(t => t.TicketTypeId == unsoldTicketType.Id);
         unsoldDetail.QuantitySold.Should().Be(0);
@@ -122,7 +145,7 @@ public class GetEventSalesReportHandlerTests
         _ticketTypeRepository.Data.Add(ticketType);
         _orderRepository.PaidItemSalesGroups = [new OrderItemSalesGroup(ticketType.Id, ItemCount: 1, QuantitySold: 5, Revenue: 1500m)];
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         result.Value!.TotalRevenue.Should().Be(1500m);
         result.Value.TotalTicketsSold.Should().Be(5);
@@ -134,7 +157,7 @@ public class GetEventSalesReportHandlerTests
         var @event = SeedEvent();
         _orderRepository.PaidItemSalesGroups = [new OrderItemSalesGroup(TicketTypeId: null, ItemCount: 1, QuantitySold: 1, Revenue: 500m)];
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         result.Value!.ByTicketType.Should().BeEmpty();
         result.Value.TotalRevenue.Should().Be(500m);
@@ -156,7 +179,7 @@ public class GetEventSalesReportHandlerTests
         _ticketTypeRepository.Data.Add(otherEventTicketType);
         _orderRepository.PaidItemSalesGroups = [new OrderItemSalesGroup(otherEventTicketType.Id, ItemCount: 1, QuantitySold: 2, Revenue: 600m)];
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         result.Value!.ByTicketType.Should().BeEmpty();
         result.Value.TotalRevenue.Should().Be(600m);
@@ -174,7 +197,7 @@ public class GetEventSalesReportHandlerTests
         _ticketTypeRepository.Data.Add(ticketType);
         _orderRepository.PaidItemSalesGroups = [new OrderItemSalesGroup(ticketType.Id, ItemCount: 1, QuantitySold: 1, Revenue: 300m)];
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         result.Value!.UnclassifiedItemCount.Should().Be(0);
         result.Value.UnclassifiedTicketsSold.Should().Be(0);
@@ -186,7 +209,7 @@ public class GetEventSalesReportHandlerTests
     {
         var @event = SeedEvent();
 
-        var result = await _handler.HandleAsync(@event.Id, CancellationToken.None);
+        var result = await _handler.HandleAsync(@event.Id, @event.OrganizerId, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value!.TotalRevenue.Should().Be(0m);

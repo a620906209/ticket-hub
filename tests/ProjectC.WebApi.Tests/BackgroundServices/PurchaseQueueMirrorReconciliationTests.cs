@@ -41,10 +41,11 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         IServiceScopeFactory? scopeFactory = null,
         ILogger<PurchaseQueueAdmissionService>? logger = null,
         IDistributedLock? distributedLock = null,
-        int pollingIntervalSeconds = 5)
+        int pollingIntervalSeconds = 5,
+        IDateTimeProvider? dateTimeProvider = null)
         => new(
             scopeFactory ?? _factory.Services.GetRequiredService<IServiceScopeFactory>(),
-            _factory.Services.GetRequiredService<IDateTimeProvider>(),
+            dateTimeProvider ?? _factory.Services.GetRequiredService<IDateTimeProvider>(),
             new PurchaseQueueOptions
             {
                 MaxConcurrentAdmittedBuyers = maxConcurrentAdmittedBuyers,
@@ -183,28 +184,29 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var eventId = await PurchaseQueueLeaderElectionTestData.SeedQueueModeEventAsync(dbContext);
         var now = DateTime.UtcNow;
-        // 短暫的未來到期時間：先讓校正把它正常補進 Redis admitted（此時尚未逾時），再等待真實時間
-        // 經過到期時間，讓下一輪 Lua Script 的 ZRANGEBYSCORE 真正把它判定為逾時。
+        // 未來到期時間：先讓校正把它正常補進 Redis admitted（此時尚未逾時），之後的服務改用已超過到期時間的
+        // 固定時鐘，讓 Lua Script 的 ZRANGEBYSCORE（以服務傳入的 now 為基準）真正把它判定為逾時。不用
+        // Task.Delay 等真實時間經過：WSL2 時鐘會回跳，等待後 UtcNow 可能仍未超過到期時間（flaky）。
         var target = await PurchaseQueueLeaderElectionTestData.SeedAdmittedEntryAsync(
-            dbContext, eventId, now.AddMinutes(-10), now.AddMinutes(-5), now.AddSeconds(1.5));
+            dbContext, eventId, now.AddMinutes(-10), now.AddMinutes(-5), now.AddMinutes(1));
+        var afterExpiryClock = Mock.Of<IDateTimeProvider>(p => p.UtcNow == now.AddMinutes(5));
 
         await CreateService().AdvanceQueueOnceAsync(CancellationToken.None);
         var database = GetDatabase();
         var admittedKey = PurchaseQueueAdmissionRedisKeys.Admitted(eventId);
         (await database.SortedSetScoreAsync(admittedKey, target.Id.ToString())).Should().NotBeNull("校正應已把尚未逾時的紀錄補進 admitted 鏡像");
 
-        await Task.Delay(TimeSpan.FromMilliseconds(2000));
-
         var realScopeFactory = _factory.Services.GetRequiredService<IServiceScopeFactory>();
         var failingScopeFactory = new PurchaseQueueRepositoryInterceptingScopeFactory(
             realScopeFactory, repo => new FailingPurchaseQueueRepository(repo, failOnExpireBatchIds: [target.Id]));
-        await CreateService(scopeFactory: failingScopeFactory).AdvanceQueueOnceAsync(CancellationToken.None);
+        await CreateService(scopeFactory: failingScopeFactory, dateTimeProvider: afterExpiryClock).AdvanceQueueOnceAsync(CancellationToken.None);
 
+        (await database.SortedSetScoreAsync(admittedKey, target.Id.ToString())).Should().BeNull("Lua Script 已原子 ZREM 逾時成員，不因 Postgres 寫回失敗而補償");
         (await ReadStatusAsync(target.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted, "批次 UPDATE 例外，Postgres 維持失敗前狀態（PQLE-REBUILD-003a）");
 
         // 下一次成功的校正（步驟 8）偵測到 A_pg_overdue 不在 A_redis（Lua Script 已原子 ZREM），
         // 以條件式 UPDATE 完成落地為 Expired（PQLE-REBUILD-003b）。
-        await CreateService().AdvanceQueueOnceAsync(CancellationToken.None);
+        await CreateService(dateTimeProvider: afterExpiryClock).AdvanceQueueOnceAsync(CancellationToken.None);
         (await ReadStatusAsync(target.Id)).Should().Be(PurchaseQueueEntryStatus.Expired, "下一次成功的校正 MUST 代為完成落地為 Expired");
     }
 
@@ -337,7 +339,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var venue = new ProjectC.Domain.Venues.Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new ProjectC.Domain.Venues.SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new ProjectC.Domain.Events.Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new ProjectC.Domain.Events.Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         @event.EnableQueueMode();
         var ticketType = @event.CreateCountBasedTicketType("站票", 300m, 10);
         dbContext.Venues.Add(venue);
@@ -625,6 +628,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
 
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
 
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 
         public void Add(Event @event) => _inner.Add(@event);
@@ -721,7 +726,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
     {
         var venue = new ProjectC.Domain.Venues.Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new ProjectC.Domain.Venues.SeatMap(Guid.NewGuid(), venue.Id);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id);
+        var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
         @event.EnableQueueMode();
         var ticketType = @event.CreateCountBasedTicketType("站票", 300m, 10);
         dbContext.Venues.Add(venue);
@@ -799,6 +805,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         }
 
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
+
+        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
 
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 
@@ -1045,7 +1053,12 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
             realScopeFactory, repo => new FailingPurchaseQueueRepository(repo, failOnAdmitBatchIds: [target.Id]));
         await CreateService(maxConcurrentAdmittedBuyers: 1, admissionPendingTtlSeconds: 1, scopeFactory: admitFailingScopeFactory)
             .AdvanceQueueOnceAsync(CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(1500));
+        // 以 Redis 自身判定 pending 標記已過期，而非固定 Task.Delay：WSL2 時鐘回跳時固定等待可能不足，
+        // 標記仍存活會讓步驟 7 視為合法過渡態而略過，失敗計數不增加，Error log 永遠不出現（flaky）。
+        var database = GetDatabase();
+        await WaitUntilAsync(
+            async () => !await database.KeyExistsAsync(PurchaseQueueAdmissionRedisKeys.Pending(target.Id)),
+            "等待 pending 標記 TTL 到期");
 
         var sink = new InMemoryLogEventSink();
         var serilogLogger = new LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(sink).CreateLogger();
@@ -1084,17 +1097,12 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var eventId = await PurchaseQueueLeaderElectionTestData.SeedQueueModeEventAsync(dbContext);
         var now = DateTime.UtcNow;
-        var target = await PurchaseQueueLeaderElectionTestData.SeedAdmittedEntryAsync(dbContext, eventId, now.AddMinutes(-30), now.AddMinutes(-25), now.AddSeconds(1.5));
-
-        // 前置校正讓 target 進入 Redis admitted，再等真實時間經過到期時間，讓下一輪 Lua Script 的
-        // ZRANGEBYSCORE 把它原子 ZREM，重現「Redis 已 ZREM、Postgres 未落地」的放棄逾時標記狀態。
-        await CreateService().AdvanceQueueOnceAsync(CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(2000));
+        // 直接 seed 步驟 8 的輸入狀態「Postgres Admitted 且已逾時、Redis admitted 無此成員」（與 Lua Script
+        // 已 ZREM、Postgres 未落地的放棄逾時標記狀態相同），而非先以到期時間 now+1.5s 同步進 Redis、再以
+        // Task.Delay 等真實時間經過：WSL2 時鐘會回跳，等待後 UtcNow 可能仍未超過到期時間，後續各輪都判定
+        // 未逾時、不觸發失敗，Error log 永遠不出現（flaky）。逾時 1 分鐘的餘裕可吸收時鐘回跳。
+        var target = await PurchaseQueueLeaderElectionTestData.SeedAdmittedEntryAsync(dbContext, eventId, now.AddMinutes(-30), now.AddMinutes(-25), now.AddMinutes(-1));
         var realScopeFactory = _factory.Services.GetRequiredService<IServiceScopeFactory>();
-        var expireFailingScopeFactory = new PurchaseQueueRepositoryInterceptingScopeFactory(
-            realScopeFactory, repo => new FailingPurchaseQueueRepository(repo, failOnExpireBatchIds: [target.Id]));
-        await CreateService(scopeFactory: expireFailingScopeFactory).AdvanceQueueOnceAsync(CancellationToken.None);
-        (await ReadStatusAsync(target.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted, "批次逾時 UPDATE 例外，Postgres 維持失敗前狀態");
 
         var sink = new InMemoryLogEventSink();
         var serilogLogger = new LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(sink).CreateLogger();
