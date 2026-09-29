@@ -8,8 +8,10 @@ using ProjectC.Domain.Events;
 using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Infrastructure.DistributedLocking;
 using ProjectC.Infrastructure.Persistence;
+using ProjectC.Infrastructure.PurchaseQueue;
 using ProjectC.WebApi.BackgroundServices;
 using ProjectC.WebApi.Tests.TestSupport;
+using StackExchange.Redis;
 
 namespace ProjectC.WebApi.Tests.BackgroundServices;
 
@@ -88,6 +90,24 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
     {
         var database = _redisFixture.CreateConnection().GetDatabase();
         return await database.KeyExistsAsync(LockKey);
+    }
+
+    // WSL2 VM 牆上時鐘實測約每 30 秒回跳 2–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多。
+    private static readonly TimeSpan ClockStepBackTolerance = TimeSpan.FromSeconds(6);
+
+    /// <summary>
+    /// 輪詢直到 Redis 自身已淘汰該 key，且必須在 TTL + 時鐘回跳餘裕內完成。不用固定 Task.Delay：時鐘回跳時
+    /// 固定等待可能不足以跨過 TTL 而誤判（flaky）。上限貼近 TTL，TTL 若被誤設為過長的值仍會失敗。
+    /// </summary>
+    private static async Task WaitUntilRedisKeyExpiredAsync(IDatabase database, string key, TimeSpan ttl)
+    {
+        // Stopwatch 為單調時鐘，不受牆上時鐘回跳影響。
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        while (await database.KeyExistsAsync(key))
+        {
+            stopwatch.Elapsed.Should().BeLessThan(ttl + ClockStepBackTolerance, $"Redis key '{key}' MUST 在 TTL（加上時鐘回跳餘裕）內淘汰");
+            await Task.Delay(100);
+        }
     }
 
     /// <summary>用探測用的鎖（不計入測試斷言）反覆嘗試取鎖，直到成功為止，確認 Redis 連線已恢復可用；
@@ -260,7 +280,7 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
 
         (await LockKeyExistsInRedisAsync()).Should().BeTrue("ReleaseAsync 被抑制（模擬程序在送出 DEL 前當機），Redis 端鎖 key 應仍存在");
 
-        await Task.Delay(TimeSpan.FromMilliseconds(1300));
+        await WaitUntilRedisKeyExpiredAsync(_redisFixture.CreateConnection().GetDatabase(), LockKey, TimeSpan.FromSeconds(1));
 
         var lockB = new SpyDistributedLock(CreateRedisDistributedLock());
         var serviceB = CreateService(lockB);
@@ -293,8 +313,8 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
         var taskA = serviceA.AdvanceQueueOnceWithLeaderElectionAsync(CancellationToken.None);
         await gateA.WaitUntilScanEnteredAsync();
 
-        // 等待超過 A 的 TTL（1 秒），Redis 端自動視為 A 的鎖已釋放——A 本身仍卡在同步點，尚未完成。
-        await Task.Delay(TimeSpan.FromMilliseconds(1300));
+        // 等待 A 的 TTL（1 秒）到期，Redis 端自動視為 A 的鎖已釋放——A 本身仍卡在同步點，尚未完成。
+        await WaitUntilRedisKeyExpiredAsync(_redisFixture.CreateConnection().GetDatabase(), LockKey, TimeSpan.FromSeconds(1));
 
         var lockB = new SpyDistributedLock(CreateRedisDistributedLock());
         var serviceB = CreateService(lockB, scopeFactory: blockingScopeFactoryB);
@@ -408,7 +428,7 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
         (await ReadStatusAsync(other.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted, "其他候選紀錄的推進不受影響");
 
         // 等待 pending TTL 到期，下一次成功校正才會代為完成落地。
-        await Task.Delay(TimeSpan.FromMilliseconds((pendingTtlSeconds * 1000) + 500));
+        await WaitUntilRedisKeyExpiredAsync(database, PurchaseQueueAdmissionRedisKeys.Pending(target.Id), TimeSpan.FromSeconds(pendingTtlSeconds));
         await normalService.AdvanceQueueOnceWithLeaderElectionAsync(CancellationToken.None);
 
         (await ReadStatusAsync(target.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted, "pending TTL 到期後，下一次成功校正 MUST 代為完成 Postgres 落地");
@@ -567,8 +587,8 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
         var taskA = serviceA.AdvanceQueueOnceWithLeaderElectionAsync(CancellationToken.None);
         await gate.WaitUntilScanEnteredAsync();
 
-        // 等待超過 A 的 TTL（1 秒），讓 Redis 端自動視為 A 的鎖已釋放——A 本身仍卡在同步點，尚未完成。
-        await Task.Delay(TimeSpan.FromMilliseconds(1300));
+        // 等待 A 的 TTL（1 秒）到期，讓 Redis 端自動視為 A 的鎖已釋放——A 本身仍卡在同步點，尚未完成。
+        await WaitUntilRedisKeyExpiredAsync(_redisFixture.CreateConnection().GetDatabase(), LockKey, TimeSpan.FromSeconds(1));
 
         var lockB = new SpyDistributedLock(CreateRedisDistributedLock());
         var serviceB = CreateService(lockB, maxConcurrentAdmittedBuyers: 1);
