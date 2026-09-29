@@ -59,7 +59,9 @@ export interface OrderSummary {
 
 export interface OrderItem {
   id: string
-  eventSeatId: string
+  eventSeatId: string | null
+  ticketTypeId: string | null
+  quantity: number
   unitPrice: number
 }
 

@@ -307,7 +307,15 @@ async function handleJoinQueue(): Promise<void> {
   errorMessage.value = ''
   try {
     await joinQueue(eventId, captchaToken.value, captchaAnswer.value)
+    // 驗證碼為一次性（後端 GETDEL 核對後即刪除），加入成功後舊 token 已失效。必須清空，
+    // 否則排隊資格逾時、再次出現「加入排隊」畫面時，上方 watch 因 token 非空而不換發，
+    // 使用者第一次重新加入必定因舊 token 失敗。
+    captchaAnswer.value = ''
+    captchaToken.value = ''
     await refreshQueueStatus()
+    if (showJoinPrompt.value) {
+      void refreshCaptcha()
+    }
   } catch (error) {
     // 驗證碼錯誤：顯示提示、清空輸入並自動換發新的驗證碼，停留在原畫面，不觸發座位/票種資料的
     // 清空或重新整理（CAPTCHA-BW-QUEUE-002）。判斷依據 MUST 是後端回傳的可區分 title
@@ -318,7 +326,11 @@ async function handleJoinQueue(): Promise<void> {
       void refreshCaptcha()
       return
     }
+    // 後端在驗證碼核對通過（已消耗）之後仍可能因其他原因失敗（活動狀態衝突、DB/Redis 例外），
+    // 前端無法分辨驗證碼是否已被消耗，一律換發；未消耗的情形（例如 429）只是多一次請求，無副作用。
     errorMessage.value = toErrorMessage(error, '加入排隊失敗')
+    captchaAnswer.value = ''
+    void refreshCaptcha()
   } finally {
     joiningQueue.value = false
   }

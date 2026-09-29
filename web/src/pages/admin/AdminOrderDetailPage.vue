@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { getAdminOrderById } from '../../api/admin'
 import type { OrderDetail } from '../../types/apiResponses'
 import { toErrorMessage } from '../../utils/errors'
+import { formatCurrency } from '../../utils/currency'
 
 const route = useRoute()
 const orderId = route.params.id as string
@@ -37,8 +38,13 @@ onMounted(loadOrder)
       <p>狀態：{{ order.status }}</p>
       <p>持有到期時間：{{ new Date(order.heldUntilUtc).toLocaleString() }}</p>
       <el-table v-loading="loading" :data="order.items">
-        <el-table-column prop="eventSeatId" label="座位 Id" />
-        <el-table-column prop="unitPrice" label="單價" />
+        <el-table-column label="座位 Id">
+          <template #default="{ row }">{{ row.eventSeatId ?? '—（計數票）' }}</template>
+        </el-table-column>
+        <el-table-column prop="quantity" label="數量" width="80" />
+        <el-table-column label="單價">
+          <template #default="{ row }">{{ formatCurrency(row.unitPrice) }}</template>
+        </el-table-column>
       </el-table>
     </template>
   </div>
