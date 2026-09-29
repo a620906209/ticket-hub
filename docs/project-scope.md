@@ -170,6 +170,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - Domain 層是否在建立 Event 時驗證票種數/座位數超過設定上限（見第 3 節）
 - 部署環境是否加雲端平台展示（見第 4 節）
 - ~~Could 項目的實作優先順序~~——已依序完成 Redis 分散式鎖、快取層、CAPTCHA、現場核銷掃碼頁、多租戶主辦方管理介面；剩餘 Could 項目僅「實名制驗證」與「Queue 排隊室 Redis 資料結構重寫」（後者維持未排定）
+- **已知前端缺口（2026-09-30 盤點，待開 change 一併處理，排在實名制／雲端部署之前）**：① Pending 訂單離開結果頁後無法付款／取消（見第 9 節快照）；② 尚未切換 Organizer 的平台 Admin 沒有進入主辦方審核頁的介面入口（`admin-web-ui` spec 只定義可進入、未定義入口）；③ 訂單／票券狀態直接顯示英文列舉值；④ 買家訂單明細缺活動名稱、座位、票種資訊，後台訂單列表顯示買家 GUID 且不論狀態皆顯示持有到期時間
 
 **已決策的現況對齊項目（2026-08-19 盤點後）**
 - 座位鎖定機制：維持既有 `seat-reservation` 的**悲觀鎖**實作，本文件不再規劃改為樂觀鎖 RowVersion（原「兩套機制衝突」已解決）
@@ -190,7 +191,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 |---|---|---|
 | 活動/票種建立與上架 | ✅ 已完成 | `event-catalog`、`event-management` |
 | 座位選擇與鎖定 | ✅ 已完成（悲觀鎖，見第 8 節決策） | `seat-reservation` |
-| 訂單建立與結帳流程 | ✅ 已完成，`IPaymentGateway` 抽象化已補上（見第 8 節） | `ticket-ordering`、`ticket-purchase` |
+| 訂單建立與結帳流程 | ✅ 已完成，`IPaymentGateway` 抽象化已補上（見第 8 節）。⚠️ 2026-09-30 前端盤點發現缺口：確認／取消訂單只在下單後的結果頁提供，買家離開該頁後無法再從「我的訂單」或訂單明細付款／取消 Pending 訂單，待補（見第 8 節「已知前端缺口」） | `ticket-ordering`、`ticket-purchase` |
 | 電子票券產出（QR Code + HMAC） | ✅ 已完成（純後端；QR/簽章為按需產生，出票交易本身不呼叫，見 `ticket-issuance-and-redemption` design.md 決策 1、3） | `ticket-issuance` |
 | 核銷 API | ✅ 已完成（`PATCH /api/admin/tickets/{id}/redeem`，限已切換 Organizer 的成員且只能核銷自家票券（見 `order-report-redemption-organizer-scoping`），含併發防重複核銷） | `ticket-redemption` |
 | `TicketType.RequiresSeat` 開關 | ✅ 已完成（純後端，見第 8 節） | `TicketType.cs`、`event-management`、`ticket-ordering`、`ticket-purchase` |

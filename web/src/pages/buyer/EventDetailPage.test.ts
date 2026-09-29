@@ -786,6 +786,76 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(1)
   })
 
+  // 驗證碼為一次性：加入成功後若沿用舊 token，排隊資格逾時後重新加入必定被後端以 CaptchaInvalid 拒絕，
+  // 使用者等於被迫多失敗一次。此測試確保重新出現加入畫面時一定換發新驗證碼、且不殘留上次輸入的答案。
+  it('加入排隊成功後資格逾時再次出現加入畫面：換發新驗證碼、清空舊答案，重新加入使用新 token', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus)
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'NotJoined' }))
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Admitted' }))
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Expired' }))
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 0 }))
+    vi.mocked(queueApi.joinQueue).mockResolvedValue({ id: 'entry-1' })
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await captchaAnswerInput(wrapper).setValue('FIRST')
+    await joinQueueButton(wrapper).trigger('click')
+    await flushPromises()
+
+    vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-2', imageBase64: 'base64-image-2' })
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('img[alt="驗證碼圖片"]').attributes('src')).toContain('base64-image-2')
+    expect((captchaAnswerInput(wrapper).element as HTMLInputElement).value).toBe('')
+
+    await captchaAnswerInput(wrapper).setValue('SECOND')
+    await joinQueueButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(queueApi.joinQueue).toHaveBeenLastCalledWith('event-1', 'captcha-token-2', 'SECOND')
+  })
+
+  it('加入排隊成功但狀態仍為 NotJoined（加入畫面持續顯示）：立即換發新驗證碼並清空答案', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    vi.mocked(queueApi.joinQueue).mockResolvedValue({ id: 'entry-1' })
+    const wrapper = mountPage()
+    await flushPromises()
+    vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-2', imageBase64: 'base64-image-2' })
+
+    await captchaAnswerInput(wrapper).setValue('FIRST')
+    await joinQueueButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('img[alt="驗證碼圖片"]').attributes('src')).toContain('base64-image-2')
+    expect((captchaAnswerInput(wrapper).element as HTMLInputElement).value).toBe('')
+  })
+
+  // 後端可能在驗證碼已消耗後才因其他原因失敗，前端無從分辨，必須一律換發，否則下一次送出必定 CaptchaInvalid。
+  it('加入排隊因非驗證碼錯誤失敗：顯示錯誤、換發新驗證碼並清空答案', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    vi.mocked(queueApi.joinQueue).mockRejectedValue(
+      new ApiError(409, { status: 409, title: 'Conflict', detail: '活動目前未開啟熱門搶購模式' }),
+    )
+    const wrapper = mountPage()
+    await flushPromises()
+    vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-2', imageBase64: 'base64-image-2' })
+
+    await captchaAnswerInput(wrapper).setValue('RIGHT')
+    await joinQueueButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('活動目前未開啟熱門搶購模式')
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(2)
+    expect((captchaAnswerInput(wrapper).element as HTMLInputElement).value).toBe('')
+  })
+
   it('BW-QUEUE-005：下單因請求頻率限制被拒絕（429），顯示提示、不清空已選內容、不重新整理資料', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
