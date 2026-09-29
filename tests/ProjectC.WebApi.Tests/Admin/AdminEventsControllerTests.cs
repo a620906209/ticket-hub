@@ -3,9 +3,10 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
-using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Members;
 using ProjectC.Application.Orders.PlaceOrder;
@@ -13,6 +14,7 @@ using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
+using ProjectC.Infrastructure.Persistence;
 using ProjectC.WebApi.Tests.TestSupport;
 
 namespace ProjectC.WebApi.Tests.Admin;
@@ -287,58 +289,61 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     }
 
     // ---- PATCH /api/admin/events/{id}/queue-mode（rate-limiting-queue design.md 決策 2／6，
-    // purchase-queue spec PQ-ADMIN-001~007；PQ-ADMIN-004／006／007 同時驗證 tasks.md 12.10 的
-    // SetEventQueueModeRequest.Enabled（bool?）model binding 行為） ----
+    // purchase-queue spec PQ-ADMIN-001~009；PQ-ADMIN-004／006／007 同時驗證 tasks.md 12.10 的
+    // SetEventQueueModeRequest.Enabled（bool?）model binding 行為；授權與租戶過濾見 purchase-queue-organizer-scoping） ----
 
     private static Task<HttpResponseMessage> PatchQueueModeAsync(HttpClient client, Guid eventId, object body)
         => client.PatchAsJsonAsync($"/api/admin/events/{eventId}/queue-mode", body);
 
+    // 直接讀 DB 而非公開活動列表：避免斷言受 query-cache 影響，確認的是實際落地狀態。
     private async Task<bool> ReadIsQueueModeEnabledAsync(Guid eventId)
     {
-        var client = _factory.CreateClient();
-        var response = await client.GetAsync("/api/events");
-        var events = await response.Content.ReadFromJsonAsync<List<EventDto>>();
-        return events!.Single(e => e.Id == eventId).IsQueueModeEnabled;
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return (await dbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId)).IsQueueModeEnabled;
     }
 
-    [Fact]
-    public async Task SetQueueMode_AsAdminWithEnabledTrue_Returns204AndEnablesQueueMode()
+    private async Task<(HttpClient OwnerClient, Guid OrganizerId, Guid EventId)> CreateOwnedEventAsync()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
-        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
+        var (ownerClient, organizerId) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(ownerClient);
+        var eventId = await CreateEventAsync(ownerClient, venueId, seatMapId);
+        return (ownerClient, organizerId, eventId);
+    }
 
-        var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = true });
+    // [PQ-ADMIN-001]
+    [Fact]
+    public async Task SetQueueMode_AsOwningOrganizerWithEnabledTrue_Returns204AndEnablesQueueMode()
+    {
+        var (ownerClient, _, eventId) = await CreateOwnedEventAsync();
+
+        var response = await PatchQueueModeAsync(ownerClient, eventId, new { enabled = true });
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeTrue();
     }
 
+    // [PQ-ADMIN-002]／[PQ-ADMIN-006] 明確 enabled: false 成功關閉，與 PQ-ADMIN-004（完全缺漏）分開驗證。
     [Fact]
-    public async Task SetQueueMode_AsAdminWithEnabledFalseAfterEnabling_Returns204AndDisablesQueueMode()
+    public async Task SetQueueMode_AsOwningOrganizerWithEnabledFalseAfterEnabling_Returns204AndDisablesQueueMode()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
-        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
-        await PatchQueueModeAsync(adminClient, eventId, new { enabled = true });
+        var (ownerClient, _, eventId) = await CreateOwnedEventAsync();
+        (await PatchQueueModeAsync(ownerClient, eventId, new { enabled = true })).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = false });
+        var response = await PatchQueueModeAsync(ownerClient, eventId, new { enabled = false });
 
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
     }
 
+    // [PQ-ADMIN-003] 一般 Member（未帶 OrganizerId claim）MUST 403。
     [Fact]
     public async Task SetQueueMode_AsNonAdminMember_Returns403AndDoesNotChangeState()
     {
         var memberClient = _factory.CreateClient();
         var tokens = await AuthTestHelper.RegisterAndLoginAsync(memberClient);
         memberClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
-        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
-        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
+        var (_, _, eventId) = await CreateOwnedEventAsync();
 
         var response = await PatchQueueModeAsync(memberClient, eventId, new { enabled = true });
 
@@ -346,13 +351,25 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
     }
 
+    // [PQ-ADMIN-003] Admin 角色但未切換 Organizer MUST 403：平台 Admin 不再保留跨租戶操作權限。
+    [Fact]
+    public async Task SetQueueMode_AsAdminWithoutSwitchingOrganizer_Returns403AndDoesNotChangeState()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (_, _, eventId) = await CreateOwnedEventAsync();
+
+        var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = true });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+    }
+
+    // [PQ-ADMIN-003a]
     [Fact]
     public async Task SetQueueMode_WithoutAuthentication_Returns401AndDoesNotChangeState()
     {
         var anonymousClient = _factory.CreateClient();
-        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
-        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
+        var (_, _, eventId) = await CreateOwnedEventAsync();
 
         var response = await PatchQueueModeAsync(anonymousClient, eventId, new { enabled = true });
 
@@ -360,43 +377,83 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
     }
 
+    // [PQ-ADMIN-004] 先開啟再送缺漏欄位：若缺漏被誤判為 false，狀態會被關閉，斷言才有鑑別力。
     [Fact]
     public async Task SetQueueMode_WithMissingEnabledField_Returns400AndDoesNotChangeState()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
-        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
+        var (ownerClient, _, eventId) = await CreateOwnedEventAsync();
+        (await PatchQueueModeAsync(ownerClient, eventId, new { enabled = true })).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        var response = await PatchQueueModeAsync(adminClient, eventId, new { });
+        var response = await PatchQueueModeAsync(ownerClient, eventId, new { });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
             "Enabled 為 bool?，完全缺漏欄位 MUST 繫結為 null 並被 NotNull() 攔截，不得誤判為明確關閉");
-        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeTrue();
     }
 
+    // [PQ-ADMIN-005]
     [Fact]
     public async Task SetQueueMode_ForNonExistentEvent_Returns404()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
 
-        var response = await PatchQueueModeAsync(adminClient, Guid.NewGuid(), new { enabled = true });
+        var response = await PatchQueueModeAsync(organizerClient, Guid.NewGuid(), new { enabled = true });
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    // [PQ-ADMIN-007] 同 PQ-ADMIN-004，先開啟：字串 "false" 若被寬鬆轉型為 false 會關閉，斷言才有鑑別力。
     [Fact]
     public async Task SetQueueMode_WithEnabledAsWrongJsonType_Returns400AndDoesNotChangeState()
     {
-        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
-        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
-        var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
+        var (ownerClient, _, eventId) = await CreateOwnedEventAsync();
+        (await PatchQueueModeAsync(ownerClient, eventId, new { enabled = true })).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        var response = await PatchQueueModeAsync(adminClient, eventId, new { enabled = "false" });
+        var response = await PatchQueueModeAsync(ownerClient, eventId, new { enabled = "false" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest, "enabled 為字串而非 boolean 時，model binding 階段就應該失敗");
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeTrue();
+    }
+
+    // [PQ-ADMIN-008] 其他 Organizer 的活動視同不存在（寫入類 IDOR 防護）：404、body 與真正不存在時逐字相同、狀態不變。
+    // 早退路徑的列鎖釋放不在此驗證：request scope 結束時 DbContext 被 Dispose，無論 Handler 是否 rollback 鎖都會釋放，
+    // 改由 SetEventQueueModeHandlerConcurrencyTests（tasks.md 4.15d）在 Handler 的 DbContext 存活時驗證。
+    [Fact]
+    public async Task SetQueueMode_ForOtherOrganizerEvent_Returns404WithSameBodyAsMissingEvent()
+    {
+        var (_, _, eventId) = await CreateOwnedEventAsync();
+        var (otherOrganizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var missingEventId = Guid.NewGuid();
+
+        var otherOrganizerResponse = await PatchQueueModeAsync(otherOrganizerClient, eventId, new { enabled = true });
+        var missingResponse = await PatchQueueModeAsync(otherOrganizerClient, missingEventId, new { enabled = true });
+
+        otherOrganizerResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await NotFoundResponseBody.ReadNormalizedAsync(otherOrganizerResponse, eventId))
+            .Should().Be(await NotFoundResponseBody.ReadNormalizedAsync(missingResponse, missingEventId));
         (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+    }
+
+    // [PQ-ADMIN-009] RequireOrganizerContext 不即時查表：停權前核發、未過期的 Access Token 在過期前仍可開關熱門搶購模式。
+    // 這是 purchase-queue-organizer-scoping design.md Decision 2 的既知有界延遲視窗（上限 AccessTokenExpirationMinutes）；
+    // 若此測試失敗，代表 Policy 行為改變，spec 必須同步修改。換發／切換被拒絕的負向路徑由 organizer-management 的
+    // ORG-REFRESH-003／ORG-SUSPEND-001 負責，不在此重複。
+    [Fact]
+    public async Task SetQueueMode_WithTokenIssuedBeforeOrganizerSuspended_IsStillAcceptedUntilExpiry()
+    {
+        var (organizerClient, organizerId, eventId) = await CreateOwnedEventAsync();
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeFalse();
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+
+        var suspendResponse = await adminClient.PatchAsync($"/api/admin/organizers/{organizerId}/suspend", null);
+        suspendResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // 沿用同一個 client（不 refresh、不重新切換），確保使用的是停權前核發的原 Token。
+        var response = await PatchQueueModeAsync(organizerClient, eventId, new { enabled = true });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await ReadIsQueueModeEnabledAsync(eventId)).Should().BeTrue();
     }
 
     // ---- GET /api/admin/events/{eventId}/sales-report（sales-report tasks.md 4.3） ----

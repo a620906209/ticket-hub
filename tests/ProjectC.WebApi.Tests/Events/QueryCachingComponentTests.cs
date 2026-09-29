@@ -1,13 +1,17 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
+using ProjectC.Infrastructure.Persistence;
 using ProjectC.WebApi.Tests.TestSupport;
+using StackExchange.Redis;
 
 namespace ProjectC.WebApi.Tests.Events;
 
@@ -98,6 +102,70 @@ public class QueryCachingComponentTests
 
             secondTicketTypes.Should().BeEquivalentTo(firstTicketTypes, options => options.WithStrictOrdering());
             factory.TicketTypeRepositoryCallCounter.GetByEventIdAsyncCallCount.Should().Be(1, "第二次呼叫應該命中快取，不再查詢資料庫");
+        }
+        finally
+        {
+            await ((IAsyncLifetime)factory).DisposeAsync();
+        }
+    }
+
+    private static Task<bool> EventListCacheKeyExistsAsync(CachingComponentTestWebApplicationFactory factory)
+        => factory.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase().KeyExistsAsync(GetEventsHandler.CacheKey);
+
+    private static async Task<bool> ReadIsQueueModeEnabledFromDatabaseAsync(CachingComponentTestWebApplicationFactory factory, Guid eventId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return (await dbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId)).IsQueueModeEnabled;
+    }
+
+    // QC-EVT-INV-002（purchase-queue-organizer-scoping tasks.md 4.14a）：經 HTTP 授權與歸屬核對的合法切換會清除活動列表快取。
+    [Fact]
+    public async Task SetQueueMode_ByOwningOrganizer_InvalidatesEventListCache()
+    {
+        var factory = new CachingComponentTestWebApplicationFactory();
+        await factory.InitializeAsync();
+        try
+        {
+            var (eventId, _, ownerClient) = await SeedEventAsync(factory);
+            var anonymousClient = factory.CreateClient();
+            var cachedEvents = await anonymousClient.GetFromJsonAsync<List<EventDto>>("/api/events");
+            cachedEvents!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeFalse();
+            (await EventListCacheKeyExistsAsync(factory)).Should().BeTrue();
+
+            var response = await ownerClient.PatchAsJsonAsync($"/api/admin/events/{eventId}/queue-mode", new { enabled = true });
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            (await EventListCacheKeyExistsAsync(factory)).Should().BeFalse();
+            var refreshedEvents = await anonymousClient.GetFromJsonAsync<List<EventDto>>("/api/events");
+            refreshedEvents!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeTrue();
+        }
+        finally
+        {
+            await ((IAsyncLifetime)factory).DisposeAsync();
+        }
+    }
+
+    // QC-EVT-INV-002（tasks.md 4.14b）：跨 Organizer 的 404 早退不得清除快取，也不得變更 DB。
+    [Fact]
+    public async Task SetQueueMode_ByOtherOrganizer_ReturnsNotFoundAndDoesNotInvalidateCache()
+    {
+        var factory = new CachingComponentTestWebApplicationFactory();
+        await factory.InitializeAsync();
+        try
+        {
+            var (eventId, _, _) = await SeedEventAsync(factory);
+            var anonymousClient = factory.CreateClient();
+            var cachedEvents = await anonymousClient.GetFromJsonAsync<List<EventDto>>("/api/events");
+            cachedEvents!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeFalse();
+            (await EventListCacheKeyExistsAsync(factory)).Should().BeTrue();
+            var (otherOrganizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(factory);
+
+            var response = await otherOrganizerClient.PatchAsJsonAsync($"/api/admin/events/{eventId}/queue-mode", new { enabled = true });
+
+            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await EventListCacheKeyExistsAsync(factory)).Should().BeTrue("不一致時不 commit，也不清除快取");
+            (await ReadIsQueueModeEnabledFromDatabaseAsync(factory, eventId)).Should().BeFalse();
         }
         finally
         {

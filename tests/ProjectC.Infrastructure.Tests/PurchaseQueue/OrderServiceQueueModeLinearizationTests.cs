@@ -118,9 +118,9 @@ public class OrderServiceQueueModeLinearizationTests
     }
 
     [Fact]
-    public async Task PlaceOrderAsync_WhenQueueModeIsDisabledByAdminDuringProcessing_SucceedsUsingTheLatestValueNotTheStaleReadBeforeTheTransaction()
+    public async Task PlaceOrderAsync_WhenQueueModeIsDisabledDuringProcessing_SucceedsUsingTheLatestValueNotTheStaleReadBeforeTheTransaction()
     {
-        // TP-ORDER-016：買家送出請求時活動仍是 true 且買家不具備已入場資格，但 Admin 在系統實際執行建立
+        // TP-ORDER-016：買家送出請求時活動仍是 true 且買家不具備已入場資格，但活動所屬 Organizer 的成員在系統實際執行建立
         // 邏輯之前切換為 false——系統 MUST 以切換後的最新值為準，不再檢查排隊資格，正常處理建立訂單。
         await using var seedDbContext = _fixture.CreateDbContext();
         var (eventId, ticketTypeId, buyerId) = await SeedCountBasedEventAsync(seedDbContext, isQueueModeEnabledInitially: true);

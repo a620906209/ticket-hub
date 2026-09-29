@@ -107,9 +107,8 @@ public static class AuthTestHelper
     /// <summary>
     /// 比照部署回填後既有 Admin 的實際狀態（event-management-organizer-scoping Migration Plan：既有 Admin
     /// 皆成為轉入用 Organizer 的 Owner，切換一次即可恢復操作）：同時帶 Admin 角色與 <c>OrganizerId</c> claim。
-    /// 供需要先透過 event-management 端點（RequireOrganizerContext）建立測試資料、之後仍要呼叫維持 AdminOnly
-    /// 端點（熱門搶購模式；訂單、核銷、銷售報表已改為 RequireOrganizerContext，見 order-report-redemption-organizer-scoping）
-    /// 的既有測試使用。
+    /// 供需要同時具備 Admin 角色與 Organizer 情境的既有測試使用（活動、訂單、核銷、銷售報表、熱門搶購模式開關皆已改為
+    /// RequireOrganizerContext，見 order-report-redemption-organizer-scoping、purchase-queue-organizer-scoping）。
     /// </summary>
     public static async Task<HttpClient> CreateAuthenticatedAdminWithOrganizerContextClientAsync(WebApplicationFactory<Program> factory)
     {

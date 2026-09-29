@@ -48,14 +48,14 @@ public class QueryCacheEventInvalidationOrderingTests
         return (venue.Id, seatMap.Id);
     }
 
-    private async Task<Guid> SeedEventAsync(Guid venueId, Guid seatMapId)
+    private async Task<(Guid EventId, Guid OrganizerId)> SeedEventAsync(Guid venueId, Guid seatMapId)
     {
         await using var dbContext = _fixture.CreateDbContext();
         var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
         var @event = new Event(Guid.NewGuid(), "Existing Concert", DateTime.UtcNow.AddDays(1), venueId, seatMapId, organizerId);
         dbContext.Events.Add(@event);
         await dbContext.SaveChangesAsync();
-        return @event.Id;
+        return (@event.Id, organizerId);
     }
 
     // QC-EVT-INV-001（tasks.md 4.3）。
@@ -128,7 +128,7 @@ public class QueryCacheEventInvalidationOrderingTests
     public async Task SetEventQueueModeHandler_AfterCommit_InvalidatesEventListCache_AndCommitPrecedesInvalidation()
     {
         var (venueId, seatMapId) = await SeedVenueAndSeatMapAsync();
-        var eventId = await SeedEventAsync(venueId, seatMapId);
+        var (eventId, organizerId) = await SeedEventAsync(venueId, seatMapId);
         var queryCache = new FakeQueryCache();
 
         await using (var readDbContext = _fixture.CreateDbContext())
@@ -156,7 +156,7 @@ public class QueryCacheEventInvalidationOrderingTests
             var handler = new SetEventQueueModeHandler(
                 new EventRepository(writeDbContext), new UnitOfWork(writeDbContext), new SetEventQueueModeRequestValidator(), queryCache);
 
-            var result = await handler.HandleAsync(eventId, new SetEventQueueModeRequest(true), CancellationToken.None);
+            var result = await handler.HandleAsync(eventId, organizerId, new SetEventQueueModeRequest(true), CancellationToken.None);
             result.IsSuccess.Should().BeTrue();
         }
 

@@ -4,11 +4,15 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ProjectC.Application.Common;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Members;
+using ProjectC.Application.PurchaseQueue.GetMyQueueStatus;
 using ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
+using ProjectC.Domain.Members;
+using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.WebApi.Tests.TestSupport;
 
@@ -130,5 +134,66 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
         var response = await memberClient.GetAsync($"/api/events/{eventId}/queue/entries/me");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // factory 內真實的 PurchaseQueueAdmissionService 會定期推進；先以 Admitted 紀錄佔滿入場名額，
+    // 確保之後加入的會員穩定停在 Waiting，不會在斷言之間被背景服務改成 Admitted（否則測試會間歇失敗）。
+    private async Task FillAdmissionSlotsAsync(Guid eventId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var maxConcurrentAdmittedBuyers = scope.ServiceProvider.GetRequiredService<PurchaseQueueOptions>().MaxConcurrentAdmittedBuyers;
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < maxConcurrentAdmittedBuyers; i++)
+        {
+            var member = Member.Register($"slot-holder-{Guid.NewGuid():N}@example.com", "Slot Holder", "hash");
+            var entry = new PurchaseQueueEntry(Guid.NewGuid(), eventId, member.Id, now.AddMinutes(-60));
+            entry.Admit(now, now.AddMinutes(30));
+            dbContext.Members.Add(member);
+            dbContext.PurchaseQueueEntries.Add(entry);
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task<PurchaseQueueEntry> ReadQueueEntryAsync(Guid entryId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return await dbContext.PurchaseQueueEntries.AsNoTracking().SingleAsync(e => e.Id == entryId);
+    }
+
+    // [PQ-STATUS-008] HTTP + 真實 DB：活動所屬 Organizer 關閉熱門搶購模式後，查詢回應 queueModeEnabled == false，
+    // 既有 Waiting 紀錄如實回傳且未被清理或改寫（purchase-queue-organizer-scoping tasks.md 4.12b）。
+    [Fact]
+    public async Task GetMyQueueStatus_AfterOwningOrganizerDisablesQueueMode_ReturnsQueueModeDisabledAndLeavesEntryUntouched()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var eventId = await SeedQueueModeEnabledEventAsync(organizerClient);
+        await FillAdmissionSlotsAsync(eventId);
+        var memberClient = await CreateAuthenticatedMemberClientAsync();
+        var joinResponse = await memberClient.PostAsJsonAsync(
+            $"/api/events/{eventId}/queue/entries",
+            new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
+        joinResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var entryId = (await joinResponse.Content.ReadFromJsonAsync<CreatedResponse>())!.Id;
+        var baseline = await ReadQueueEntryAsync(entryId);
+        baseline.Status.Should().Be(PurchaseQueueEntryStatus.Waiting);
+
+        var disableResponse = await organizerClient.PatchAsJsonAsync($"/api/admin/events/{eventId}/queue-mode", new { enabled = false });
+        disableResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var statusResponse = await memberClient.GetAsync($"/api/events/{eventId}/queue/entries/me");
+
+        statusResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var status = (await statusResponse.Content.ReadFromJsonAsync<QueueStatusDto>())!;
+        status.QueueModeEnabled.Should().BeFalse();
+        status.Status.Should().Be("Waiting");
+        status.WaitingCount.Should().Be(0, "佔位紀錄皆為 Admitted，前方沒有 Waiting 紀錄");
+        var afterDisable = await ReadQueueEntryAsync(entryId);
+        afterDisable.Status.Should().Be(baseline.Status);
+        afterDisable.JoinedAtUtc.Should().Be(baseline.JoinedAtUtc);
+        afterDisable.AdmittedAtUtc.Should().Be(baseline.AdmittedAtUtc);
+        afterDisable.AdmissionExpiresAtUtc.Should().Be(baseline.AdmissionExpiresAtUtc);
     }
 }

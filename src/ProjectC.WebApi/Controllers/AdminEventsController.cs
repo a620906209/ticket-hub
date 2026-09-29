@@ -76,11 +76,17 @@ public class AdminEventsController : ControllerBase
         return result.ToActionResult(id => StatusCode(StatusCodes.Status201Created, new { id }));
     }
 
-    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+    [Authorize(Policy = AuthorizationPolicies.RequireOrganizerContext)]
     [HttpPatch("{id:guid}/queue-mode")]
     public async Task<IActionResult> SetQueueMode(Guid id, SetEventQueueModeRequest request, CancellationToken cancellationToken)
     {
-        var result = await _setEventQueueModeHandler.HandleAsync(id, request, cancellationToken);
+        if (!User.TryGetOrganizerId(out var organizerId))
+        {
+            // fail-closed，理由同 CreateEvent。
+            return Forbid();
+        }
+
+        var result = await _setEventQueueModeHandler.HandleAsync(id, organizerId, request, cancellationToken);
         return result.ToActionResult();
     }
 
