@@ -140,7 +140,8 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     await flushPromises()
 
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([{ eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' }])
-    expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ path: '/order-result/order-1' }))
+    // 結果頁改由明細 API 取得伺服器端持有到期時間（order-pending-actions），導頁不得再帶前端推算的值。
+    expect(pushMock).toHaveBeenCalledWith({ path: '/order-result/order-1' })
   })
 
   it('下單時座位已被搶先鎖定：顯示錯誤、清空已選座位、重新整理資料', async () => {

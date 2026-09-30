@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { getMyOrders } from '../../api/orders'
 import type { MyOrderSummary } from '../../types/apiResponses'
+import OrderStatusTag from '../../components/OrderStatusTag.vue'
 import { toErrorMessage } from '../../utils/errors'
 
 const orders = ref<MyOrderSummary[]>([])
@@ -37,7 +38,9 @@ onMounted(loadOrders)
     <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon style="margin-bottom: 16px" />
 
     <el-table v-if="orders.length > 0" v-loading="loading" :data="orders">
-      <el-table-column prop="status" label="狀態" width="120" />
+      <el-table-column label="狀態" width="120">
+        <template #default="{ row }"><OrderStatusTag :status="row.status" /></template>
+      </el-table-column>
       <el-table-column label="保留時間">
         <template #default="{ row }">
           <span v-if="isPending(row)">保留至 {{ new Date(row.heldUntilUtc).toLocaleString() }}</span>

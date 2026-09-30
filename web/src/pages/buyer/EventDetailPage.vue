@@ -10,7 +10,6 @@ import { useAuthStore } from '../../stores/auth'
 import { useCaptcha } from '../../composables/useCaptcha'
 import type { EventSeat, EventSummary, QueueStatus, TicketType } from '../../types/apiResponses'
 import type { SelectedSeat } from '../../types/ui'
-import { computeHeldUntilUtc } from '../../utils/orderHold'
 import { toErrorMessage } from '../../utils/errors'
 import { formatCurrency } from '../../utils/currency'
 import QueueWaitingPanel from '../../components/QueueWaitingPanel.vue'
@@ -394,8 +393,7 @@ async function handleSubmit(): Promise<void> {
       ...selectedSeats.value.map((s) => ({ eventSeatId: s.eventSeatId, ticketTypeId: s.ticketTypeId })),
       ...countSelections,
     ])
-    const heldUntilUtc = computeHeldUntilUtc()
-    await router.push({ path: `/order-result/${id}`, query: { heldUntilUtc } })
+    await router.push({ path: `/order-result/${id}` })
   } catch (error) {
     // 401（換發也失敗）不能指望 App.vue 的全域 watcher 導頁——那個 watcher 只在目前路由
     // 的 meta 標示 requiresAuth/requiresAdmin 時才會導向登入頁，而活動詳情頁是公開頁

@@ -26,6 +26,9 @@ async function handleLogout(): Promise<void> {
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item @click="router.push({ name: 'my-organizers' })">我的主辦方</el-dropdown-item>
+                <el-dropdown-item v-if="authStore.isAdmin" @click="router.push({ name: 'admin-organizers' })">
+                  主辦方審核
+                </el-dropdown-item>
                 <el-dropdown-item @click="handleLogout">登出</el-dropdown-item>
               </el-dropdown-menu>
             </template>
