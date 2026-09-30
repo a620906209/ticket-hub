@@ -62,4 +62,4 @@
 - [x] 4.1 容器內執行前端 `npm run test`、`npm run lint`、`vue-tsc`；後端無變更，仍執行一次 `docker compose exec api dotnet test` 確認未受影響
 - [x] 4.2 以 claude-in-chrome 實機驗證：下單 → 離開結果頁 → 從我的訂單進入明細付款成功並看到 QR Code；結果頁重新整理後狀態正確；Admin 未切換 Organizer 從下拉選單進入審核頁；取消確認對話框開啟時切換頁面，對話框不殘留；直接開啟 `/order-result/not-a-guid` 與 `/orders/not-a-guid` 顯示「找不到這筆訂單」（實機驗證後端路由約束確實回 404，前端單元測試只 mock 此行為）
 - [x] 4.3 呼叫 strict-reviewer（無 Application／Repository 變更，hardener 不適用）
-- [ ] 4.4 歸檔時同步主 spec，並更新 `docs/project-scope.md` 第 8 節「已知前端缺口」（①②③ 標記完成，④ 指向 `order-display-enrichment`）與第 9 節快照註記
+- [x] 4.4 歸檔時同步主 spec，並更新 `docs/project-scope.md` 第 8 節「已知前端缺口」（①②③ 標記完成，④ 指向 `order-display-enrichment`）與第 9 節快照註記

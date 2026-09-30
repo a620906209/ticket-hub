@@ -223,15 +223,19 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 - **THEN** 系統呼叫駁回端點成功，重新查詢清單，該筆申請自待審核清單移除
 
 ### Requirement: 主辦方成員可查看目前 Organizer 名下的訂單列表與明細
-系統 SHALL 提供訂單列表頁與訂單詳情頁，呼叫 `order-administration` API 顯示呼叫端目前切換所在 Organizer 名下活動的訂單狀態，與單筆訂單內的座位項目明細；不顯示其他 Organizer 名下活動的訂單（過濾由後端 `order-administration` 能力執行，前端不另行過濾）。此狀態為頁面載入或手動重新整理當下查詢 API 取得的結果，非伺服器推播的即時更新。
+系統 SHALL 提供訂單列表頁與訂單詳情頁，呼叫 `order-administration` API 顯示呼叫端目前切換所在 Organizer 名下活動的訂單狀態，與單筆訂單內的座位項目明細；不顯示其他 Organizer 名下活動的訂單（過濾由後端 `order-administration` 能力執行，前端不另行過濾）。此狀態為頁面載入或手動重新整理當下查詢 API 取得的結果，非伺服器推播的即時更新。訂單列表與詳情頁的訂單狀態 SHALL 以中文標籤顯示，標籤呈現方式、顏色、對照規則與未知值處理比照 `buyer-web-ui` 能力「「我的訂單」列表與明細頁串接查詢 API，顯示訂單、票券狀態與 QR Code」Requirement；持有到期時間 SHALL 僅在訂單狀態為 Pending 時顯示，其他狀態 MUST NOT 顯示，理由同該 Requirement（`HeldUntilUtc` 為不因終態改寫的原始值）。
 
 #### Scenario: AWU-ORDER-LIST-001 查看目前 Organizer 名下的訂單列表
 - **WHEN** 已切換至一個 Approved Organizer 的使用者開啟後台訂單列表頁
-- **THEN** 系統顯示該 Organizer 名下活動目前的訂單與其狀態
+- **THEN** 系統顯示該 Organizer 名下活動目前的訂單與其中文狀態標籤
 
 #### Scenario: AWU-ORDER-DETAIL-001 查看訂單明細
 - **WHEN** 已切換至一個 Approved Organizer 的使用者點選某筆訂單進入詳情頁
 - **THEN** 系統顯示該訂單內的每一筆座位項目明細
+
+#### Scenario: AWU-ORDER-HOLD-001 持有到期時間僅於 Pending 訂單顯示
+- **WHEN** 已切換至一個 Approved Organizer 的使用者開啟訂單列表，列表中同時有 Pending 與 Paid 訂單，並分別進入兩筆的詳情頁
+- **THEN** 列表與詳情頁皆只對 Pending 訂單顯示持有到期時間，Paid 訂單不顯示
 
 ### Requirement: 已切換 Organizer 的操作人員可透過介面掃描 QR Code 核銷票券
 本 Requirement 與下一條「掃描期間與相機不可用時皆可切換到手動輸入 Ticket ID 完成核銷」Requirement 中的「操作人員」，指任何已切換至一個 Approved Organizer 的使用者（不限 `Admin` 角色），只能核銷目前 Organizer 名下的票券（見 `ticket-redemption` 能力）。系統 SHALL 在後台提供核銷掃碼頁面，使用裝置相機掃描票券 QR Code；掃描到內容後，系統 SHALL 依 `ticket-issuance` 能力定義的精確格式解析出 Ticket ID 與簽章，並呼叫核銷端點（`PATCH /api/admin/tickets/{id}/redeem`，含 `signature` 欄位，值為解析出的簽章）完成核銷——解析出的 `ticketId`／`signature` MUST 原封不動送入該次呼叫，不得在中途被轉換或省略。系統 SHALL 依核銷端點回應顯示可分辨的結果，且不得僅以顏色區分：成功、已核銷過（狀態衝突）、查無此票、簽章無效（含格式不合法）、以及非上述已知情況的系統錯誤。頁面切到背景（例如切換分頁或應用程式）後再切回前景時，系統 SHALL 讓相機掃描恢復可正常運作，不得停留在「畫面顯示可掃描但實際上無法偵測」的不一致狀態，也不得因為背景/前景切換而重複觸發核銷呼叫；切背景當下若正在等待某次核銷呼叫的結果，系統 SHALL 讓該次呼叫正常完成並在切回前景時顯示其結果，不得重新發送同一次核銷請求。查無此票、簽章無效、無法辨識與系統錯誤四類結果 SHALL 以比成功結果更高的通知急迫程度呈現（例如更長停留時間與可被輔助科技優先朗讀的呈現方式，實際秒數為實作層級的可調整預設值，不在本需求的驗收範圍內），供操作者留意。核銷結果顯示後，系統 SHALL 於一段時間後自動恢復可掃描狀態，或提供操作者可立即恢復的操作，不需重新整理頁面或手動導覽即可繼續掃描下一張票；因系統錯誤失敗的票券，操作者恢復掃描後 SHALL 能立即重新嘗試同一張票，不得被任何重複偵測機制永久阻擋。結果顯示期間，系統 MUST NOT 因相機持續偵測到相同或殘留的 QR 內容而重複呼叫核銷端點；此重複偵測抑制僅限於單一輪次的結果顯示期間有效，恢復可掃描狀態後 MUST NOT 沿用至下一輪。掃描到的內容若不符合預期格式，系統 SHALL 顯示「無法辨識的票券內容」，不呼叫核銷端點；此格式檢查僅用於避免不必要的呼叫，核銷端點本身仍會對任何內容做最終驗證。此頁面依「後台路由僅限已切換 Organizer 或審核頁面的 操作人員進入」Requirement 的一般後台頁面規則保護（要求已切換至一個 Approved Organizer，不限 `Admin` 角色），不額外定義權限規則；可核銷的票券範圍由後端 `ticket-redemption` 能力依呼叫端目前 Organizer 限制。系統 SHALL 在後台導覽選單提供進入此頁面的入口。
