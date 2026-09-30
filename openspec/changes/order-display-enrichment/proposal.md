@@ -22,7 +22,7 @@
 
 ## Impact
 
-- **後端**：`GetMyOrdersHandler`、`GetMyOrderDetailHandler`、`GetOrdersHandler` 與對應 DTO（`MyOrderSummaryDto`、`MyOrderDetailDto`、`MyOrderItemDto`、`OrderSummaryDto`）；`IEventRepository`／`EventRepository` 新增 `GetByIdsAsync`；須避免 N+1
+- **後端**：`GetMyOrdersHandler`、`GetMyOrderDetailHandler`、`GetOrdersHandler` 與對應 DTO（`MyOrderSummaryDto`、`MyOrderDetailDto`、`MyOrderItemDto`、`OrderSummaryDto`）；`IEventRepository`／`EventRepository` 新增 `GetByIdsAsync`；`ISeatMapRepository`／`SeatMapRepository` 新增 `GetSeatsByIdsAsync`（明細只查訂單用到的座位，不載入整張座位圖）；須避免 N+1
 - **前端**：`OrderResultPage.vue`、`OrderDetailPage.vue`、`MyOrdersPage.vue`、`AdminOrderListPage.vue`、`types/apiResponses.ts`
 - **測試**：後端 Application 單元測試、WebApi 整合測試（Testcontainers），新增查詢計數 interceptor；前端 vitest
 - **不影響**：確認／取消訂單 API、`order-administration` 租戶過濾規則、路由守衛規則

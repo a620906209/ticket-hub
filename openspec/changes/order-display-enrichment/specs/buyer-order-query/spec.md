@@ -15,16 +15,20 @@
 - **WHEN** 已登入會員在兩個不同活動各有訂單，呼叫訂單列表端點
 - **THEN** 每筆訂單摘要的 `EventTitle` 為其所屬活動的名稱
 
+#### Scenario: BOQ-LIST-TITLE-003 活動名稱的查詢次數不隨訂單筆數成長
+- **WHEN** 已登入會員分別在「1 筆訂單、1 個活動」與「3 筆訂單、3 個不同活動」的資料下呼叫訂單列表端點
+- **THEN** 兩次請求對資料庫發出的查詢次數相同
+
 #### Scenario: BOQ-LIST-TITLE-002 訂單所屬活動查不到（資料不一致）
 - **WHEN** 已登入會員的某筆訂單其 `EventId` 對應的活動在資料庫中不存在
 - **THEN** 系統以非預期錯誤失敗（500），不回傳訂單列表
 
 ### Requirement: 買家可查詢自己單筆訂單的明細與票券狀態
 系統 SHALL 提供已登入會員查詢自己單筆訂單明細的端點，回傳訂單狀態、所屬活動名稱（`EventTitle`）、持有到期時間（ISO 8601 UTC 格式，語意比照上方「買家可查詢自己的訂單列表」Requirement 對 `HeldUntilUtc` 的定義——原始值，不因終態而清空或改寫），以及訂單內每筆項目（`OrderItem`）的顯示資訊與對應的票券清單與各自狀態（`Issued`／`Redeemed`／`Voided`）；訂單尚未出票（例如仍為 Pending）時，對應項目的票券清單 SHALL 為空，不視為錯誤。每筆項目 SHALL 另外包含：
-- 座位標示：`SeatZoneCode`、`SeatNumber`，取自該項目 `EventSeatId` 對應座位的分區代碼與座位號碼；項目為純計數選購（`EventSeatId` 為 null）時兩者皆 SHALL 為 null
+- 座位標示：`SeatZoneCode`、`SeatNumber`，取自該項目 `EventSeatId` 對應座位的分區代碼與座位號碼；項目為純計數選購（`EventSeatId` 為 null）時兩者皆 SHALL 為 null；`EventSeatId` 非 null 時兩者皆 SHALL 有值，不存在只有其中一欄為 null 的回應
 - 票種名稱：`TicketTypeName`，取自該項目 `TicketTypeId` 對應票種的 `ZoneCode`；`TicketTypeId` 為 null 的舊訂單項目 SHALL 為 null
 
-上述顯示資訊 SHALL 以固定次數的查詢取得，查詢次數 MUST NOT 隨訂單項目數成長。訂單的 `EventId`、活動的 `SeatMapId` 對應的座位圖（訂單含座位項目時）、項目非 null 的 `EventSeatId` 或 `TicketTypeId`、或 `EventSeat.SeatId` 在該座位圖中對應的座位範本查不到時，視為資料不一致，系統 SHALL 以非預期錯誤失敗（由全域例外處理轉為 500），MUST NOT 回傳部分資料或以空值、Id 代替。非訂單買家本人查詢 MUST 被拒絕；訂單不存在 MUST 回報找不到資源；本人與存在檢查 SHALL 先於顯示資訊查詢執行，非本人或不存在時不觸發資料不一致判斷。
+上述顯示資訊 SHALL 以固定次數的查詢取得，查詢次數 MUST NOT 隨訂單項目數成長。座位標示 SHALL 只查詢訂單項目實際用到的座位範本，MUST NOT 為此載入活動座位圖的全部座位；訂單不含座位項目時不查詢座位資料。訂單的 `EventId`、項目非 null 的 `EventSeatId` 或 `TicketTypeId`、或 `EventSeat.SeatId` 對應的座位範本查不到時，視為資料不一致，系統 SHALL 以非預期錯誤失敗（由全域例外處理轉為 500），MUST NOT 回傳部分資料或以空值、Id 代替。非訂單買家本人查詢 MUST 被拒絕；訂單不存在 MUST 回報找不到資源；本人與存在檢查 SHALL 先於顯示資訊查詢執行，非本人或不存在時不觸發資料不一致判斷。
 
 #### Scenario: 查詢自己的訂單明細（已出票）
 - **WHEN** 訂單買家本人查詢一筆已確認付款、已出票的訂單明細
@@ -51,7 +55,7 @@
 - **THEN** 該項目的 `TicketTypeName` 為 null，其餘欄位正常回傳，不視為錯誤
 
 #### Scenario: BOQ-DETAIL-DISPLAY-003 項目關聯的座位或票種查不到（資料不一致）
-- **WHEN** 訂單買家本人查詢一筆訂單明細，且下列任一情形成立：訂單所屬活動不存在、含座位項目時活動的座位圖不存在、某項目非 null 的 `EventSeatId` 或 `TicketTypeId` 對應資料不存在、`EventSeat.SeatId` 在座位圖中找不到對應座位範本
+- **WHEN** 訂單買家本人查詢一筆訂單明細，且下列任一情形成立：訂單所屬活動不存在、某項目非 null 的 `EventSeatId` 或 `TicketTypeId` 對應資料不存在、`EventSeat.SeatId` 對應的座位範本不存在
 - **THEN** 系統以非預期錯誤失敗（500），不回傳該訂單明細
 
 #### Scenario: BOQ-DETAIL-DISPLAY-004 顯示資訊的查詢次數不隨項目數成長
