@@ -5,6 +5,7 @@ import { getAdminOrderById } from '../../api/admin'
 import type { OrderDetail } from '../../types/apiResponses'
 import { toErrorMessage } from '../../utils/errors'
 import { formatCurrency } from '../../utils/currency'
+import OrderStatusTag from '../../components/OrderStatusTag.vue'
 
 const route = useRoute()
 const orderId = route.params.id as string
@@ -35,8 +36,8 @@ onMounted(loadOrder)
 
     <template v-if="order">
       <p>訂單 Id：{{ order.id }}</p>
-      <p>狀態：{{ order.status }}</p>
-      <p>持有到期時間：{{ new Date(order.heldUntilUtc).toLocaleString() }}</p>
+      <p>狀態：<OrderStatusTag :status="order.status" /></p>
+      <p v-if="order.status === 'Pending'">持有到期時間：{{ new Date(order.heldUntilUtc).toLocaleString() }}</p>
       <el-table v-loading="loading" :data="order.items">
         <el-table-column label="座位 Id">
           <template #default="{ row }">{{ row.eventSeatId ?? '—（計數票）' }}</template>

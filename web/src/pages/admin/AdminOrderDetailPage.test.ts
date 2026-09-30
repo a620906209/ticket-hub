@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import AdminOrderDetailPage from './AdminOrderDetailPage.vue'
 import * as adminApi from '../../api/admin'
+import type { OrderDetail } from '../../types/apiResponses'
 
 vi.mock('../../api/admin')
 
@@ -44,5 +45,41 @@ describe('AdminOrderDetailPage', () => {
     expect(rows[1].text()).toContain('計數票')
     expect(rows[1].text()).toContain('5')
     expect(rows[1].text()).toContain('NT$800')
+  })
+
+  function buildOrder(status: string): OrderDetail {
+    return {
+      id: 'order-1',
+      eventId: 'event-1',
+      buyerId: 'buyer-1',
+      status,
+      heldUntilUtc: '2026-09-30T10:00:00Z',
+      items: [{ id: 'item-1', eventSeatId: 'seat-1', ticketTypeId: 'tt-seat', quantity: 1, unitPrice: 1500 }],
+    }
+  }
+
+  // HeldUntilUtc 是建立訂單當下的原始值、不因終態改寫，對 Paid 訂單顯示會誤導成仍在保留中。
+  it('[AWU-ORDER-HOLD-001] Pending 訂單顯示待付款標籤與持有到期時間', async () => {
+    vi.mocked(adminApi.getAdminOrderById).mockResolvedValue(buildOrder('Pending'))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const tag = wrapper.find('.el-tag')
+    expect(tag.text()).toBe('待付款')
+    expect(tag.classes()).toContain('el-tag--warning')
+    expect(wrapper.text()).toContain(`持有到期時間：${new Date('2026-09-30T10:00:00Z').toLocaleString()}`)
+  })
+
+  it('[AWU-ORDER-HOLD-001] Paid 訂單顯示已付款標籤、不顯示持有到期時間', async () => {
+    vi.mocked(adminApi.getAdminOrderById).mockResolvedValue(buildOrder('Paid'))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const tag = wrapper.find('.el-tag')
+    expect(tag.text()).toBe('已付款')
+    expect(tag.classes()).toContain('el-tag--success')
+    expect(wrapper.text()).not.toContain('持有到期時間')
   })
 })

@@ -1,24 +1,31 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { getMyOrderDetail, getTicketQrCodeBlob } from '../../api/orders'
-import { ApiError } from '../../api/httpClient'
-import type { MyOrderDetail } from '../../types/apiResponses'
+import { onBeforeUnmount, ref, watch } from 'vue'
+import { getTicketQrCodeBlob } from '../../api/orders'
+import OrderStatusTag from '../../components/OrderStatusTag.vue'
+import TicketStatusTag from '../../components/TicketStatusTag.vue'
+import { usePendingOrderActions } from '../../composables/usePendingOrderActions'
 import { toErrorMessage } from '../../utils/errors'
 
-const route = useRoute()
-const orderId = route.params.id as string
+const {
+  orderId,
+  order,
+  isInitialLoading,
+  isRefreshing,
+  hasRefreshFailed,
+  loadErrorMessage,
+  actionErrorMessage,
+  activeAction,
+  canAct,
+  canShowHeldUntil,
+  confirmPayment,
+  cancelPendingOrder,
+  refreshOrder,
+} = usePendingOrderActions()
 
-const order = ref<MyOrderDetail | null>(null)
-const loading = ref(false)
-const errorMessage = ref('')
+const qrErrorMessage = ref('')
 const activeQrUrl = ref<string | null>(null)
 const activeTicketId = ref<string | null>(null)
 let qrRequestVersion = 0
-
-function isPending(): boolean {
-  return order.value?.status === 'Pending'
-}
 
 function canShowQrCode(status: string): boolean {
   return status === 'Issued' || status === 'Redeemed'
@@ -32,29 +39,10 @@ function revokeActiveQrUrl(): void {
   activeTicketId.value = null
 }
 
-async function loadOrder(): Promise<void> {
-  loading.value = true
-  errorMessage.value = ''
-  order.value = null
-  try {
-    order.value = await getMyOrderDetail(orderId)
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      errorMessage.value = '找不到這筆訂單'
-    } else if (error instanceof ApiError && error.status === 403) {
-      errorMessage.value = '你沒有權限查看這筆訂單'
-    } else {
-      errorMessage.value = toErrorMessage(error, '載入訂單明細失敗')
-    }
-  } finally {
-    loading.value = false
-  }
-}
-
 async function showQrCode(ticketId: string): Promise<void> {
   const requestVersion = ++qrRequestVersion
   revokeActiveQrUrl()
-  errorMessage.value = ''
+  qrErrorMessage.value = ''
   try {
     const blob = await getTicketQrCodeBlob(ticketId)
     if (requestVersion !== qrRequestVersion) {
@@ -64,27 +52,52 @@ async function showQrCode(ticketId: string): Promise<void> {
     activeQrUrl.value = URL.createObjectURL(blob)
   } catch (error) {
     if (requestVersion === qrRequestVersion) {
-      errorMessage.value = toErrorMessage(error, '載入 QR Code 失敗')
+      qrErrorMessage.value = toErrorMessage(error, '載入 QR Code 失敗')
     }
   }
 }
 
-onMounted(loadOrder)
-onBeforeUnmount(() => {
+function discardQrCode(): void {
   qrRequestVersion += 1
+  qrErrorMessage.value = ''
   revokeActiveQrUrl()
-})
+}
+
+watch(orderId, discardQrCode)
+onBeforeUnmount(discardQrCode)
 </script>
 
 <template>
-  <div class="order-detail-page">
+  <div v-loading="isInitialLoading" class="order-detail-page">
     <h1>訂單明細</h1>
-    <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon style="margin-bottom: 16px" />
+    <el-alert v-if="loadErrorMessage" :title="loadErrorMessage" type="error" show-icon class="page-alert" />
 
     <template v-if="order">
       <p>訂單 Id：{{ order.id }}</p>
-      <p>狀態：{{ order.status }}</p>
-      <p v-if="isPending()">保留至 {{ new Date(order.heldUntilUtc).toLocaleString() }}</p>
+      <p>狀態：<OrderStatusTag :status="order.status" /></p>
+      <p v-if="canShowHeldUntil">保留至 {{ new Date(order.heldUntilUtc).toLocaleString() }}</p>
+
+      <el-alert v-if="actionErrorMessage" :title="actionErrorMessage" type="error" show-icon class="page-alert" />
+      <el-alert v-if="qrErrorMessage" :title="qrErrorMessage" type="error" show-icon class="page-alert" />
+
+      <div v-if="canAct" class="order-actions">
+        <el-button
+          type="primary"
+          :loading="activeAction === 'confirm'"
+          :disabled="activeAction !== null"
+          @click="confirmPayment"
+        >
+          確認付款
+        </el-button>
+        <el-button
+          :loading="activeAction === 'cancel'"
+          :disabled="activeAction !== null"
+          @click="cancelPendingOrder"
+        >
+          取消訂單
+        </el-button>
+      </div>
+      <el-button v-if="hasRefreshFailed" :loading="isRefreshing" @click="refreshOrder">重新整理</el-button>
 
       <section v-for="item in order.items" :key="item.id" class="order-item">
         <h2>訂單項目</h2>
@@ -94,8 +107,8 @@ onBeforeUnmount(() => {
         </template>
         <ul v-else class="ticket-list">
           <li v-for="ticket in item.tickets" :key="ticket.id">
+            <span>票券狀態：<TicketStatusTag :status="ticket.status" /></span>
             <template v-if="canShowQrCode(ticket.status)">
-              <span>票券狀態：{{ ticket.status }}</span>
               <el-button text type="primary" @click="showQrCode(ticket.id)">查看 QR Code</el-button>
               <img
                 v-if="activeTicketId === ticket.id && activeQrUrl"
@@ -109,7 +122,7 @@ onBeforeUnmount(() => {
       </section>
     </template>
 
-    <template v-else-if="!loading && errorMessage">
+    <template v-else-if="!isInitialLoading && loadErrorMessage">
       <router-link to="/orders">返回我的訂單</router-link>
     </template>
   </div>
@@ -120,6 +133,14 @@ onBeforeUnmount(() => {
   max-width: 800px;
   margin: 64px auto;
   padding: 0 16px;
+}
+
+.page-alert {
+  margin-bottom: 16px;
+}
+
+.order-actions {
+  margin-top: 16px;
 }
 
 .order-item {
