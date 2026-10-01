@@ -22,7 +22,7 @@ describe('AdminOrderDetailPage', () => {
 
   // 後端 OrderItemDto 的 EventSeatId 可為 null（純計數票種），且一個項目可含多張（Quantity）。
   // 若只顯示座位 Id 與單價，Admin 會把一筆 5 張的計數項目誤讀成 1 張、座位欄空白像資料遺失。
-  it('混合座位項目與計數項目：計數項目標示為計數票並顯示數量，單價以貨幣格式呈現', async () => {
+  it('[AWU-ORDER-DETAIL-001] 混合座位項目與計數項目：計數項目標示為計數票並顯示數量，單價以貨幣格式呈現', async () => {
     vi.mocked(adminApi.getAdminOrderById).mockResolvedValue({
       id: 'order-1',
       eventId: 'event-1',

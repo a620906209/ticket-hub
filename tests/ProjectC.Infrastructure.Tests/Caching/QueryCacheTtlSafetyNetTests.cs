@@ -35,6 +35,7 @@ public class QueryCacheTtlSafetyNetTests
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
         public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken) => throw new NotSupportedException();
         public void Add(Event @event) => throw new NotSupportedException();
         public void Update(Event @event) => throw new NotSupportedException();
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => throw new NotSupportedException();

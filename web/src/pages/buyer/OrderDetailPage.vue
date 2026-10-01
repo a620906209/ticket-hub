@@ -4,6 +4,7 @@ import { getTicketQrCodeBlob } from '../../api/orders'
 import OrderStatusTag from '../../components/OrderStatusTag.vue'
 import TicketStatusTag from '../../components/TicketStatusTag.vue'
 import { usePendingOrderActions } from '../../composables/usePendingOrderActions'
+import type { MyOrderItem } from '../../types/apiResponses'
 import { toErrorMessage } from '../../utils/errors'
 
 const {
@@ -26,6 +27,11 @@ const qrErrorMessage = ref('')
 const activeQrUrl = ref<string | null>(null)
 const activeTicketId = ref<string | null>(null)
 let qrRequestVersion = 0
+
+// 後端保證分區與號碼同時為 null（純計數項目）或同時有值，這裡只需判斷其中一欄。
+function formatSeatLabel(item: MyOrderItem): string {
+  return item.seatZoneCode == null ? '—' : `${item.seatZoneCode}-${item.seatNumber}`
+}
 
 function canShowQrCode(status: string): boolean {
   return status === 'Issued' || status === 'Redeemed'
@@ -74,6 +80,7 @@ onBeforeUnmount(discardQrCode)
 
     <template v-if="order">
       <p>訂單 Id：{{ order.id }}</p>
+      <p>活動：{{ order.eventTitle }}</p>
       <p>狀態：<OrderStatusTag :status="order.status" /></p>
       <p v-if="canShowHeldUntil">保留至 {{ new Date(order.heldUntilUtc).toLocaleString() }}</p>
 
@@ -101,6 +108,8 @@ onBeforeUnmount(discardQrCode)
 
       <section v-for="item in order.items" :key="item.id" class="order-item">
         <h2>訂單項目</h2>
+        <p>票種：{{ item.ticketTypeName ?? '—' }}</p>
+        <p>座位：{{ formatSeatLabel(item) }}</p>
         <p>數量：{{ item.quantity }}</p>
         <template v-if="item.tickets.length === 0">
           <p>尚未出票</p>

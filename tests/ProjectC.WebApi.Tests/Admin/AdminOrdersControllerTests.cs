@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using ProjectC.Application.Orders.GetOrderById;
 using ProjectC.Application.Orders.GetOrders;
@@ -119,8 +120,31 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
 
         var orders = await response.Content.ReadFromJsonAsync<List<OrderSummaryDto>>();
         orders!.Select(o => o.Id).Should().BeEquivalentTo([orderA.OrderId]);
-        orders.Should().ContainSingle(o => o.Id == orderA.OrderId && o.Status == "Pending");
+        // SeedPendingOrderAsync 的買家以 AuthTestHelper 預設顯示名稱註冊。
+        orders.Should().ContainSingle(o => o.Id == orderA.OrderId && o.Status == "Pending" && o.BuyerDisplayName == "Test User");
         orders.Should().NotContain(o => o.Id == orderB.OrderId);
+    }
+
+    // [ORD-LIST-002] 除顯示名稱外不得回傳買家 Email 等個資——以序列化後的 JSON 驗證，而非只看 DTO。
+    [Fact]
+    public async Task GetOrders_WithTwoBuyers_ReturnsBuyerDisplayNamesWithoutEmail()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seededEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "Admin Display Event", seatCount: 2, countTicketTypeCount: 0);
+        var (aliceClient, aliceEmail) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory, "Alice");
+        var (bobClient, bobEmail) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory, "Bob");
+        var aliceOrderId = await OrderDisplayTestData.PlaceOrderAsync(aliceClient, seededEvent, seatItemCount: 1, countItemCount: 0, firstSeatIndex: 0);
+        var bobOrderId = await OrderDisplayTestData.PlaceOrderAsync(bobClient, seededEvent, seatItemCount: 1, countItemCount: 0, firstSeatIndex: 1);
+
+        var response = await organizerClient.GetAsync("/api/admin/orders");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(body);
+        var displayNameByOrderId = document.RootElement.EnumerateArray()
+            .ToDictionary(order => order.GetProperty("id").GetGuid(), order => order.GetProperty("buyerDisplayName").GetString());
+        displayNameByOrderId.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [aliceOrderId] = "Alice", [bobOrderId] = "Bob" });
+        body.Should().NotContainEquivalentOf("email").And.NotContain(aliceEmail).And.NotContain(bobEmail);
     }
 
     // ---- 訂單明細 ----

@@ -6,16 +6,27 @@ public sealed class FakeOrderRepository : IOrderRepository
 {
     public List<Order> Data { get; } = new();
 
+    // 收到的 token 供「token 原樣傳遞」斷言使用（order-display-enrichment tasks.md 1.2c）。
+    public CancellationToken? LastGetByIdToken { get; private set; }
+    public CancellationToken? LastGetByOrganizerIdToken { get; private set; }
+    public CancellationToken? LastGetByBuyerIdToken { get; private set; }
+
     public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
-        => Task.FromResult(Data.FirstOrDefault(o => o.Id == id));
+    {
+        LastGetByIdToken = cancellationToken;
+        return Task.FromResult(Data.FirstOrDefault(o => o.Id == id));
+    }
 
     // Order 只以 EventId 參照 Event，假物件無法自行 join；改由測試直接指定每個 EventId 所屬的 OrganizerId。
     public Dictionary<Guid, Guid> OrganizerIdByEventId { get; } = new();
 
     public Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<Order>>(Data
+    {
+        LastGetByOrganizerIdToken = cancellationToken;
+        return Task.FromResult<IReadOnlyList<Order>>(Data
             .Where(o => OrganizerIdByEventId.TryGetValue(o.EventId, out var owner) && owner == organizerId)
             .ToList());
+    }
 
     public Task<Guid?> GetOrganizerIdByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
     {
@@ -25,7 +36,10 @@ public sealed class FakeOrderRepository : IOrderRepository
     }
 
     public Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<Order>>(Data.Where(order => order.BuyerId == buyerId).ToList());
+    {
+        LastGetByBuyerIdToken = cancellationToken;
+        return Task.FromResult<IReadOnlyList<Order>>(Data.Where(order => order.BuyerId == buyerId).ToList());
+    }
 
     public Task<Order?> GetByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
         => Task.FromResult(Data.FirstOrDefault(order => order.Items.Any(item => item.Id == orderItemId)));

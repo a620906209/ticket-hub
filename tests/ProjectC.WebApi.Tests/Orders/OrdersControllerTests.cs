@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using FluentAssertions;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Events.CreateEvent;
@@ -312,5 +313,79 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
 
         listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         detailResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // [BOQ-DETAIL-DISPLAY-001] 驗證序列化後的欄位名稱與值（單元測試只驗證 DTO 內容）。
+    [Fact]
+    public async Task GetMyOrderDetail_WithSeatAndCountItems_ReturnsDisplayFieldsInJson()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seededEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "Display Concert", seatCount: 1, countTicketTypeCount: 1);
+        var (buyerClient, _) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory);
+        var orderId = await OrderDisplayTestData.PlaceOrderAsync(buyerClient, seededEvent, seatItemCount: 1, countItemCount: 1);
+
+        var response = await buyerClient.GetAsync($"/api/orders/{orderId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.GetProperty("eventTitle").GetString().Should().Be("Display Concert");
+        var items = document.RootElement.GetProperty("items").EnumerateArray().ToList();
+        var seatItem = items.Single(item => item.GetProperty("eventSeatId").ValueKind != JsonValueKind.Null);
+        seatItem.GetProperty("seatZoneCode").GetString().Should().Be("A");
+        seatItem.GetProperty("seatNumber").GetString().Should().Be("1");
+        seatItem.GetProperty("ticketTypeName").GetString().Should().Be("A");
+        var countItem = items.Single(item => item.GetProperty("eventSeatId").ValueKind == JsonValueKind.Null);
+        countItem.GetProperty("seatZoneCode").ValueKind.Should().Be(JsonValueKind.Null);
+        countItem.GetProperty("seatNumber").ValueKind.Should().Be(JsonValueKind.Null);
+        countItem.GetProperty("ticketTypeName").GetString().Should().Be(OrderDisplayTestData.CountTicketTypeName(0));
+    }
+
+    // [BOQ-LIST-TITLE-001]
+    [Fact]
+    public async Task GetMyOrders_WithOrdersInTwoEvents_ReturnsEventTitleInJson()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var firstEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "First Concert", seatCount: 1, countTicketTypeCount: 0);
+        var secondEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "Second Concert", seatCount: 1, countTicketTypeCount: 0);
+        var (buyerClient, _) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory);
+        var firstOrderId = await OrderDisplayTestData.PlaceOrderAsync(buyerClient, firstEvent, seatItemCount: 1, countItemCount: 0);
+        var secondOrderId = await OrderDisplayTestData.PlaceOrderAsync(buyerClient, secondEvent, seatItemCount: 1, countItemCount: 0);
+
+        var response = await buyerClient.GetAsync("/api/orders");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var titleByOrderId = document.RootElement.EnumerateArray()
+            .ToDictionary(order => order.GetProperty("id").GetGuid(), order => order.GetProperty("eventTitle").GetString());
+        titleByOrderId.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [firstOrderId] = "First Concert", [secondOrderId] = "Second Concert" });
+    }
+
+    // [BOQ-DETAIL-003]
+    [Fact]
+    public async Task GetMyOrderDetail_ByNonBuyer_Returns403()
+    {
+        var (_, eventSeatId, ticketTypeId) = await SeedEventWithSeatAndTicketTypeAsync();
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+        var otherClient = await CreateAuthenticatedMemberClientAsync();
+        var placeResponse = await buyerClient.PostAsJsonAsync(
+            "/api/orders", new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeatId, ticketTypeId)]));
+        var orderId = await ReadCreatedIdAsync(placeResponse);
+
+        var response = await otherClient.GetAsync($"/api/orders/{orderId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain("items").And.NotContain("eventTitle");
+    }
+
+    // [BOQ-DETAIL-004]
+    [Fact]
+    public async Task GetMyOrderDetail_WithNonExistentOrder_Returns404()
+    {
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await buyerClient.GetAsync($"/api/orders/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

@@ -38,6 +38,7 @@ onMounted(loadOrders)
     <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon style="margin-bottom: 16px" />
 
     <el-table v-if="orders.length > 0" v-loading="loading" :data="orders">
+      <el-table-column prop="eventTitle" label="活動" />
       <el-table-column label="狀態" width="120">
         <template #default="{ row }"><OrderStatusTag :status="row.status" /></template>
       </el-table-column>

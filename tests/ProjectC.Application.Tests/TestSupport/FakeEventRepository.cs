@@ -6,11 +6,31 @@ public sealed class FakeEventRepository : IEventRepository
 {
     public List<Event> Data { get; } = new();
 
+    // 呼叫次數與收到的 token／Id 供「查詢次數不隨筆數成長」與「token 原樣傳遞」的斷言使用
+    // （order-display-enrichment tasks.md 1.1／1.2c）。
+    public int GetByIdCallCount { get; private set; }
+    public CancellationToken? LastGetByIdToken { get; private set; }
+    public int GetByIdsCallCount { get; private set; }
+    public IReadOnlyList<Guid>? LastGetByIdsIds { get; private set; }
+    public CancellationToken? LastGetByIdsToken { get; private set; }
+
     public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
-        => Task.FromResult(Data.FirstOrDefault(e => e.Id == id));
+    {
+        GetByIdCallCount++;
+        LastGetByIdToken = cancellationToken;
+        return Task.FromResult(Data.FirstOrDefault(e => e.Id == id));
+    }
 
     public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<Event>>(Data.ToList());
+
+    public Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken)
+    {
+        GetByIdsCallCount++;
+        LastGetByIdsIds = eventIds.ToList();
+        LastGetByIdsToken = cancellationToken;
+        return Task.FromResult<IReadOnlyList<Event>>(Data.Where(e => eventIds.Contains(e.Id)).ToList());
+    }
 
     public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<Event>>(Data.Where(e => e.OrganizerId == organizerId).ToList());

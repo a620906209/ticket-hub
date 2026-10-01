@@ -9,8 +9,15 @@ public sealed class FakeTicketTypeRepository : ITicketTypeRepository
     public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => Task.FromResult(Data.FirstOrDefault(t => t.Id == id));
 
+    public int GetByEventIdCallCount { get; private set; }
+    public CancellationToken? LastGetByEventIdToken { get; private set; }
+
     public Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<TicketType>>(Data.Where(t => t.EventId == eventId).ToList());
+    {
+        GetByEventIdCallCount++;
+        LastGetByEventIdToken = cancellationToken;
+        return Task.FromResult<IReadOnlyList<TicketType>>(Data.Where(t => t.EventId == eventId).ToList());
+    }
 
     public void Add(TicketType ticketType) => Data.Add(ticketType);
 

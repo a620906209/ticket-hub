@@ -51,6 +51,7 @@ using ProjectC.Application.Venues.GetSeatMapById;
 using ProjectC.Application.Venues.GetVenueById;
 using ProjectC.Application.Venues.GetVenues;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Members;
 using ProjectC.Domain.Notifications;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
@@ -126,6 +127,7 @@ try
     builder.Services.AddScoped<IOrderRepository, OrderRepository>();
     builder.Services.AddScoped<ITicketRepository, TicketRepository>();
     builder.Services.AddScoped<IPurchaseQueueRepository, PurchaseQueueRepository>();
+    builder.Services.AddScoped<IMemberDisplayNameReader, MemberDisplayNameReader>();
 
     // JwtOptions：啟動時驗證，SigningKey 等缺失直接讓應用程式啟動失敗（Fail Fast，見 design.md 決策 9）。
     builder.Services

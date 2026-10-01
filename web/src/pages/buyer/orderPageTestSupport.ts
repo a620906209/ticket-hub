@@ -23,9 +23,10 @@ export function buildPendingOrder(overrides: Partial<MyOrderDetail> = {}): MyOrd
   return {
     id: 'order-1',
     eventId: 'event-1',
+    eventTitle: 'Spring Concert',
     status: 'Pending',
     heldUntilUtc: HELD_UNTIL_UTC,
-    items: [{ id: 'item-1', eventSeatId: 'seat-1', ticketTypeId: null, quantity: 1, unitPrice: 1200, tickets: [] }],
+    items: [{ id: 'item-1', eventSeatId: 'seat-1', ticketTypeId: 'ticket-type-1', seatZoneCode: 'A', seatNumber: '12', ticketTypeName: 'A', quantity: 1, unitPrice: 1200, tickets: [] }],
     ...overrides,
   }
 }
@@ -37,7 +38,10 @@ export function buildPaidOrder(overrides: Partial<MyOrderDetail> = {}): MyOrderD
       {
         id: 'item-1',
         eventSeatId: 'seat-1',
-        ticketTypeId: null,
+        ticketTypeId: 'ticket-type-1',
+        seatZoneCode: 'A',
+        seatNumber: '12',
+        ticketTypeName: 'A',
         quantity: 1,
         unitPrice: 1200,
         tickets: [{ id: 'ticket-1', status: 'Issued' }],

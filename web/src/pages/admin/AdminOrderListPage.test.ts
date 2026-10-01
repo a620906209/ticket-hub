@@ -14,8 +14,8 @@ describe('AdminOrderListPage 後台訂單列表', () => {
   beforeEach(() => {
     vi.mocked(adminApi.getAdminOrders).mockReset()
     vi.mocked(adminApi.getAdminOrders).mockResolvedValue([
-      { id: 'pending-order', eventId: 'event-1', buyerId: 'buyer-1', status: 'Pending', heldUntilUtc: '2026-09-30T10:00:00Z' },
-      { id: 'paid-order', eventId: 'event-2', buyerId: 'buyer-2', status: 'Paid', heldUntilUtc: '2026-09-30T11:00:00Z' },
+      { id: 'pending-order', eventId: 'event-1', buyerId: 'buyer-guid-1', buyerDisplayName: 'Buyer 1', status: 'Pending', heldUntilUtc: '2026-09-30T10:00:00Z' },
+      { id: 'paid-order', eventId: 'event-2', buyerId: 'buyer-guid-2', buyerDisplayName: 'Buyer 2', status: 'Paid', heldUntilUtc: '2026-09-30T11:00:00Z' },
     ])
   })
 
@@ -31,6 +31,29 @@ describe('AdminOrderListPage 後台訂單列表', () => {
     expect(pendingTag.classes()).toContain('el-tag--warning')
     expect(paidTag.text()).toBe('已付款')
     expect(paidTag.classes()).toContain('el-tag--success')
+    expect(rows[0].text()).toContain('Buyer 1')
+    expect(rows[1].text()).toContain('Buyer 2')
+    expect(wrapper.text()).not.toContain('buyer-guid-1')
+    expect(wrapper.text()).not.toContain('buyer-guid-2')
+  })
+
+  // DisplayName 由會員自行設定且會被任何 Organizer 看到，MUST 以表格 prop 渲染、不得產生元素（design.md 安全確認-前端）。
+  it('[AWU-ORDER-LIST-001] 買家顯示名稱含 HTML 標籤時原樣以文字顯示，表格內不產生元素', async () => {
+    vi.mocked(adminApi.getAdminOrders).mockResolvedValue([
+      {
+        id: 'order-1',
+        eventId: 'event-1',
+        buyerId: 'buyer-guid-1',
+        buyerDisplayName: '<img src=x onerror=alert(1)>',
+        status: 'Paid',
+        heldUntilUtc: '2026-09-30T10:00:00Z',
+      },
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>')
+    expect(wrapper.find('.el-table__body img').exists()).toBe(false)
   })
 
   // HeldUntilUtc 是建立訂單當下的原始值、不因終態改寫，對 Paid 訂單顯示會誤導成仍在保留中。
