@@ -25,6 +25,7 @@ const {
 
     <template v-if="order">
       <p>訂單 Id：{{ order.id }}</p>
+      <p>活動：{{ order.eventTitle }}</p>
       <p>狀態：<OrderStatusTag :status="order.status" /></p>
       <p v-if="canShowHeldUntil">保留至 {{ new Date(order.heldUntilUtc).toLocaleString() }}</p>
 

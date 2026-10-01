@@ -21,6 +21,14 @@ public class EventRepository : IEventRepository
     public async Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken)
         => await _dbContext.Events.ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken)
+    {
+        if (eventIds.Count == 0)
+            return [];
+
+        return await _dbContext.Events.AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
         => await _dbContext.Events.Where(e => e.OrganizerId == organizerId).ToListAsync(cancellationToken);
 

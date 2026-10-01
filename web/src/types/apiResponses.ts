@@ -53,6 +53,7 @@ export interface OrderSummary {
   id: string
   eventId: string
   buyerId: string
+  buyerDisplayName: string
   status: string
   heldUntilUtc: string
 }
@@ -78,6 +79,7 @@ export interface OrderDetail {
 export interface MyOrderSummary {
   id: string
   eventId: string
+  eventTitle: string
   status: string
   heldUntilUtc: string
 }
@@ -91,6 +93,9 @@ export interface MyOrderItem {
   id: string
   eventSeatId: string | null
   ticketTypeId: string | null
+  seatZoneCode: string | null
+  seatNumber: string | null
+  ticketTypeName: string | null
   quantity: number
   unitPrice: number
   tickets: MyTicket[]
@@ -99,6 +104,7 @@ export interface MyOrderItem {
 export interface MyOrderDetail {
   id: string
   eventId: string
+  eventTitle: string
   status: string
   heldUntilUtc: string
   items: MyOrderItem[]

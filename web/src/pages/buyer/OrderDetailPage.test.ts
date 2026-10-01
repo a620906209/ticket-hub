@@ -49,7 +49,7 @@ describe('OrderDetailPage 訂單明細', () => {
   })
 
   describe('既有顯示行為', () => {
-    it('[開啟訂單明細頁查看已出票訂單] Paid 訂單顯示已付款、已出票與查看 QR Code，不顯示保留時間', async () => {
+    it('[BW-MYORDER-DETAIL-001 開啟訂單明細頁查看已出票訂單] Paid 訂單顯示已付款、已出票與查看 QR Code，不顯示保留時間', async () => {
       vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(buildPaidOrder())
       const { wrapper } = await mountDetailPage()
 
@@ -59,9 +59,106 @@ describe('OrderDetailPage 訂單明細', () => {
       expect(wrapper.text()).not.toContain('保留至')
       expect(wrapper.text()).not.toContain('Paid')
       expect(wrapper.text()).not.toContain('Issued')
+      expect(wrapper.text()).toContain('活動：Spring Concert')
+      expect(wrapper.text()).toContain('票種：A')
+      expect(wrapper.text()).toContain('座位：A-12')
     })
 
-    it('[點選查看 QR Code] 以票券 Id 取得 Blob、建立 Object URL，切換或卸載時釋放 URL', async () => {
+    it('[BW-MYORDER-DISPLAY-001] 座位項目顯示票種與「分區-號碼」，計數項目的座位顯示「—」', async () => {
+      vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(
+        buildPendingOrder({
+          items: [
+            {
+              id: 'seat-item',
+              eventSeatId: 'seat-1',
+              ticketTypeId: 'ticket-type-a',
+              seatZoneCode: 'A',
+              seatNumber: '12',
+              ticketTypeName: 'A',
+              quantity: 1,
+              unitPrice: 1200,
+              tickets: [],
+            },
+            {
+              id: 'count-item',
+              eventSeatId: null,
+              ticketTypeId: 'ticket-type-standing',
+              seatZoneCode: null,
+              seatNumber: null,
+              ticketTypeName: '站票',
+              quantity: 2,
+              unitPrice: 800,
+              tickets: [],
+            },
+          ],
+        }),
+      )
+      const { wrapper } = await mountDetailPage()
+
+      const items = wrapper.findAll('.order-item')
+      expect(items).toHaveLength(2)
+      expect(items[0].text()).toContain('票種：A')
+      expect(items[0].text()).toContain('座位：A-12')
+      expect(items[1].text()).toContain('票種：站票')
+      expect(items[1].text()).toContain('座位：—')
+    })
+
+    it('[BW-MYORDER-DISPLAY-001] 舊訂單項目票種名稱為 null 時顯示「—」', async () => {
+      vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(
+        buildPendingOrder({
+          items: [
+            {
+              id: 'legacy-item',
+              eventSeatId: 'seat-1',
+              ticketTypeId: null,
+              seatZoneCode: 'A',
+              seatNumber: '12',
+              ticketTypeName: null,
+              quantity: 1,
+              unitPrice: 1200,
+              tickets: [],
+            },
+          ],
+        }),
+      )
+      const { wrapper } = await mountDetailPage()
+
+      const item = wrapper.find('.order-item')
+      expect(item.text()).toContain('票種：—')
+      expect(item.text()).toContain('座位：A-12')
+    })
+
+    // 活動名稱、票種名稱、分區皆由 Organizer 輸入，MUST 以文字插值渲染（design.md 安全確認-前端）。
+    it('[BW-MYORDER-DISPLAY-001] 活動名稱、票種名稱與分區含 HTML 標籤時原樣以文字顯示，不產生元素', async () => {
+      vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(
+        buildPendingOrder({
+          eventTitle: '<img src=x onerror=alert(1)>',
+          items: [
+            {
+              id: 'item-1',
+              eventSeatId: 'seat-1',
+              ticketTypeId: 'ticket-type-1',
+              seatZoneCode: '<b>zone</b>',
+              seatNumber: '12',
+              ticketTypeName: '<i>vip</i>',
+              quantity: 1,
+              unitPrice: 1200,
+              tickets: [],
+            },
+          ],
+        }),
+      )
+      const { wrapper } = await mountDetailPage()
+
+      expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>')
+      expect(wrapper.text()).toContain('<i>vip</i>')
+      expect(wrapper.text()).toContain('<b>zone</b>-12')
+      expect(wrapper.find('.order-detail-page img').exists()).toBe(false)
+      expect(wrapper.find('.order-item b').exists()).toBe(false)
+      expect(wrapper.find('.order-item i').exists()).toBe(false)
+    })
+
+    it('[BW-MYORDER-QR-001 點選查看 QR Code] 以票券 Id 取得 Blob、建立 Object URL，切換或卸載時釋放 URL', async () => {
       const createObjectURL = vi.fn().mockReturnValueOnce('blob:ticket-1').mockReturnValueOnce('blob:ticket-2')
       const revokeObjectURL = vi.fn()
       vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
@@ -72,6 +169,9 @@ describe('OrderDetailPage 訂單明細', () => {
               id: 'item-1',
               eventSeatId: 'seat-1',
               ticketTypeId: null,
+              seatZoneCode: 'A',
+              seatNumber: '1',
+              ticketTypeName: null,
               quantity: 2,
               unitPrice: 1200,
               tickets: [
@@ -101,7 +201,7 @@ describe('OrderDetailPage 訂單明細', () => {
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:ticket-2')
     })
 
-    it('[開啟尚未出票訂單的明細頁] Pending 訂單顯示待付款、保留時間與尚未出票，不顯示 QR Code 操作', async () => {
+    it('[BW-MYORDER-DETAIL-002 開啟尚未出票訂單的明細頁] Pending 訂單顯示待付款、保留時間與尚未出票，不顯示 QR Code 操作', async () => {
       vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(buildPendingOrder())
       const { wrapper } = await mountDetailPage()
 
@@ -111,7 +211,7 @@ describe('OrderDetailPage 訂單明細', () => {
       expect(wrapper.text()).not.toContain('查看 QR Code')
     })
 
-    it('[直接以網址開啟不存在的訂單明細頁] 明細 API 回傳 404 時顯示找不到提示與返回列表操作', async () => {
+    it('[BW-MYORDER-NOTFOUND-001 直接以網址開啟不存在的訂單明細頁] 明細 API 回傳 404 時顯示找不到提示與返回列表操作', async () => {
       vi.mocked(ordersApi.getMyOrderDetail).mockRejectedValue(new ApiError(404, { detail: 'not found' }))
       const { wrapper } = await mountDetailPage()
 
@@ -120,7 +220,7 @@ describe('OrderDetailPage 訂單明細', () => {
       expect(wrapper.text()).not.toContain('訂單 Id：')
     })
 
-    it('[直接以網址開啟非本人的訂單明細頁] 明細 API 回傳 403 時顯示無權限提示與返回列表操作', async () => {
+    it('[BW-MYORDER-FORBIDDEN-001 直接以網址開啟非本人的訂單明細頁] 明細 API 回傳 403 時顯示無權限提示與返回列表操作', async () => {
       vi.mocked(ordersApi.getMyOrderDetail).mockRejectedValue(new ApiError(403, { detail: 'forbidden' }))
       const { wrapper } = await mountDetailPage()
 
@@ -147,6 +247,9 @@ describe('OrderDetailPage 訂單明細', () => {
               id: 'item-1',
               eventSeatId: 'seat-1',
               ticketTypeId: null,
+              seatZoneCode: 'A',
+              seatNumber: '1',
+              ticketTypeName: null,
               quantity: 2,
               unitPrice: 1200,
               tickets: [
@@ -168,7 +271,7 @@ describe('OrderDetailPage 訂單明細', () => {
 
     // 未知值原樣顯示的規定（BW-MYORDER-DISPLAY-002 的票券面）必須在頁面層成立：只測 statusLabels 純函式時，
     // 頁面若以 QR Code 條件包住整筆票券，未知狀態的票券會整筆消失而測試仍通過。
-    it('未知票券狀態原樣顯示為中性色標籤，但不提供查看 QR Code', async () => {
+    it('[BW-MYORDER-DISPLAY-002] 未知票券狀態原樣顯示為中性色標籤，但不提供查看 QR Code', async () => {
       vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(
         buildPaidOrder({
           items: [
@@ -176,6 +279,9 @@ describe('OrderDetailPage 訂單明細', () => {
               id: 'item-1',
               eventSeatId: 'seat-1',
               ticketTypeId: null,
+              seatZoneCode: 'A',
+              seatNumber: '1',
+              ticketTypeName: null,
               quantity: 2,
               unitPrice: 1200,
               tickets: [

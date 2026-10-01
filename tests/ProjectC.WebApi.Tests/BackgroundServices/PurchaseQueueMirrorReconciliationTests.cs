@@ -630,6 +630,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
 
         public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
 
+        public Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken) => _inner.GetByIdsAsync(eventIds, cancellationToken);
+
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 
         public void Add(Event @event) => _inner.Add(@event);
@@ -807,6 +809,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => _inner.GetAllAsync(cancellationToken);
 
         public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+
+        public Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken) => _inner.GetByIdsAsync(eventIds, cancellationToken);
 
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 

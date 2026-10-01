@@ -135,6 +135,16 @@ describe('OrderResultPage 訂單結果頁', () => {
     expect(wrapper.text()).toContain('待付款')
     expect(wrapper.text()).toContain(HELD_UNTIL_TEXT)
     expect(wrapper.text()).not.toContain(new Date(staleQueryValue).toLocaleString())
+    expect(wrapper.text()).toContain('活動：Spring Concert')
+  })
+
+  // 活動名稱由 Organizer 輸入，MUST 以文字插值渲染（design.md 安全確認-前端）。
+  it('[BW-RESULT-002] 活動名稱含 HTML 標籤時原樣以文字顯示，不產生元素', async () => {
+    vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(buildPendingOrder({ eventTitle: '<img src=x onerror=alert(1)>' }))
+    const { wrapper } = await mountResultPage()
+
+    expect(wrapper.text()).toContain('活動：<img src=x onerror=alert(1)>')
+    expect(wrapper.find('img').exists()).toBe(false)
   })
 
   it.each([

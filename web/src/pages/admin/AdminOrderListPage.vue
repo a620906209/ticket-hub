@@ -40,7 +40,7 @@ onMounted(loadOrders)
           <span v-if="row.status === 'Pending'">{{ new Date(row.heldUntilUtc).toLocaleString() }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="buyerId" label="買家 Id" />
+      <el-table-column prop="buyerDisplayName" label="買家" />
       <el-table-column label="操作" width="120">
         <template #default="{ row }">
           <router-link :to="`/admin/orders/${row.id}`">查看明細</router-link>

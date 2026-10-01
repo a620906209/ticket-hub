@@ -641,6 +641,8 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
 
         public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
 
+        public Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken) => _inner.GetByIdsAsync(eventIds, cancellationToken);
+
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
 
         public void Add(Event @event) => _inner.Add(@event);
