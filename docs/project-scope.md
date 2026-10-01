@@ -170,7 +170,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - Domain 層是否在建立 Event 時驗證票種數/座位數超過設定上限（見第 3 節）
 - 部署環境是否加雲端平台展示（見第 4 節）
 - ~~Could 項目的實作優先順序~~——已依序完成 Redis 分散式鎖、快取層、CAPTCHA、現場核銷掃碼頁、多租戶主辦方管理介面；剩餘 Could 項目僅「實名制驗證」與「Queue 排隊室 Redis 資料結構重寫」（後者維持未排定）
-- **已知前端缺口（2026-09-30 盤點，排在實名制／雲端部署之前）**：① ✅ Pending 訂單離開結果頁後無法付款／取消——已由 `order-pending-actions` 補上（訂單明細頁可確認付款／取消，結果頁改查伺服器狀態；2026-09-30 歸檔）；② ✅ 尚未切換 Organizer 的平台 Admin 沒有進入主辦方審核頁的介面入口——已由 `order-pending-actions` 於買家端會員選單補上；③ ✅ 訂單／票券狀態直接顯示英文列舉值——已由 `order-pending-actions` 統一為中文狀態標籤（後台持有到期時間亦改為僅 Pending 顯示）；④ 買家訂單明細缺活動名稱、座位、票種資訊，後台訂單列表顯示買家 GUID——待 `order-display-enrichment` 處理
+- **已知前端缺口（2026-09-30 盤點，排在實名制／雲端部署之前）**：① ✅ Pending 訂單離開結果頁後無法付款／取消——已由 `order-pending-actions` 補上（訂單明細頁可確認付款／取消，結果頁改查伺服器狀態；2026-09-30 歸檔）；② ✅ 尚未切換 Organizer 的平台 Admin 沒有進入主辦方審核頁的介面入口——已由 `order-pending-actions` 於買家端會員選單補上；③ ✅ 訂單／票券狀態直接顯示英文列舉值——已由 `order-pending-actions` 統一為中文狀態標籤（後台持有到期時間亦改為僅 Pending 顯示）；④ ✅ 買家訂單明細缺活動名稱、座位、票種資訊，後台訂單列表顯示買家 GUID——已由 `order-display-enrichment` 補上（買家列表／明細／結果頁顯示活動名稱，明細逐項顯示票種與座位，後台列表改顯示買家名稱；2026-10-01 歸檔）
 
 **已決策的現況對齊項目（2026-08-19 盤點後）**
 - 座位鎖定機制：維持既有 `seat-reservation` 的**悲觀鎖**實作，本文件不再規劃改為樂觀鎖 RowVersion（原「兩套機制衝突」已解決）
@@ -196,7 +196,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 | 核銷 API | ✅ 已完成（`PATCH /api/admin/tickets/{id}/redeem`，限已切換 Organizer 的成員且只能核銷自家票券（見 `order-report-redemption-organizer-scoping`），含併發防重複核銷） | `ticket-redemption` |
 | `TicketType.RequiresSeat` 開關 | ✅ 已完成（純後端，見第 8 節） | `TicketType.cs`、`event-management`、`ticket-ordering`、`ticket-purchase` |
 | 會員系統整合登入 | ✅ 已完成 | `authentication`、`member-management` |
-| 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細與票券 QR Code 查詢已補上（見 `buyer-order-query`）；純計數票種的 Admin 建立表單與買家購票 UI 已補上（見 `count-ticket-type-web-ui`） | `buyer-web-ui`、`admin-web-ui` |
+| 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細與票券 QR Code 查詢已補上（見 `buyer-order-query`）；純計數票種的 Admin 建立表單與買家購票 UI 已補上（見 `count-ticket-type-web-ui`）；訂單頁活動名稱、票種、座位與後台買家名稱顯示已補上（見 `order-display-enrichment`，2026-10-01） | `buyer-web-ui`、`admin-web-ui` |
 
 **Phase 1 Must 全數完成**：以上 8 項皆已 ✅，達成第 7 節定義的「中期可展示節點」——建立活動（含座位制／純計數兩種票種）→ 買家下單（選位或計數購買）→ Mock 付款 → 出票 → 核銷可 end-to-end 跑通。下一步依第 7 節開發階段順序進入 Phase 2（Should）。
 

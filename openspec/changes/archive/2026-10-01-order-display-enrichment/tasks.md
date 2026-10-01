@@ -85,4 +85,4 @@
 - [x] 7.1 容器內執行全部後端測試（`docker compose exec api dotnet test`）與前端 `npm run test`、`npm run lint`、`vue-tsc`
 - [x] 7.2 以 claude-in-chrome 實機驗證：混合座位與計數票的訂單明細顯示正確；後台訂單列表顯示買家名稱
 - [x] 7.3 套用 hardener 檢查清單於 2.1–2.4 變更的 Handler，再呼叫 strict-reviewer
-- [ ] 7.4 歸檔時同步主 spec，並更新 `docs/project-scope.md` 第 8 節「已知前端缺口」④ 與第 9 節快照註記為已完成
+- [x] 7.4 歸檔時同步主 spec，並更新 `docs/project-scope.md` 第 8 節「已知前端缺口」④ 與第 9 節快照註記為已完成
