@@ -20,7 +20,7 @@
 |---|---|
 | 買家 | 排隊狀態透明、限時保留鎖定、選票不卡頓 |
 | 主辦方 | 建立活動/票種、設定開賣時間、查看銷售報表 |
-| 平台管理員 | 簡化版異常訂單監控 |
+| 平台管理員 | 審核主辦方申請（原列「簡化版異常訂單監控」，主辦方租戶隔離後改列 Won't，見第 2 節） |
 
 **系統定位**：對外設計為多租戶（Organizer 為獨立 Entity），實作範圍僅需支援單一主辦方即可跑通。（後續 Phase 3 已實作多主辦方申請／審核／切換與後台租戶隔離，見第 2 節 Could 項「多租戶主辦方管理介面」）
 
@@ -35,7 +35,7 @@
 **Must（本次範疇核心，Phase 1）**
 - 活動 / 票種建立與上架
 - 座位（或票種）選擇與鎖定（**悲觀鎖，資料庫交易鎖 + 固定順序取鎖避免死鎖**，套用於 `Seat`）——**已於既有 `seat-reservation` spec 完成實作，決策維持悲觀鎖現況，不改為樂觀鎖**
-- 訂單建立與結帳流程（Mock 金流，`IPaymentGateway` 介面 + 假實作展示 DIP）——既有 `ticket-purchase` 確認訂單端點目前為「不接受付款資訊、呼叫即成功」的簡化版，**決策讓既有實作對齊本規劃**，待開 OpenSpec 提案補上 `IPaymentGateway` 抽象化
+- 訂單建立與結帳流程（Mock 金流，`IPaymentGateway` 介面 + 假實作展示 DIP）——**已完成**：`IPaymentGateway`／`MockPaymentGateway` 已由 `order-payment-gateway-alignment` 補上（見第 8 節）
 - 電子票券產出（QR Code，內容為 HMAC 簽章過的 Ticket ID，防偽造）
 - 核銷 API（`PATCH /api/admin/tickets/{id}/redeem`，需處理併發核銷防重複、狀態機驗證；路由掛在 `/api/admin/` 前綴的理由見 `ticket-issuance-and-redemption` design.md 決策 5）
 - 與既有會員系統整合登入
@@ -65,6 +65,9 @@
 - 第三方憑證/簽章服務（QR Code 走本地 HMAC 簽章，非第三方簽章）
 - 電子發票 / 正式法定電子憑證
 - 銷售歷史趨勢分析（BI 範疇）
+- 平台層級跨租戶訂單監控（2026-10-02 盤點決定：訂單監控由各主辦方在自家後台處理，平台 `Admin` 只負責審核主辦方）
+- 活動上架後的編輯／下架／取消，以及連帶的退款（`Order.Refunded`）與票券作廢（`Ticket.Voided`）流程（2026-10-02 盤點決定）
+- 實體票寄送與會員收件資訊（取票方式／寄送地址）——只提供電子票券（2026-10-02 盤點決定）
 
 ---
 
@@ -80,26 +83,25 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 ```
 
 - 指定座位與純計數票種兩種模式皆支援，透過 `TicketType.RequiresSeat` 開關切換
-- 鎖定邏輯採**悲觀鎖**（既有 `seat-reservation` 實作：資料庫交易層鎖定，多座位鎖定依固定順序取鎖避免死鎖），套用在 `Seat` 上；`TicketType.AvailableQuantity` 純計數模式的鎖定機制待該功能實作時另行決定是否共用同一套
+- 鎖定邏輯採**悲觀鎖**（既有 `seat-reservation` 實作：資料庫交易層鎖定，多座位鎖定依固定順序取鎖避免死鎖），套用在 `Seat` 上；`TicketType.AvailableQuantity` 純計數模式沿用同一套悲觀鎖（`ITicketTypeRepository.GetForUpdateAsync`，依 Id 排序防死鎖，見 `ticket-type-requires-seat`）
 
 **會員資料整合**
 - 共用既有會員系統：帳號 ID、Email、顯示名稱
-- 售票系統自行存放：收件資訊（取票方式/寄送地址）
+- ~~售票系統自行存放：收件資訊（取票方式/寄送地址）~~——列入 Won't（只提供電子票券，見第 2 節）
 - 實名制欄位列為 Could，不進 Must 範疇；已由 `real-name-verification` 實作為 Member 的真實姓名＋身分證末四碼（皆可為 null，兩者須同時有值或同時為 null），以及 Event 的 `IsRealNameRequired` 開關，未採用手機號
 
 **生命週期狀態**
 
 | 實體 | 狀態機 |
 |---|---|
-| Order | `Pending`（待付款）→ `Paid`（已付款）→ `Cancelled`（已取消，含逾時未付款自動轉）→ `Refunded`（已退款，**尚未實作，待未來提案決定是否新增**）——`Confirmed`→`Paid` 的命名對齊已於 `order-payment-gateway-alignment`（2026-08-19 歸檔）完成 |
-| Ticket | `Issued`（已發放）→ `Redeemed`（已核銷）→ `Voided`（作廢，對應退款／已付款訂單取消，**本次無觸發路徑，待未來提案**，見 `ticket-issuance-and-redemption`） |
-| Seat | `Available` → `Locked` → `Sold`；`Locked` 逾時須自動釋放回 `Available`（與 Order 狀態連動，具體實作方式待 OpenSpec 提案階段決定） |
+| Order | `Pending`（待付款）→ `Paid`（已付款）→ `Cancelled`（已取消，含逾時未付款自動轉）→ `Refunded`（已退款，**不新增**：活動取消／退款流程列入 Won't，見第 2 節）——`Confirmed`→`Paid` 的命名對齊已於 `order-payment-gateway-alignment`（2026-08-19 歸檔）完成 |
+| Ticket | `Issued`（已發放）→ `Redeemed`（已核銷）→ `Voided`（作廢，對應退款／已付款訂單取消，列舉值保留但**無觸發路徑**：活動取消／退款流程列入 Won't，見第 2 節與 `ticket-issuance-and-redemption`） |
+| Seat（實作為 `EventSeat`） | `Available` → `Held` → `Sold`；`Held` 逾時自動釋放回 `Available`——已由 `ExpiredOrderCleanupService` 週期取消逾時 Pending 訂單並連動釋放（見 `ticketing-order-management` design.md 決策 2） |
 
 **資料量級**
-- 上限透過設定檔控制（`IOptions<EventCapacityOptions>`，對應 DI Singleton），不寫死於 Domain 層
-- 預設值以單場 **2000 座位 / 20 票種**作為效能驗證基準，用途是定義負載測試情境，非強制驗證規則
+- 以單場 **2000 座位 / 20 票種**作為效能驗證基準，用途是定義負載測試情境，非強制驗證規則（原規劃的 `IOptions<EventCapacityOptions>` 設定檔上限未實作，見下方決策）
 - 此量級不需分區/分片（sharding），單一 PostgreSQL table + 適當複合索引（如 `SeatId + EventId`）即可支撐
-- Domain 層是否加入建立 Event 時的容量上限驗證規則：**［待確認，OpenSpec 提案階段決定］**
+- Domain 層是否加入建立 Event 時的容量上限驗證規則：**不做**（2026-10-02 盤點決定，上述量級僅作壓測情境基準）
 
 **資料保留與歷史查詢**
 - 訂單資料不做自動清除，僅邏輯狀態變更（不刪除）
@@ -125,7 +127,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 **效能與可用性**
 - 不設正式 uptime SLA（如 99.9%），以「開賣尖峰不當機、不超賣」作為可用性驗證標準
 - 技術驗證指標：模擬 **500 併發**搶購同一場次 **50 張票**，**0% 超賣**，**P95 回應時間 < 500ms**（k6/Locust 實測）
-- 一般（非搶購尖峰）情境下，同時在線使用者量級暫定 **100–300 人**；此量級下一般查詢 API（活動列表、票種查詢）不需額外快取層，EF Core + PostgreSQL index 即可支撐；快取層（Redis 等）列入 Could
+- 一般（非搶購尖峰）情境下，同時在線使用者量級暫定 **100–300 人**；此量級下一般查詢 API（活動列表、票種查詢）不需額外快取層，EF Core + PostgreSQL index 即可支撐；快取層（Redis 等）原列 Could，已完成實作（見第 2 節）
 
 **安全**
 - 除 CLAUDE.md 既有安全強制規則外：
@@ -157,7 +159,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 **開發階段順序**
 - **Phase 1（Must）**：跑通核心流程 end-to-end——建立活動 → 選票/選座 → 下單 → Mock 付款 → 出票 → 核銷 API
 - **Phase 2（Should）**：銷售報表、基礎排隊機制、登入 Rate limiting、Email 通知
-- **Phase 3（Could）**：視剩餘時間精力擴充，優先順序待 Phase 1、2 完成後再決定
+- **Phase 3（Could）**：已全數完成（完成順序見第 8 節）
 
 **中期可展示節點**：以 Phase 1 完成作為履歷/面試展示基準線——「建立活動 → 買家下單 → 核銷」主流程可跑通
 
@@ -167,8 +169,11 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 
 ## 8. 待確認事項彙整
 
-- Domain 層是否在建立 Event 時驗證票種數/座位數超過設定上限（見第 3 節）
-- 部署環境是否加雲端平台展示（見第 4 節）
+- ~~Domain 層是否在建立 Event 時驗證票種數/座位數超過設定上限~~——決定不做（見第 3 節）
+- 部署環境是否加雲端平台展示（見第 4 節）——2026-10-02 盤點決定暫不決定，待下方兩項補強完成後再評估
+- **Phase 3 完成後盤點的補強項目（2026-10-02，各自另開 OpenSpec change）**：
+  - ① **開賣時間**：目前 `Event`／`TicketType` 沒有開賣時間，下單與加入排隊皆不檢查時間（活動開始後甚至結束後仍可購票），第 1 節主辦方「設定開賣時間」需求未達成。規劃：Event 新增開賣時間、停售時間（預設為活動開始時間），下單與排隊檢查，前端顯示未開賣或倒數狀態
+  - ② **效能指標實測**：第 5 節「500 併發搶 50 張、0% 超賣、P95 < 500ms」從未實測，repo 內沒有壓測腳本。規劃：以 k6 在 compose 環境內壓測，產出腳本與結果報告，不改產品程式碼
 - ~~Could 項目的實作優先順序~~——已依序完成 Redis 分散式鎖、快取層、CAPTCHA、現場核銷掃碼頁、多租戶主辦方管理介面、實名制驗證；原列的「Queue 排隊室 Redis 資料結構重寫」已由 `purchase-queue-redis-admission` 達成（排隊 waiting／admitted 改為 Redis Sorted Set＋Lua 原子操作，Postgres 仍為持久化真相來源，座位鎖定維持 Postgres 悲觀鎖），Could 項目已全數完成
 - **共用／正式環境部署前須先限制 Seq 存取並訂定日誌保存期限**：實名登記稽核日誌與核銷查詢持票人的稽核日誌（僅記 Id，不含姓名與末四碼）集中於 Seq，部署至共用或正式環境前須限制可存取 Seq 的人員並設定保存期限（`real-name-verification` 歸檔時新增）
 - **已知前端缺口（2026-09-30 盤點，排在實名制／雲端部署之前）**：① ✅ Pending 訂單離開結果頁後無法付款／取消——已由 `order-pending-actions` 補上（訂單明細頁可確認付款／取消，結果頁改查伺服器狀態；2026-09-30 歸檔）；② ✅ 尚未切換 Organizer 的平台 Admin 沒有進入主辦方審核頁的介面入口——已由 `order-pending-actions` 於買家端會員選單補上；③ ✅ 訂單／票券狀態直接顯示英文列舉值——已由 `order-pending-actions` 統一為中文狀態標籤（後台持有到期時間亦改為僅 Pending 顯示）；④ ✅ 買家訂單明細缺活動名稱、座位、票種資訊，後台訂單列表顯示買家 GUID——已由 `order-display-enrichment` 補上（買家列表／明細／結果頁顯示活動名稱，明細逐項顯示票種與座位，後台列表改顯示買家名稱；2026-10-01 歸檔）
@@ -178,7 +183,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - 訂單確認流程與狀態機命名：**決策讓既有實作對齊本規劃**（而非把規劃改成配合現況）——後續需另開 OpenSpec 提案，針對既有 `ticket-purchase` 確認訂單流程補上 `IPaymentGateway` 抽象化，並將 `OrderStatus` 對齊調整為含 `Paid` 命名；是否新增 `Refunded` 待該提案階段決定
 - **既有實作調整順序（避免新功能重工）**：① 訂單確認流程 `IPaymentGateway` 化 + `OrderStatus` 命名對齊 → ② `TicketType.RequiresSeat` 開關 → ③ 全新電子票券（Ticket entity）+ 核銷 API。理由：Ticket 出票邏輯會掛在訂單付款成功事件上，且需要知道票種是否綁座位，故先調整地基再蓋新功能，三者各自獨立開 OpenSpec 提案
   - ① **已完成並歸檔**（2026-08-19，`openspec/changes/archive/2026-08-19-order-payment-gateway-alignment`）：`IPaymentGateway`/`MockPaymentGateway` 已實作，`OrderStatus.Confirmed` 已全面改名為 `OrderStatus.Paid`，`ticket-purchase`/`ticket-ordering`/`order-administration` 三份 spec 已同步更新；`Refunded` 狀態未加入（不在本次範疇）
-  - ② **已完成**（`ticket-type-requires-seat`，`openspec/changes/ticket-type-requires-seat/`，規劃階段經過多輪內部與外部審查）：`TicketType` 新增 `RequiresSeat`／`AvailableQuantity`，支援純計數（不綁座位）票種；`OrderItem` 新增 `TicketTypeId`／`Quantity`，`EventSeatId` 改為可為 null，同一張訂單可混合座位項目與計數項目；純計數庫存的鎖定沿用既有悲觀鎖模式（`ITicketTypeRepository.GetForUpdateAsync`，依 Id 排序防死鎖）；`event-management`/`ticket-ordering`/`ticket-purchase` 三份 spec 已同步更新。純後端範圍（不含前端），已跑過完整測試套件（331 個測試通過）與真實 API 手動驗證（純計數/混合訂單的建立、確認、取消、庫存扣減/歸還）。下一步是③電子票券（Ticket entity）+ 核銷 API
+  - ② **已完成**（`ticket-type-requires-seat`，`openspec/changes/archive/2026-08-20-ticket-type-requires-seat/`，規劃階段經過多輪內部與外部審查）：`TicketType` 新增 `RequiresSeat`／`AvailableQuantity`，支援純計數（不綁座位）票種；`OrderItem` 新增 `TicketTypeId`／`Quantity`，`EventSeatId` 改為可為 null，同一張訂單可混合座位項目與計數項目；純計數庫存的鎖定沿用既有悲觀鎖模式（`ITicketTypeRepository.GetForUpdateAsync`，依 Id 排序防死鎖）；`event-management`/`ticket-ordering`/`ticket-purchase` 三份 spec 已同步更新。純後端範圍（不含前端），已跑過完整測試套件（331 個測試通過）與真實 API 手動驗證（純計數/混合訂單的建立、確認、取消、庫存扣減/歸還）。③ 電子票券＋核銷 API 亦已完成（`openspec/changes/archive/2026-08-20-ticket-issuance-and-redemption/`）
 
 ---
 
@@ -199,7 +204,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 | 會員系統整合登入 | ✅ 已完成 | `authentication`、`member-management` |
 | 前端 RWD | ✅ 已完成；買家「我的訂單」列表/明細與票券 QR Code 查詢已補上（見 `buyer-order-query`）；純計數票種的 Admin 建立表單與買家購票 UI 已補上（見 `count-ticket-type-web-ui`）；訂單頁活動名稱、票種、座位與後台買家名稱顯示已補上（見 `order-display-enrichment`，2026-10-01） | `buyer-web-ui`、`admin-web-ui` |
 
-**Phase 1 Must 全數完成**：以上 8 項皆已 ✅，達成第 7 節定義的「中期可展示節點」——建立活動（含座位制／純計數兩種票種）→ 買家下單（選位或計數購買）→ Mock 付款 → 出票 → 核銷可 end-to-end 跑通。下一步依第 7 節開發階段順序進入 Phase 2（Should）。
+**Phase 1 Must 全數完成**：以上 8 項皆已 ✅，達成第 7 節定義的「中期可展示節點」——建立活動（含座位制／純計數兩種票種）→ 買家下單（選位或計數購買）→ Mock 付款 → 出票 → 核銷可 end-to-end 跑通。其後 Phase 2（Should）、Phase 3（Could）亦已全數完成（見第 2 節）。
 
 - 專案骨架與技術棧設定請參照 `CLAUDE.md`
 - 已完成 / 進行中功能請查閱 `openspec/` 下已核准（archived）的 proposal，或直接檢視 codebase 現有實作
