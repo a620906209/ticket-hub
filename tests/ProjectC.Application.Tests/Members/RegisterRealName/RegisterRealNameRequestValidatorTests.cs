@@ -46,7 +46,7 @@ public class RegisterRealNameRequestValidatorTests
         _validator.Validate(new RegisterRealNameRequest(realName, ValidNationalIdLast4)).IsValid.Should().BeFalse();
     }
 
-    // RNV-FORMAT-002：長度以 Unicode 字元計，擴充 B 區罕用字（UTF-16 佔兩個單位）50 字仍可登記、51 字被拒。
+    // RNV-FORMAT-008：長度以 Unicode 字元計，擴充 B 區罕用字（UTF-16 佔兩個單位）50 字仍可登記、51 字被拒。
     [Theory]
     [InlineData(50, true)]
     [InlineData(51, false)]

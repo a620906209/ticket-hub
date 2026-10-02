@@ -120,7 +120,7 @@ describe('RealNamePage 實名資料頁', () => {
     expect(membersApi.registerRealName).toHaveBeenCalledTimes(0)
   })
 
-  // RNV-FORMAT-002：與後端同樣以 Unicode 字元計數，擴充 B 區罕用字（UTF-16 佔兩個單位）50 字仍可送出。
+  // RNV-FORMAT-008：與後端同樣以 Unicode 字元計數，擴充 B 區罕用字（UTF-16 佔兩個單位）50 字仍可送出。
   it.each([
     [50, true],
     [51, false],

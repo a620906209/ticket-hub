@@ -48,7 +48,7 @@ public class MemberRealNameRepositoryTests
         (await ReadRealNameColumnsAsync(memberId)).Should().Be(("王小明", "1234"));
     }
 
-    // varchar(50) 以字元計：50 個擴充 B 區罕用字（UTF-16 共 100 個單位）必須能完整寫入，驗證器的 rune 計數才有意義。
+    // RNV-FORMAT-008：varchar(50) 以字元計：50 個擴充 B 區罕用字（UTF-16 共 100 個單位）必須能完整寫入，驗證器的 rune 計數才有意義。
     [Fact]
     public async Task TryRegisterAsync_WhenRealNameIs50SupplementaryPlaneCharacters_StoresFullName()
     {
