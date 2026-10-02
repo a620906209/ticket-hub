@@ -242,6 +242,12 @@
 2. Acceptance Criteria 是否已定義且可測量？每一條是否已對應至少一項測試任務（xUnit / NUnit 單元測試或整合測試）？未對應者禁止進入實作階段。
 3. 這個 task 完成後，哪些 spec 文件需要同步更新？
 
+### Change 顆粒度（建立 proposal 時檢查）
+
+- 一個 change 預計影響**超過 3 個 spec capability**，或 tasks **超過約 30 項**時，必須評估拆分，並在 proposal 說明拆或不拆的理由
+- 拆分方式：依可獨立交付的功能切成數個 change，依賴方向單向（A → B → C），依序 apply、merge；後續 change 的 proposal 引用前一個的 spec，而非合併實作
+- 理由：real-name-verification 一次跨 8 個 capability、72 項 task、111 個檔案，審查跑 7 輪且每輪都要重看全部 diff，瀏覽器驗證也須反覆切換帳號
+
 ### 無 spec 時的處理
 
 - 若為**緊急 hotfix** 或**無對應 spec 的小型改動**，可先實作，但須：
