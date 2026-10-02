@@ -594,4 +594,55 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         detail.GetProperty("quantitySold").GetInt32().Should().Be(1);
         detail.GetProperty("revenue").GetDecimal().Should().Be(500m);
     }
+
+    // ---- real-name-verification：建立活動時的「需實名」設定（EVT-REALNAME-*） ----
+
+    private async Task<bool> ReadIsRealNameRequiredAsync(Guid eventId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return (await dbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId)).IsRealNameRequired;
+    }
+
+    // [EVT-REALNAME-001]
+    [Fact]
+    public async Task CreateEvent_WithIsRealNameRequiredTrue_PersistsTrue()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        var response = await organizerClient.PostAsJsonAsync(
+            "/api/admin/events",
+            new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId, IsRealNameRequired: true));
+
+        (await ReadIsRealNameRequiredAsync(await ReadCreatedIdAsync(response))).Should().BeTrue();
+    }
+
+    // [EVT-REALNAME-002] 既有前端／整合方不帶此欄位時，行為須與功能上線前相同（不需實名）。
+    [Fact]
+    public async Task CreateEvent_WithoutIsRealNameRequiredField_PersistsFalse()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        var response = await organizerClient.PostAsJsonAsync(
+            "/api/admin/events",
+            new { title = "Concert", startAtUtc = DateTime.UtcNow.AddDays(30), venueId, seatMapId });
+
+        (await ReadIsRealNameRequiredAsync(await ReadCreatedIdAsync(response))).Should().BeFalse();
+    }
+
+    // [EVT-REALNAME-003]
+    [Fact]
+    public async Task GetAdminEvents_ReturnsIsRealNameRequiredPerEvent()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var realNameEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true);
+        var plainEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: false);
+
+        var events = await organizerClient.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+
+        events!.Single(e => e.Id == realNameEvent.EventId).IsRealNameRequired.Should().BeTrue();
+        events!.Single(e => e.Id == plainEvent.EventId).IsRealNameRequired.Should().BeFalse();
+    }
 }

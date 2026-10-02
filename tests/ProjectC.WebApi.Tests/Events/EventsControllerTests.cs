@@ -147,4 +147,18 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
             }
         }
     }
+
+    // [TP-BROWSE-RN-001] 未登入的瀏覽者也要能在下單前得知活動需實名。
+    [Fact]
+    public async Task GetEvents_AsAnonymous_ReturnsIsRealNameRequiredPerEvent()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var realNameEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true);
+        var plainEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: false);
+
+        var events = await _factory.CreateClient().GetFromJsonAsync<List<EventDto>>("/api/events");
+
+        events!.Single(e => e.Id == realNameEvent.EventId).IsRealNameRequired.Should().BeTrue();
+        events!.Single(e => e.Id == plainEvent.EventId).IsRealNameRequired.Should().BeFalse();
+    }
 }

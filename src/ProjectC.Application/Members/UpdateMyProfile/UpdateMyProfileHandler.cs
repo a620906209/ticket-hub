@@ -33,7 +33,7 @@ public sealed class UpdateMyProfileHandler
         member.ChangeDisplayName(request.DisplayName);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var dto = new MemberProfileDto(member.Id, member.Email, member.DisplayName, member.Role.ToString(), member.IsActive);
+        var dto = MemberProfileDto.FromMember(member);
         return Result<MemberProfileDto>.Success(dto);
     }
 }

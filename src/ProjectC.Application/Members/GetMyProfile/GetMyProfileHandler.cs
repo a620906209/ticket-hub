@@ -21,7 +21,7 @@ public sealed class GetMyProfileHandler
             return Result<MemberProfileDto>.Failure(Error.NotFound("找不到會員資料。"));
         }
 
-        var dto = new MemberProfileDto(member.Id, member.Email, member.DisplayName, member.Role.ToString(), member.IsActive);
+        var dto = MemberProfileDto.FromMember(member);
         return Result<MemberProfileDto>.Success(dto);
     }
 }

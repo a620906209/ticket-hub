@@ -5,6 +5,9 @@ using System.Text.Json;
 using FluentAssertions;
 using ProjectC.Domain.Tickets;
 using ProjectC.WebApi.Tests.TestSupport;
+using System.Net.Http.Json;
+using ProjectC.Application.Tickets.GetTicketHolder;
+using ProjectC.Application.Tickets.RedeemTicket;
 
 namespace ProjectC.WebApi.Tests.Admin;
 
@@ -237,5 +240,284 @@ public class AdminTicketsControllerTests : IClassFixture<CustomWebApplicationFac
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         await AssertTicketStillIssuedAsync(ticketId);
+    }
+
+    // ---- real-name-verification：需實名活動的核銷持票人確認（RDM-RN-*） ----
+
+    private const string HolderVerificationRequiredTitle = "HolderVerificationRequired";
+
+    private static Task<HttpResponseMessage> RedeemWithHolderFlagAsync(HttpClient client, Guid ticketId, string? signature, bool? isHolderVerified)
+        => client.PatchAsJsonAsync($"/api/admin/tickets/{ticketId}/redeem", new RedeemTicketRequest(signature, isHolderVerified));
+
+    private async Task<(HttpClient OrganizerClient, RealNameTestData.SeededTicket Ticket)> SeedRealNameTicketAsync(
+        bool isRealNameRequired = true, string realName = "王小明", string nationalIdLast4 = "1234")
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var ticket = await RealNameTestData.SeedIssuedTicketAsync(_factory, organizerClient, isRealNameRequired, realName, nationalIdLast4);
+        return (organizerClient, ticket);
+    }
+
+    private async Task AssertTicketRedeemedAsync(Guid ticketId)
+    {
+        var ticket = await ReadTicketAsync(ticketId);
+        ticket.Status.Should().Be(TicketStatus.Redeemed);
+        ticket.RedeemedAtUtc.Should().NotBeNull();
+    }
+
+    // [RDM-RN-001]／[RDM-RN-003]／[RNV-ERROR-001] 未明確確認證件（缺漏或 false）一律不核銷；錯誤 body 不得夾帶持票人個資。
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    public async Task Redeem_RealNameTicketWithoutHolderVerified_Returns409HolderVerificationRequiredAndDoesNotChangeTicket(bool? isHolderVerified)
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync(realName: "核銷錯誤測試甲", nationalIdLast4: "7531");
+
+        var response = await RedeemWithHolderFlagAsync(organizerClient, seeded.TicketId, SignTicket(seeded.TicketId), isHolderVerified);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be(HolderVerificationRequiredTitle);
+        var body = await response.Content.ReadAsStringAsync();
+        HexIdentifierText.RemoveHexIdentifiers(body).Should().NotContain("核銷錯誤測試甲").And.NotContain("7531");
+        await AssertTicketStillIssuedAsync(seeded.TicketId);
+    }
+
+    // [RDM-RN-002] 掃描路徑（帶簽章）與手動輸入路徑（不帶簽章）都要能在確認後核銷。
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Redeem_RealNameTicketWithHolderVerified_Returns204AndRedeemsTicket(bool withSignature)
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync();
+
+        var response = await RedeemWithHolderFlagAsync(
+            organizerClient, seeded.TicketId, withSignature ? SignTicket(seeded.TicketId) : null, isHolderVerified: true);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        await AssertTicketRedeemedAsync(seeded.TicketId);
+    }
+
+    // [RDM-RN-004] 不需實名活動維持上線前行為，舊版掃描器不帶旗標仍可核銷。
+    [Fact]
+    public async Task Redeem_NonRealNameTicketWithoutHolderFlag_Returns204()
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync(isRealNameRequired: false);
+
+        var response = await RedeemAsync(organizerClient, seeded.TicketId, SignTicket(seeded.TicketId));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        await AssertTicketRedeemedAsync(seeded.TicketId);
+    }
+
+    // [RDM-RN-005] 歸屬核對先於持票人確認：不得以 409 HolderVerificationRequired 洩漏其他 Organizer 的票券存在且需實名。
+    [Fact]
+    public async Task Redeem_OtherOrganizerRealNameTicket_Returns404WithSameBodyAsMissingTicket()
+    {
+        var (_, seeded) = await SeedRealNameTicketAsync();
+        var (otherOrganizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var missingTicketId = Guid.NewGuid();
+
+        var otherOrganizerResponse = await RedeemAsync(otherOrganizerClient, seeded.TicketId, SignTicket(seeded.TicketId));
+        var missingResponse = await RedeemAsync(otherOrganizerClient, missingTicketId, SignTicket(missingTicketId));
+
+        otherOrganizerResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await NotFoundResponseBody.ReadNormalizedAsync(otherOrganizerResponse, seeded.TicketId))
+            .Should().Be(await NotFoundResponseBody.ReadNormalizedAsync(missingResponse, missingTicketId));
+        await AssertTicketStillIssuedAsync(seeded.TicketId);
+    }
+
+    // [RDM-RN-006] 已核銷的票不論是否帶旗標都回既有 409，現場人員才能分辨「重複入場」與「忘記確認證件」。
+    [Theory]
+    [InlineData(null)]
+    [InlineData(true)]
+    public async Task Redeem_AlreadyRedeemedRealNameTicket_ReturnsExisting409NotHolderVerificationRequired(bool? isHolderVerified)
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync();
+        (await RedeemWithHolderFlagAsync(organizerClient, seeded.TicketId, null, isHolderVerified: true)).EnsureSuccessStatusCode();
+
+        var response = await RedeemWithHolderFlagAsync(organizerClient, seeded.TicketId, SignTicket(seeded.TicketId), isHolderVerified);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().NotBe(HolderVerificationRequiredTitle);
+    }
+
+    // [RDM-RN-007] 確認證件不得讓偽造的 QR Code 過關。
+    [Fact]
+    public async Task Redeem_RealNameTicketWithTamperedSignatureAndHolderVerified_ReturnsInvalidTicketSignatureAndDoesNotChangeTicket()
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync();
+
+        var response = await RedeemWithHolderFlagAsync(
+            organizerClient, seeded.TicketId, SignTicket(seeded.TicketId) + "tampered", isHolderVerified: true);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be("InvalidTicketSignature");
+        await AssertTicketStillIssuedAsync(seeded.TicketId);
+    }
+
+    // [RDM-RN-009] 只接受 JSON 布林：寬鬆轉型（"yes"、1）可能讓錯誤的掃描器設定被當成「已確認」。
+    [Theory]
+    [InlineData("\"yes\"")]
+    [InlineData("1")]
+    public async Task Redeem_WithNonBooleanHolderVerified_Returns400AndDoesNotChangeTicket(string rawValue)
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync();
+
+        var response = await RedeemWithRawBodyAsync(organizerClient, seeded.TicketId, $"{{\"isHolderVerified\":{rawValue}}}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        await AssertTicketStillIssuedAsync(seeded.TicketId);
+    }
+
+    // [RDM-RN-008] 確認證件後的核銷仍須遵守「只核銷一次」：兩個請求同時抵達只能有一個成功。
+    [Fact]
+    public async Task Redeem_ConcurrentHolderVerifiedRequests_RedeemsExactlyOnce()
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync();
+
+        var responses = await Task.WhenAll(
+            RedeemWithHolderFlagAsync(organizerClient, seeded.TicketId, null, isHolderVerified: true),
+            RedeemWithHolderFlagAsync(organizerClient, seeded.TicketId, null, isHolderVerified: true));
+
+        responses.Select(r => r.StatusCode).Should().BeEquivalentTo([HttpStatusCode.NoContent, HttpStatusCode.Conflict]);
+        var conflict = responses.Single(r => r.StatusCode == HttpStatusCode.Conflict);
+        (await RealNameTestData.ReadProblemTitleAsync(conflict)).Should().NotBe(HolderVerificationRequiredTitle);
+        await AssertTicketRedeemedAsync(seeded.TicketId);
+    }
+
+    // ---- real-name-verification：查詢持票人（RDM-HOLDER-*、RNV-NOSTORE-004／005） ----
+
+    private static readonly string[] HolderFieldNames = ["holderRealName", "holderNationalIdLast4"];
+
+    private static Task<HttpResponseMessage> GetHolderAsync(HttpClient client, Guid ticketId)
+        => client.GetAsync($"/api/admin/tickets/{ticketId}/holder");
+
+    private static async Task AssertBodyHasNoHolderDataAsync(HttpResponseMessage response, string realName = "王小明", string nationalIdLast4 = "1234")
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        foreach (var fieldName in HolderFieldNames) body.Should().NotContainEquivalentOf(fieldName);
+        HexIdentifierText.RemoveHexIdentifiers(body).Should().NotContain(realName).And.NotContain(nationalIdLast4);
+    }
+
+    private static void AssertNoStore(HttpResponseMessage response)
+        => response.Headers.CacheControl!.NoStore.Should().BeTrue("持票人查詢的任何回應都不得被瀏覽器或代理快取");
+
+    // [RDM-HOLDER-001]／[RDM-HOLDER-006]／[RNV-NOSTORE-004] 現場比對證件需要完整姓名與末四碼；查詢不得改變票券狀態。
+    [Fact]
+    public async Task GetHolder_OwnRealNameIssuedTicket_Returns200WithFullHolderDataAndNoStoreAndDoesNotChangeTicket()
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync();
+
+        var response = await GetHolderAsync(organizerClient, seeded.TicketId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        AssertNoStore(response);
+        var holder = await response.Content.ReadFromJsonAsync<TicketHolderDto>();
+        holder.Should().Be(new TicketHolderDto(seeded.TicketId, "Issued", true, "王小明", "1234"));
+        await AssertTicketStillIssuedAsync(seeded.TicketId);
+    }
+
+    // [RDM-HOLDER-002] 買家剛好有登記也不得在不需實名的活動外洩實名。
+    [Fact]
+    public async Task GetHolder_OwnNonRealNameTicketWithRegisteredBuyer_Returns200WithNullHolderFields()
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync(isRealNameRequired: false);
+
+        var response = await GetHolderAsync(organizerClient, seeded.TicketId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var holder = await response.Content.ReadFromJsonAsync<TicketHolderDto>();
+        holder.Should().Be(new TicketHolderDto(seeded.TicketId, "Issued", false, null, null));
+    }
+
+    // [RDM-HOLDER-003]／[RDM-HOLDER-010]／[RNV-NOSTORE-005] 其他 Organizer（含以 Admin 角色切換到別的 Organizer）視同不存在。
+    [Fact]
+    public async Task GetHolder_OtherOrganizerTicket_Returns404WithSameBodyAsMissingTicketForOrganizerAndAdmin()
+    {
+        var (_, seeded) = await SeedRealNameTicketAsync();
+        var (otherOrganizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var adminOfOtherOrganizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var missingTicketId = Guid.NewGuid();
+
+        foreach (var client in new[] { otherOrganizerClient, adminOfOtherOrganizerClient })
+        {
+            var otherOrganizerResponse = await GetHolderAsync(client, seeded.TicketId);
+            var missingResponse = await GetHolderAsync(client, missingTicketId);
+
+            otherOrganizerResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            AssertNoStore(otherOrganizerResponse);
+            await AssertBodyHasNoHolderDataAsync(otherOrganizerResponse);
+            (await NotFoundResponseBody.ReadNormalizedAsync(otherOrganizerResponse, seeded.TicketId))
+                .Should().Be(await NotFoundResponseBody.ReadNormalizedAsync(missingResponse, missingTicketId));
+        }
+    }
+
+    // [RDM-HOLDER-004] 未切換 Organizer 者（含 Admin 角色）不得讀取實名。
+    [Fact]
+    public async Task GetHolder_WithoutOrganizerContext_Returns403ForMemberAndAdminWithoutHolderData()
+    {
+        var (_, seeded) = await SeedRealNameTicketAsync();
+        var clients = new (string Identity, HttpClient Client)[]
+        {
+            ("Member", await OrganizerScopedTestData.CreateAuthenticatedMemberClientAsync(_factory)),
+            ("Admin", await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory)),
+        };
+
+        foreach (var (identity, client) in clients)
+        {
+            var response = await GetHolderAsync(client, seeded.TicketId);
+
+            response.StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{identity} 未切換 Organizer");
+            await AssertBodyHasNoHolderDataAsync(response);
+        }
+    }
+
+    // [RDM-HOLDER-005]
+    [Fact]
+    public async Task GetHolder_WithoutAuthorizationHeader_Returns401WithoutHolderData()
+    {
+        var (_, seeded) = await SeedRealNameTicketAsync();
+
+        var response = await GetHolderAsync(_factory.CreateClient(), seeded.TicketId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        await AssertBodyHasNoHolderDataAsync(response);
+    }
+
+    // [RDM-HOLDER-008]／[RNV-NOSTORE-005] 核銷後即不可再讀實名，縮小個資暴露窗口。
+    [Fact]
+    public async Task GetHolder_OwnRedeemedTicket_Returns409WithoutHolderDataAndNoStore()
+    {
+        var (organizerClient, seeded) = await SeedRealNameTicketAsync();
+        (await RedeemWithHolderFlagAsync(organizerClient, seeded.TicketId, null, isHolderVerified: true)).EnsureSuccessStatusCode();
+
+        var response = await GetHolderAsync(organizerClient, seeded.TicketId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        AssertNoStore(response);
+        await AssertBodyHasNoHolderDataAsync(response);
+    }
+
+    // [RDM-HOLDER-009] 活動開演後仍是入場核銷的主要時段，不得以開演時間限制查詢。
+    [Fact]
+    public async Task GetHolder_WhenEventAlreadyStarted_Returns200WithHolderData()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await RealNameTestData.SeedIssuedTicketAsync(
+            _factory, organizerClient, isRealNameRequired: true, startsAtUtc: DateTime.UtcNow.AddHours(-1));
+
+        var response = await GetHolderAsync(organizerClient, seeded.TicketId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<TicketHolderDto>())!.HolderRealName.Should().Be("王小明");
+    }
+
+    [Fact]
+    public async Task GetHolder_WithNonGuidId_Returns404()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+
+        var response = await organizerClient.GetAsync("/api/admin/tickets/not-a-guid/holder");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

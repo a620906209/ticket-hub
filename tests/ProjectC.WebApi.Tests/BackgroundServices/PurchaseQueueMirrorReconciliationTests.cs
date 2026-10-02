@@ -432,7 +432,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         var handler = new ProjectC.Application.PurchaseQueue.JoinPurchaseQueue.JoinPurchaseQueueHandler(
             eventRepository, purchaseQueueRepository, unitOfWork, dateTimeProvider,
             new ProjectC.Application.PurchaseQueue.JoinPurchaseQueue.JoinPurchaseQueueRequestValidator(),
-            captchaService, failingMirror);
+            captchaService, failingMirror,
+            scope.ServiceProvider.GetRequiredService<ProjectC.Domain.Members.IMemberRealNameRepository>());
 
         var request = new ProjectC.Application.PurchaseQueue.JoinPurchaseQueue.JoinPurchaseQueueRequest(
             FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer);

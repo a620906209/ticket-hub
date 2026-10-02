@@ -47,6 +47,7 @@ public static class OrderServiceTestFactory
             dbContext,
             logger ?? NullLogger<OrderService>.Instance,
             queryCache ?? new FakeQueryCache(),
-            admissionMirror ?? new FakePurchaseQueueAdmissionMirror());
+            admissionMirror ?? new FakePurchaseQueueAdmissionMirror(),
+            new MemberRealNameRepository(dbContext));
     }
 }

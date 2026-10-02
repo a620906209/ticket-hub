@@ -25,6 +25,7 @@ async function handleLogout(): Promise<void> {
             <span class="member-trigger">{{ authStore.member?.displayName }}</span>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item @click="router.push({ name: 'real-name' })">實名資料</el-dropdown-item>
                 <el-dropdown-item @click="router.push({ name: 'my-organizers' })">我的主辦方</el-dropdown-item>
                 <el-dropdown-item v-if="authStore.isAdmin" @click="router.push({ name: 'admin-organizers' })">
                   主辦方審核

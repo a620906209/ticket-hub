@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as adminApi from '../api/admin'
 import { ApiError } from '../api/httpClient'
-import { performRedemption } from './ticketRedemptionOutcome'
+import { lookupTicketHolder, performRedemption } from './ticketRedemptionOutcome'
 import { parseTicketIdFromQrContent } from './ticketRedemptionParsing'
 
 vi.mock('../api/admin')
@@ -115,5 +115,74 @@ describe('performRedemption 手動輸入路徑（signature 為 null）', () => {
     expect(outcome).toEqual({ kind: expectedKind })
     expect(adminApi.redeemTicket).toHaveBeenCalledTimes(1)
     expect(adminApi.redeemTicket).toHaveBeenCalledWith(TICKET_ID, null)
+  })
+})
+
+describe('performRedemption 持票人確認（real-name-verification）', () => {
+  it('409 且 title 為 HolderVerificationRequired 回傳 holder-verification-required，不得誤判為已核銷過', async () => {
+    vi.mocked(adminApi.redeemTicket).mockRejectedValue(
+      new ApiError(409, { status: 409, title: 'HolderVerificationRequired' }),
+    )
+
+    const outcome = await performRedemption(TICKET_ID, 'sig')
+
+    expect(outcome).toEqual({ kind: 'holder-verification-required' })
+  })
+
+  it('確認持票人後以同一 ticketId、簽章帶 isHolderVerified = true 呼叫核銷', async () => {
+    vi.mocked(adminApi.redeemTicket).mockResolvedValue(undefined)
+
+    const outcome = await performRedemption(TICKET_ID, 'sig', true)
+
+    expect(outcome).toEqual({ kind: 'success' })
+    expect(adminApi.redeemTicket).toHaveBeenCalledWith(TICKET_ID, 'sig', true)
+  })
+})
+
+describe('lookupTicketHolder', () => {
+  const holder = {
+    ticketId: TICKET_ID,
+    ticketStatus: 'Issued',
+    isRealNameRequired: true,
+    holderRealName: '王小明',
+    holderNationalIdLast4: '1234',
+  }
+
+  beforeEach(() => {
+    vi.mocked(adminApi.getTicketHolder).mockReset()
+  })
+
+  it('查詢成功回傳 found 與持票人資料', async () => {
+    vi.mocked(adminApi.getTicketHolder).mockResolvedValue(holder)
+
+    expect(await lookupTicketHolder(TICKET_ID)).toEqual({ kind: 'found', holder })
+    expect(adminApi.getTicketHolder).toHaveBeenCalledWith(TICKET_ID)
+  })
+
+  it('409 回傳 already-redeemed（例如另一台裝置剛核銷）', async () => {
+    vi.mocked(adminApi.getTicketHolder).mockRejectedValue(new ApiError(409, { status: 409, title: 'Conflict' }))
+
+    expect(await lookupTicketHolder(TICKET_ID)).toEqual({ kind: 'already-redeemed' })
+  })
+
+  it.each([
+    ['網路例外', new TypeError('Failed to fetch')],
+    ['500', new ApiError(500, null)],
+    ['404', new ApiError(404, { status: 404 })],
+    ['403', new ApiError(403, { status: 403 })],
+  ])('%s 回傳 failed，交由操作人員重試或放棄', async (_label, error) => {
+    vi.mocked(adminApi.getTicketHolder).mockRejectedValue(error)
+
+    expect(await lookupTicketHolder(TICKET_ID)).toEqual({ kind: 'failed' })
+  })
+
+  it.each([
+    ['姓名為 null', { holderRealName: null }],
+    ['末四碼為 null', { holderNationalIdLast4: null }],
+    ['活動不需實名', { isRealNameRequired: false }],
+  ])('回應%s時回傳 failed，不顯示空白資料的面板', async (_label, overrides) => {
+    vi.mocked(adminApi.getTicketHolder).mockResolvedValue({ ...holder, ...overrides })
+
+    expect(await lookupTicketHolder(TICKET_ID)).toEqual({ kind: 'failed' })
   })
 })

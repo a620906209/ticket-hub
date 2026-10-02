@@ -141,7 +141,12 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
           </el-table>
         </template>
       </el-table-column>
-      <el-table-column prop="title" label="活動名稱" />
+      <el-table-column label="活動名稱">
+        <template #default="{ row }">
+          {{ row.title }}
+          <el-tag v-if="row.isRealNameRequired" size="small" type="info" class="real-name-tag">需實名</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="開始時間">
         <template #default="{ row }">{{ new Date(row.startAtUtc).toLocaleString() }}</template>
       </el-table-column>
@@ -222,6 +227,9 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
 </template>
 
 <style scoped>
+.real-name-tag {
+  margin-left: 8px;
+}
 .header {
   display: flex;
   justify-content: space-between;

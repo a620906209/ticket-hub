@@ -25,6 +25,23 @@ public class EventTests
         @event.Title.Should().Be("Concert");
     }
 
+    // 既有呼叫端不帶參數時不得意外變成需實名（EVT-REALNAME-002 的 Domain 部分）。
+    [Fact]
+    public void Constructor_WhenIsRealNameRequiredNotSpecified_DefaultsToFalse()
+    {
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        @event.IsRealNameRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Constructor_WhenIsRealNameRequiredTrue_RecordsTrue()
+    {
+        var @event = new Event(Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(30), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), isRealNameRequired: true);
+
+        @event.IsRealNameRequired.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(" ")]

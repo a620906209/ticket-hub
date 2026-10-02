@@ -23,6 +23,12 @@ public sealed class FakeTicketTypeRepository : ITicketTypeRepository
 
     // 比照真正的 GetForUpdateAsync 契約：不驗證交易、找不到的不補，只回傳實際存在的實體
     // （見 ITicketTypeRepository.cs 的說明；Fake 不需要真的模擬鎖定，OrderService 的測試只關心數量比對邏輯）。
+    // 供「被擋下的請求不得鎖定任何庫存」的斷言使用（real-name-verification TP-RN-ORDER-001／007～009）。
+    public int GetForUpdateCallCount { get; private set; }
+
     public Task<IReadOnlyList<TicketType>> GetForUpdateAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<TicketType>>(Data.Where(t => ticketTypeIds.Contains(t.Id)).ToList());
+    {
+        GetForUpdateCallCount++;
+        return Task.FromResult<IReadOnlyList<TicketType>>(Data.Where(t => ticketTypeIds.Contains(t.Id)).ToList());
+    }
 }

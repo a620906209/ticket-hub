@@ -41,7 +41,7 @@ public class GetEventsHandlerTests
     [Fact]
     public async Task HandleAsync_WhenCacheHits_ReturnsCachedResultWithoutQueryingDatabase()
     {
-        var cachedDto = new EventDto(Guid.NewGuid(), "Cached Concert", DateTime.UtcNow.AddDays(2), Guid.NewGuid(), Guid.NewGuid(), null, null, null, false);
+        var cachedDto = new EventDto(Guid.NewGuid(), "Cached Concert", DateTime.UtcNow.AddDays(2), Guid.NewGuid(), Guid.NewGuid(), null, null, null, false, false);
         _queryCache.Seed(GetEventsHandler.CacheKey, (IReadOnlyList<EventDto>)[cachedDto]);
 
         var result = await _handler.HandleAsync(CancellationToken.None);

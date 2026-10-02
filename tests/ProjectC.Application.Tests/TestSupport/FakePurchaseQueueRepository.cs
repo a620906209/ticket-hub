@@ -16,9 +16,15 @@ public sealed class FakePurchaseQueueRepository : IPurchaseQueueRepository
             .ThenByDescending(e => e.Id)
             .FirstOrDefault());
 
+    // 供「實名補位檢查必須先於排隊資格檢查」的斷言使用（real-name-verification TP-RN-ORDER-007）。
+    public int GetForUpdateCallCount { get; private set; }
+
     public Task<PurchaseQueueEntry?> GetForUpdateAsync(Guid eventId, Guid memberId, CancellationToken cancellationToken)
-        => Task.FromResult(Data.FirstOrDefault(e => e.EventId == eventId && e.MemberId == memberId &&
+    {
+        GetForUpdateCallCount++;
+        return Task.FromResult(Data.FirstOrDefault(e => e.EventId == eventId && e.MemberId == memberId &&
             (e.Status == PurchaseQueueEntryStatus.Waiting || e.Status == PurchaseQueueEntryStatus.Admitted)));
+    }
 
     public Task<IReadOnlyList<PurchaseQueueEntry>> GetActiveForReconciliationAsync(Guid eventId, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<PurchaseQueueEntry>>(Data

@@ -53,13 +53,32 @@ public class EventOrganizerBackfillMigrationTests
     private static Task MigrateToAsync(ApplicationDbContext dbContext, string targetMigration)
         => dbContext.GetService<IMigrator>().MigrateAsync(targetMigration);
 
+    /// <summary>
+    /// 以遷移前的 schema 寫入一筆既有 Member。目前的 EF model 已含之後才加入的實名欄位
+    /// （real-name-verification），透過實體寫入會引用遷移前不存在的欄位。
+    /// </summary>
     private static async Task<Guid> SeedMemberAsync(ApplicationDbContext dbContext, MemberRole role)
     {
-        var member = Member.Register($"legacy-{Guid.NewGuid():N}@example.com", "Legacy Member", "hash");
-        dbContext.Entry(member).Property(m => m.Role).CurrentValue = role;
-        dbContext.Members.Add(member);
+        var memberId = Guid.NewGuid();
+        await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Members" ("Id", "Email", "DisplayName", "PasswordHash", "Role", "IsActive")
+            VALUES ({memberId}, {$"legacy-{memberId:N}@example.com"}, 'Legacy Member', 'hash', {(int)role}, true)
+            """);
+        return memberId;
+    }
+
+    /// <summary>
+    /// 同 <see cref="OrganizerTestData.SeedApprovedOrganizerAsync"/>，但 Owner 以 <see cref="SeedMemberAsync"/> 寫入，
+    /// 理由同該方法：此時資料庫停在較舊的 migration。
+    /// </summary>
+    private static async Task<Guid> SeedApprovedOrganizerAsync(ApplicationDbContext dbContext)
+    {
+        var ownerId = await SeedMemberAsync(dbContext, MemberRole.Member);
+        var organizer = Organizer.Apply(Guid.NewGuid(), "Test Organizer", ownerId, DateTime.UtcNow);
+        organizer.Approve(ownerId, DateTime.UtcNow);
+        dbContext.Organizers.Add(organizer);
         await dbContext.SaveChangesAsync();
-        return member.Id;
+        return organizer.Id;
     }
 
     private static async Task<(Guid VenueId, Guid SeatMapId)> SeedVenueAsync(ApplicationDbContext dbContext)
@@ -229,7 +248,7 @@ public class EventOrganizerBackfillMigrationTests
         await MigrateToAsync(dbContext, BackfillMigration);
         // 回填後把其中一筆改歸屬到另一個真實 Organizer：若重跑的 UPDATE 沒有 WHERE OrganizerId IS NULL 限制，
         // 這筆會被改回轉入用 Organizer，藉此讓「未被改寫」的斷言真的能失敗。
-        var otherOrganizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext);
+        var otherOrganizerId = await SeedApprovedOrganizerAsync(dbContext);
         await dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""UPDATE "Events" SET "OrganizerId" = {otherOrganizerId} WHERE "Id" = {reassignedEventId}""");
         var organizerIdsBeforeRerun = await GetEventOrganizerIdsAsync(dbContext);

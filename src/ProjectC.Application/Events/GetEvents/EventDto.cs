@@ -9,4 +9,5 @@ public sealed record EventDto(
     string? Description,
     string? PosterUrl,
     int? MaxTicketsPerOrder,
-    bool IsQueueModeEnabled);
+    bool IsQueueModeEnabled,
+    bool IsRealNameRequired);

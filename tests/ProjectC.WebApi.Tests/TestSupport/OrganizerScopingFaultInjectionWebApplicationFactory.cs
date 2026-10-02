@@ -147,10 +147,10 @@ public sealed class OrganizerScopingFaultInjectionWebApplicationFactory : Custom
 
     private sealed class UnresolvableOrganizerOrderRepository(IOrderRepository inner, ConcurrentDictionary<Guid, byte> unresolvableOrderItemIds) : IOrderRepository
     {
-        public Task<Guid?> GetOrganizerIdByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
+        public Task<RedemptionContext?> GetRedemptionContextByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
             => unresolvableOrderItemIds.ContainsKey(orderItemId)
-                ? Task.FromResult<Guid?>(null)
-                : inner.GetOrganizerIdByOrderItemIdAsync(orderItemId, cancellationToken);
+                ? Task.FromResult<RedemptionContext?>(null)
+                : inner.GetRedemptionContextByOrderItemIdAsync(orderItemId, cancellationToken);
 
         public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => inner.GetByIdAsync(id, cancellationToken);
 

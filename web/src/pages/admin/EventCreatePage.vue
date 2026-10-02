@@ -66,6 +66,7 @@ const eventForm = reactive<{
   description: string
   posterUrl: string
   maxTicketsPerOrder: number | undefined
+  isRealNameRequired: boolean
 }>({
   title: '',
   startAt: '',
@@ -74,6 +75,7 @@ const eventForm = reactive<{
   description: '',
   posterUrl: '',
   maxTicketsPerOrder: undefined,
+  isRealNameRequired: false,
 })
 const eventRules = {
   title: [requiredRule('請輸入活動名稱'), maxLengthRule(200, '活動名稱長度不可超過 200 字')],
@@ -102,6 +104,7 @@ async function handleCreateEvent(): Promise<void> {
       eventForm.description || undefined,
       eventForm.posterUrl || undefined,
       eventForm.maxTicketsPerOrder,
+      eventForm.isRealNameRequired,
     )
     ElMessage.success('活動建立成功')
     await router.push({ name: 'admin-events' })
@@ -165,6 +168,10 @@ async function handleCreateEvent(): Promise<void> {
       <el-form-item label="每筆訂單限購" prop="maxTicketsPerOrder">
         <el-input-number v-model="eventForm.maxTicketsPerOrder" :min="1" :step="1" :precision="0" />
         <span class="field-hint">選填，留空代表不限制</span>
+      </el-form-item>
+      <el-form-item label="需實名" prop="isRealNameRequired">
+        <el-checkbox v-model="eventForm.isRealNameRequired" name="isRealNameRequired">需實名</el-checkbox>
+        <span class="field-hint">建立後不可變更；買家需先登記實名才能購票，入場時需核對證件</span>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="eventSubmitting" native-type="submit">建立</el-button>

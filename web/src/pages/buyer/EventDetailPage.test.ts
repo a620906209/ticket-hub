@@ -7,13 +7,16 @@ import * as eventsApi from '../../api/events'
 import * as ordersApi from '../../api/orders'
 import * as queueApi from '../../api/queue'
 import * as captchaApi from '../../api/captcha'
+import * as membersApi from '../../api/members'
+import QueueWaitingPanel from '../../components/QueueWaitingPanel.vue'
 import { ApiError } from '../../api/httpClient'
-import type { EventSeat, EventSummary, QueueStatus, TicketType } from '../../types/apiResponses'
+import type { EventSeat, EventSummary, MemberProfile, QueueStatus, TicketType } from '../../types/apiResponses'
 
 vi.mock('../../api/events')
 vi.mock('../../api/orders')
 vi.mock('../../api/queue')
 vi.mock('../../api/captcha')
+vi.mock('../../api/members')
 
 const pushMock = vi.fn()
 vi.mock('vue-router', () => ({
@@ -70,6 +73,7 @@ function buildEvent(overrides: Partial<EventSummary> = {}): EventSummary {
     posterUrl: null,
     maxTicketsPerOrder: null,
     isQueueModeEnabled: false,
+    isRealNameRequired: false,
     ...overrides,
   }
 }
@@ -94,7 +98,13 @@ function mountPage() {
   return mount(EventDetailPage, {
     global: {
       plugins: [ElementPlus],
-      stubs: { ElInputNumber: ElInputNumberStub, ElSelect: ElSelectStub, ElOption: ElOptionStub },
+      stubs: {
+        ElInputNumber: ElInputNumberStub,
+        ElSelect: ElSelectStub,
+        ElOption: ElOptionStub,
+        // vue-router 已整個 mock 掉，以 <a> 呈現 router-link 的目標，供斷言連結位置。
+        RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
+      },
     },
   })
 }
@@ -913,4 +923,185 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('EventDetailPage 需實名活動的標示與登記引導（real-name-verification）', () => {
+  const unregisteredProfile: MemberProfile = {
+    id: 'member-1',
+    email: 'buyer@example.com',
+    displayName: '買家',
+    role: 'Member',
+    isActive: true,
+    hasRegisteredRealName: false,
+    realName: null,
+    nationalIdLast4Masked: null,
+  }
+  const registeredProfile: MemberProfile = {
+    ...unregisteredProfile,
+    hasRegisteredRealName: true,
+    realName: '王小明',
+    nationalIdLast4Masked: '**34',
+  }
+
+  function joinQueueButton(wrapper: ReturnType<typeof mount>) {
+    const button = wrapper.findAll('button').find((b) => b.text() === '加入排隊')
+    if (!button) throw new Error('找不到「加入排隊」按鈕')
+    return button
+  }
+
+  function registerLinkTarget(wrapper: ReturnType<typeof mount>): string | undefined {
+    return wrapper.findAll('a').find((a) => a.text() === '前往登記')?.attributes('href')
+  }
+
+  beforeEach(() => {
+    mockIsAuthenticated = true
+    pushMock.mockReset()
+    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventSeats).mockReset().mockResolvedValue([buildSeat()])
+    vi.mocked(eventsApi.getTicketTypes).mockReset().mockResolvedValue([buildSeatTicketType()])
+    vi.mocked(ordersApi.placeOrder).mockReset()
+    vi.mocked(queueApi.getMyQueueStatus).mockReset()
+    vi.mocked(queueApi.joinQueue).mockReset()
+    vi.mocked(captchaApi.getCaptcha).mockReset()
+    vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-1', imageBase64: 'base64-image-1' })
+    vi.mocked(membersApi.getMyProfile).mockReset().mockResolvedValue(registeredProfile)
+  })
+
+  it('[BW-RN-EVENT-001] 需實名活動顯示「本活動需實名」文字標示', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('本活動需實名')
+  })
+
+  it('[BW-RN-EVENT-001] 未登入者也看得到標示，但不查詢個人資料、不顯示登記提示', async () => {
+    mockIsAuthenticated = false
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('本活動需實名')
+    expect(wrapper.text()).not.toContain('購票前需先登記實名')
+    expect(membersApi.getMyProfile).not.toHaveBeenCalled()
+  })
+
+  it('[BW-RN-EVENT-002] 不需實名活動不顯示標示與登記提示', async () => {
+    vi.mocked(membersApi.getMyProfile).mockResolvedValue(unregisteredProfile)
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: false })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('本活動需實名')
+    expect(wrapper.text()).not.toContain('購票前需先登記實名')
+  })
+
+  it('[BW-RN-EVENT-003] 未登記者看到登記引導，前往登記連結帶 redirect 指回此活動頁', async () => {
+    vi.mocked(membersApi.getMyProfile).mockResolvedValue(unregisteredProfile)
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('購票前需先登記實名')
+    expect(registerLinkTarget(wrapper)).toBe('/me/real-name?redirect=/events/event-1')
+  })
+
+  it('[BW-RN-EVENT-004] 已登記者看到標示、看不到登記提示', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(membersApi.getMyProfile).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('本活動需實名')
+    expect(wrapper.text()).not.toContain('購票前需先登記實名')
+  })
+
+  it('[BW-RN-EVENT-005] 下單回 403 RealNameRequired 時顯示引導，不導向登入頁、不顯示泛用錯誤、保留已選座位', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(
+      new ApiError(403, { status: 403, title: 'RealNameRequired', detail: '此活動需實名登記後才能購票。' }),
+    )
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('購票前需先登記實名')
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('購票前需先登記實名')
+    expect(registerLinkTarget(wrapper)).toBe('/me/real-name?redirect=/events/event-1')
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(wrapper.find('.el-alert--error').exists()).toBe(false)
+    expect(wrapper.find('.seat-btn.selected').exists()).toBe(true)
+  })
+
+  it('[BW-RN-EVENT-006] 加入排隊回 403 RealNameRequired 時顯示引導，未進入排隊等待畫面並換發驗證碼', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true, isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    vi.mocked(queueApi.joinQueue).mockRejectedValue(
+      new ApiError(403, { status: 403, title: 'RealNameRequired', detail: '此活動需實名登記後才能購票。' }),
+    )
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('input[placeholder="請輸入驗證碼"]').setValue('TEST')
+    await joinQueueButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(queueApi.joinQueue).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('購票前需先登記實名')
+    expect(registerLinkTarget(wrapper)).toBe('/me/real-name?redirect=/events/event-1')
+    expect(wrapper.findComponent(QueueWaitingPanel).exists()).toBe(false)
+    expect(queueApi.getMyQueueStatus).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.el-alert--error').exists()).toBe(false)
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(2)
+  })
+
+  it('[BW-RN-EVENT-007] 個人資料查詢失敗時不顯示提示，送出訂單按鈕可用且會呼叫建立訂單 API', async () => {
+    vi.mocked(membersApi.getMyProfile).mockRejectedValue(new ApiError(500, null))
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('購票前需先登記實名')
+    expect(wrapper.find('.el-alert--error').exists()).toBe(false)
+    await wrapper.find('.seat-btn').trigger('click')
+    expect(submitButton(wrapper).attributes('disabled')).toBeUndefined()
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+    expect(pushMock).toHaveBeenCalledWith({ path: '/order-result/order-1' })
+  })
+
+  it('未登記者仍可送出訂單，前端不自行擋下（以後端判斷為準）', async () => {
+    vi.mocked(membersApi.getMyProfile).mockResolvedValue(unregisteredProfile)
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('403 但 title 不是 RealNameRequired 時不顯示實名引導', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(403, { status: 403, title: 'Forbidden' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('購票前需先登記實名')
+    expect(wrapper.find('.el-alert--error').exists()).toBe(true)
+  })
 })

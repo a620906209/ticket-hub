@@ -5,6 +5,7 @@ import { getEvents, getEventSeats, getTicketTypes } from '../../api/events'
 import { placeOrder } from '../../api/orders'
 import type { PlaceOrderSelection } from '../../api/orders'
 import { getMyQueueStatus, joinQueue } from '../../api/queue'
+import { getMyProfile } from '../../api/members'
 import { ApiError } from '../../api/httpClient'
 import { useAuthStore } from '../../stores/auth'
 import { useCaptcha } from '../../composables/useCaptcha'
@@ -44,6 +45,32 @@ const {
   refresh: refreshCaptcha,
 } = useCaptcha()
 const captchaAnswer = ref('')
+
+// 實名引導（real-name-verification buyer-web-ui spec）。個人資料查詢結果只用來「提示」，不擋送出：
+// 查詢失敗或過期時誤擋已登記者的代價，比讓後端回 RealNameRequired 再引導更高（design.md 決策 8）。
+const isProfileKnownUnregistered = ref(false)
+const isRealNameRejectedByServer = ref(false)
+const realNameRegisterPath = `/me/real-name?redirect=/events/${eventId}`
+// 後端拒絕時不再看活動旗標：公開活動列表有快取，旗標可能落後，以後端回應為準。
+const showRealNameGuide = computed(
+  () =>
+    authStore.isAuthenticated &&
+    (isRealNameRejectedByServer.value || (event.value?.isRealNameRequired === true && isProfileKnownUnregistered.value)),
+)
+
+function isRealNameRequiredError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403 && error.problem?.title === 'RealNameRequired'
+}
+
+async function loadRealNameStatus(): Promise<void> {
+  try {
+    const profile = await getMyProfile()
+    isProfileKnownUnregistered.value = !profile.hasRegisteredRealName
+  } catch {
+    // 刻意不顯示錯誤、不改變任何狀態：查詢失敗時不顯示提示也不影響購票（BW-RN-EVENT-007），
+    // 真正的把關在後端閘門，屆時以 RealNameRequired 回應顯示引導。
+  }
+}
 
 // 一旦已經查詢過排隊狀態，以每次輪詢回應當下的 queueModeEnabled 為準（比活動列表當初讀到的
 // isQueueModeEnabled 更新），才能正確反映「等待期間 Admin 關閉熱門搶購模式」（BW-TOGGLE-001）。
@@ -319,6 +346,13 @@ async function handleJoinQueue(): Promise<void> {
     // 驗證碼錯誤：顯示提示、清空輸入並自動換發新的驗證碼，停留在原畫面，不觸發座位/票種資料的
     // 清空或重新整理（CAPTCHA-BW-QUEUE-002）。判斷依據 MUST 是後端回傳的可區分 title
     // （"CaptchaInvalid"），不是泛用的 400 狀態碼，與 LoginPage／RegisterPage 一致。
+    // 後端先核對驗證碼才檢查實名，驗證碼此時已消耗，必須換發；不進入排隊等待畫面（BW-RN-EVENT-006）。
+    if (isRealNameRequiredError(error)) {
+      isRealNameRejectedByServer.value = true
+      captchaAnswer.value = ''
+      void refreshCaptcha()
+      return
+    }
     if (error instanceof ApiError && error.problem?.title === 'CaptchaInvalid') {
       errorMessage.value = toErrorMessage(error, '驗證碼錯誤，請重新輸入')
       captchaAnswer.value = ''
@@ -348,6 +382,10 @@ async function loadData(): Promise<void> {
     event.value = events.find((e) => e.id === eventId) ?? null
     seats.value = seatResult
     ticketTypes.value = ticketTypeResult
+
+    if (authStore.isAuthenticated && event.value?.isRealNameRequired) {
+      void loadRealNameStatus()
+    }
 
     if (authStore.isAuthenticated && event.value?.isQueueModeEnabled) {
       await refreshQueueStatus()
@@ -414,6 +452,11 @@ async function handleSubmit(): Promise<void> {
     }
     // 請求頻率限制：顯示提示但不清空已選內容、不刷新資料——這代表發送過快，不是資料已變動
     // （buyer-web-ui spec BW-QUEUE-005）。
+    // 未登記實名：顯示登記引導，不顯示泛用錯誤、不清空已選內容——登記後回到本頁即可再送出（BW-RN-EVENT-005）。
+    if (isRealNameRequiredError(error)) {
+      isRealNameRejectedByServer.value = true
+      return
+    }
     if (error instanceof ApiError && error.status === 429) {
       errorMessage.value = '請求過於頻繁，請稍後再試'
       return
@@ -447,6 +490,7 @@ onUnmounted(stopQueuePolling)
           <img v-if="event.posterUrl" :src="event.posterUrl" alt="" class="poster" />
           <h1>{{ event.title }}</h1>
           <p class="start-at">{{ new Date(event.startAtUtc).toLocaleString() }}</p>
+          <p v-if="event.isRealNameRequired" class="real-name-tag">本活動需實名</p>
           <p v-if="event.description" class="description">{{ event.description }}</p>
           <el-table :data="ticketTypes" size="small" empty-text="尚未設定票種">
             <el-table-column prop="zoneCode" label="分區" />
@@ -466,6 +510,11 @@ onUnmounted(stopQueuePolling)
             title="請先登入才能選位或購買計數票種"
             style="margin-bottom: 16px"
           />
+
+          <div v-if="showRealNameGuide" class="real-name-guide" role="status">
+            <span>購票前需先登記實名</span>
+            <router-link :to="realNameRegisterPath" class="real-name-guide-link">前往登記</router-link>
+          </div>
 
           <QueueWaitingPanel v-if="showQueueWaiting" :waiting-count="queueStatus?.waitingCount ?? null" />
 
@@ -567,6 +616,29 @@ onUnmounted(stopQueuePolling)
 </template>
 
 <style scoped>
+.real-name-tag {
+  display: inline-block;
+  margin: 0 0 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.real-name-guide {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-elevated);
+}
+.real-name-guide-link {
+  color: var(--color-primary);
+  font-weight: 600;
+}
 .event-detail-page {
   max-width: 1080px;
   margin: 32px auto;

@@ -9,7 +9,8 @@ import {
   stopCameraStream as defaultStopCameraStream,
   type CameraErrorKind,
 } from '../utils/cameraScanner'
-import { performRedemption, type RedemptionOutcome } from '../utils/ticketRedemptionOutcome'
+import { lookupTicketHolder, performRedemption, type RedemptionOutcome } from '../utils/ticketRedemptionOutcome'
+import type { TicketHolder } from '../types/apiResponses'
 import { parseTicketIdFromManualInput, parseTicketIdFromQrContent } from '../utils/ticketRedemptionParsing'
 
 // 相機生命週期與掃描狀態機（design.md 決策 4）。相機/解碼相關的技術細節全部透過 deps 注入，
@@ -21,12 +22,27 @@ export type ScannerState =
   | 'scanning'
   | 'processing'
   | 'result'
+  | 'holder-verification'
   | 'camera-unavailable'
   | 'permission-denied'
   | 'unsupported'
   | 'error'
 
-export type ScanResultKind = RedemptionOutcome['kind'] | 'unrecognized'
+// holder-verification-required 不是結果橫幅，而是進入持票人確認面板（real-name-verification design.md 決策 8）。
+export type ScanResultKind = Exclude<RedemptionOutcome['kind'], 'holder-verification-required'> | 'unrecognized'
+
+// 持票人確認面板的階段：loading 查詢中、loaded 顯示資料待確認、lookup-failed 查詢失敗待重試/放棄、
+// confirming 已送出確認核銷（按鈕停用，防止重複送出）。
+export type HolderVerificationPhase = 'loading' | 'loaded' | 'lookup-failed' | 'confirming'
+
+export interface HolderVerification {
+  ticketId: string
+  signature: string | null
+  phase: HolderVerificationPhase
+  holder: TicketHolder | null
+  /** 手動輸入路徑沒有簽章（既有手動核銷慣例），放棄時要回到手動輸入表單而非相機。 */
+  isManualEntry: boolean
+}
 
 const DECODE_INTERVAL_MS = 80 // 約 12 次/秒，落在決策 1 的 10–15 次/秒範圍內
 
@@ -91,6 +107,7 @@ export function useRedemptionScanner(overrides: Partial<RedemptionScannerDeps> =
   const state = ref<ScannerState>('initializing')
   const manualInputActive = ref(false)
   const scanResult: Ref<ScanResultKind | null> = ref(null)
+  const holderVerification: Ref<HolderVerification | null> = ref(null)
   const videoElement: Ref<HTMLVideoElement | null> = ref(null)
 
   // result 顯示期間 <video> 會因為 RedemptionScannerPage.vue 的 v-if="scanResult" 被 Vue 卸載，
@@ -206,6 +223,10 @@ export function useRedemptionScanner(overrides: Partial<RedemptionScannerDeps> =
   let resumeTargetState: ScannerState = 'scanning'
 
   function handleDetectedContent(content: string): void {
+    // decodeTick 在面板期間本來就不解碼；這裡再擋一次，確保任何偵測來源都不會在比對證件時觸發 API。
+    if (state.value === 'holder-verification') {
+      return
+    }
     const parsed = parseTicketIdFromQrContent(content)
     if (!parsed.recognized) {
       resumeTargetState = 'scanning'
@@ -221,11 +242,90 @@ export function useRedemptionScanner(overrides: Partial<RedemptionScannerDeps> =
     state.value = 'processing'
     lastSubmittedContent = content
     performRedemption(parsed.ticketId, parsed.signature)
-      .then((outcome) => showResult(outcome.kind))
+      .then((outcome) => handleRedemptionOutcome(outcome, parsed.ticketId, parsed.signature))
       .catch(() => showResult('system-error'))
   }
 
+  function handleRedemptionOutcome(outcome: RedemptionOutcome, ticketId: string, signature: string | null): void {
+    if (!mounted) return
+    if (outcome.kind === 'holder-verification-required') {
+      enterHolderVerification(ticketId, signature)
+      return
+    }
+    showResult(outcome.kind)
+  }
+
+  // 面板期間 state 維持 'holder-verification'：decodeTick 只在 'scanning' 時解碼，相機偵測自然被忽略；
+  // 也不啟動結果橫幅的自動恢復計時，只有「確認核銷」或「放棄」能離開（admin-web-ui spec）。
+  function enterHolderVerification(ticketId: string, signature: string | null): void {
+    if (!mounted) return
+    stopDecodeLoop()
+    state.value = 'holder-verification'
+    holderVerification.value = { ticketId, signature, phase: 'loading', holder: null, isManualEntry: signature === null }
+    void loadHolder()
+  }
+
+  async function loadHolder(): Promise<void> {
+    const current = holderVerification.value
+    if (!current) return
+    current.phase = 'loading'
+    const lookup = await lookupTicketHolder(current.ticketId)
+    // 查詢期間已放棄（或 unmount）時丟棄結果，不得重新開啟面板。
+    if (holderVerification.value !== current) return
+
+    if (lookup.kind === 'found') {
+      current.holder = lookup.holder
+      current.phase = 'loaded'
+    } else if (lookup.kind === 'already-redeemed') {
+      holderVerification.value = null
+      showResult('already-redeemed')
+    } else {
+      current.phase = 'lookup-failed'
+    }
+  }
+
+  /** 「重試」：只重新查詢持票人，不重送核銷請求。 */
+  function retryHolderLookup(): void {
+    if (holderVerification.value?.phase !== 'lookup-failed') return
+    void loadHolder()
+  }
+
+  /** 「確認核銷」：以原 Ticket ID 與原簽章（手動輸入為 null）重送，帶 isHolderVerified = true。 */
+  async function confirmHolderVerification(): Promise<void> {
+    const current = holderVerification.value
+    if (!current || current.phase !== 'loaded') return
+    current.phase = 'confirming'
+    let kind: ScanResultKind
+    try {
+      const outcome = await performRedemption(current.ticketId, current.signature, true)
+      // 已帶確認旗標仍要求確認屬於後端異常，不得再開一次面板形成迴圈。
+      kind = outcome.kind === 'holder-verification-required' ? 'system-error' : outcome.kind
+    } catch {
+      kind = 'system-error'
+    }
+    if (holderVerification.value !== current) return
+    holderVerification.value = null
+    showResult(kind)
+  }
+
+  /** 「放棄」：不呼叫任何端點，回到進入面板前的輸入方式（掃碼回相機、手動輸入回表單）。 */
+  function abandonHolderVerification(): void {
+    const current = holderVerification.value
+    if (!current || current.phase === 'confirming') return
+    holderVerification.value = null
+    const abandonedContent = lastSubmittedContent
+    resumeScanningFromResult()
+    if (current.isManualEntry) {
+      manualInputActive.value = true
+      return
+    }
+    // 放棄通常代表證件不符；鏡頭仍對著同一張票時不得立刻重開面板（AWU-REDEEM-RN-016），
+    // 所以保留這張票的 dedupe 記憶，直到處理過另一張票後的恢復才清除。
+    lastSubmittedContent = abandonedContent
+  }
+
   function showResult(kind: ScanResultKind): void {
+    if (!mounted) return
     if (document.hidden) {
       // 核銷請求在背景時完成：先保存結果，不進入 result 顯示、不啟動倒數計時，
       // 等切回前景（handleVisible）才真正顯示並開始倒數——否則計時器可能在使用者
@@ -285,13 +385,21 @@ export function useRedemptionScanner(overrides: Partial<RedemptionScannerDeps> =
       return { formatValid: false }
     }
 
-    resumeTargetState = state.value
+    // 相機仍在初始化（例如放棄手動輸入的面板後重新取得相機中）時送出：作廢這次初始化，
+    // 否則它稍後完成會蓋掉 'processing'（甚至在請求途中開始解碼），結束後又回到 'initializing'
+    // 而沒有任何初始化在進行，畫面卡在「初始化相機中…」。結果顯示完再重新取得相機。
+    if (state.value === 'initializing') {
+      generation += 1
+      resumeTargetState = 'scanning'
+    } else {
+      resumeTargetState = state.value
+    }
     stopDecodeLoop()
     manualInputActive.value = false
     state.value = 'processing'
     try {
       const outcome = await performRedemption(parsed.ticketId, null)
-      showResult(outcome.kind)
+      handleRedemptionOutcome(outcome, parsed.ticketId, null)
     } catch {
       showResult('system-error')
     }
@@ -339,6 +447,14 @@ export function useRedemptionScanner(overrides: Partial<RedemptionScannerDeps> =
         }
         // 呼叫本身未被取消、也還沒完成，會自然完成並呼叫 showResult()；不重新發送核銷請求。
         return
+      case 'holder-verification':
+        // 面板不自動消失；若確認核銷的結果在背景時完成並被暫存，現在才顯示。
+        if (pendingResultKind !== null) {
+          const kind = pendingResultKind
+          pendingResultKind = null
+          applyResult(kind)
+        }
+        return
       case 'result':
         // 保留已顯示的結果，重啟倒數；結果顯示完才由 resumeScanningFromResult() 重新初始化相機。
         clearResultTimer()
@@ -371,6 +487,7 @@ export function useRedemptionScanner(overrides: Partial<RedemptionScannerDeps> =
     mounted = false
     document.removeEventListener('visibilitychange', onVisibilityChange)
     generation += 1 // 任何尚未 resolve 的 getUserMedia() 結果視為過期，不得再更動狀態
+    holderVerification.value = null
     clearResultTimer()
     releaseCameraResources()
   }
@@ -379,6 +496,7 @@ export function useRedemptionScanner(overrides: Partial<RedemptionScannerDeps> =
     state,
     manualInputActive,
     scanResult,
+    holderVerification,
     videoElement,
     mount,
     unmount,
@@ -389,6 +507,9 @@ export function useRedemptionScanner(overrides: Partial<RedemptionScannerDeps> =
     dismissResult,
     handleHidden,
     handleVisible,
+    retryHolderLookup,
+    confirmHolderVerification,
+    abandonHolderVerification,
     // 暴露給測試直接呼叫：元件層的相機決策 4 生命週期／決策 7 dedupe 邏輯與「怎麼被偵測到
     // 一次内容」是兩件事，後者（decodeTick 的 rAF/節流時序）已由 cameraScanner.test.ts 的
     // shouldDecodeNow 獨立覆蓋，這裡讓測試能直接餵入「偵測到的內容」而不必模擬真實影格時序。

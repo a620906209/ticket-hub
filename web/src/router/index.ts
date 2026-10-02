@@ -9,6 +9,7 @@ import EventDetailPage from '../pages/buyer/EventDetailPage.vue'
 import OrderResultPage from '../pages/buyer/OrderResultPage.vue'
 import MyOrdersPage from '../pages/buyer/MyOrdersPage.vue'
 import OrderDetailPage from '../pages/buyer/OrderDetailPage.vue'
+import RealNamePage from '../pages/buyer/RealNamePage.vue'
 import OrganizerApplyPage from '../pages/organizers/OrganizerApplyPage.vue'
 import MyOrganizersPage from '../pages/organizers/MyOrganizersPage.vue'
 
@@ -41,6 +42,7 @@ const router = createRouter({
         },
         { path: 'orders', name: 'my-orders', component: MyOrdersPage, meta: { requiresAuth: true } },
         { path: 'orders/:id', name: 'order-detail', component: OrderDetailPage, meta: { requiresAuth: true } },
+        { path: 'me/real-name', name: 'real-name', component: RealNamePage, meta: { requiresAuth: true } },
         // 已登入任何角色的會員皆可申請／查看自己所屬的主辦方，本次不修改既有後台路由守衛規則
         // （不歸在 /admin 之下，見 organizer-management proposal.md「Capabilities」admin-web-ui 段落）。
         { path: 'organizers/apply', name: 'organizer-apply', component: OrganizerApplyPage, meta: { requiresAuth: true } },

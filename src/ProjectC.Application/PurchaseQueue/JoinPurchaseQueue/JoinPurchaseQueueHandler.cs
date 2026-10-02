@@ -2,6 +2,7 @@ using FluentValidation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Members;
 using ProjectC.Domain.PurchaseQueue;
 
 namespace ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
@@ -17,6 +18,7 @@ public sealed class JoinPurchaseQueueHandler
     private readonly IValidator<JoinPurchaseQueueRequest> _validator;
     private readonly ICaptchaService _captchaService;
     private readonly IPurchaseQueueAdmissionMirror _admissionMirror;
+    private readonly IMemberRealNameRepository _memberRealNameRepository;
 
     public JoinPurchaseQueueHandler(
         IEventRepository eventRepository,
@@ -25,8 +27,10 @@ public sealed class JoinPurchaseQueueHandler
         IDateTimeProvider dateTimeProvider,
         IValidator<JoinPurchaseQueueRequest> validator,
         ICaptchaService captchaService,
-        IPurchaseQueueAdmissionMirror admissionMirror)
+        IPurchaseQueueAdmissionMirror admissionMirror,
+        IMemberRealNameRepository memberRealNameRepository)
     {
+        _memberRealNameRepository = memberRealNameRepository;
         _eventRepository = eventRepository;
         _purchaseQueueRepository = purchaseQueueRepository;
         _unitOfWork = unitOfWork;
@@ -63,6 +67,16 @@ public sealed class JoinPurchaseQueueHandler
             return Result<Guid>.Failure(Error.Conflict($"Event '{eventId}' is not in queue mode."));
         }
 
+        // 實名閘門放在驗證碼、活動存在、熱門搶購模式之後、開交易之前（real-name-verification design.md 決策 3）。
+        // 交易外判斷安全的前提：I1 Event.IsRealNameRequired 建構後不可變；I2 會員實名只增不減。
+        // 未來若活動可改此旗標（破壞 I1），必須改以交易內 lockedEvent 為唯一權威；若可刪除／清除會員實名（破壞 I2），
+        // 讀取必須移進交易並加鎖。排隊閘門只是提早告知，放行後下單仍會經過 OrderService 的同一道閘門。
+        if (@event.IsRealNameRequired &&
+            await _memberRealNameRepository.GetAsync(memberId, cancellationToken) is null)
+        {
+            return Result<Guid>.Failure(Error.RealNameRequired($"Event '{eventId}' requires real-name registration."));
+        }
+
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
 
         // Queue Mode 切換的線性化時點，比照 OrderService.PlaceOrderAsync（design.md 決策 4）：上面交易前
@@ -72,6 +86,11 @@ public sealed class JoinPurchaseQueueHandler
         if (lockedEvent is null)
         {
             return Result<Guid>.Failure(Error.NotFound($"Event '{eventId}' was not found."));
+        }
+
+        if (lockedEvent.IsRealNameRequired != @event.IsRealNameRequired)
+        {
+            throw new InvalidOperationException($"Event '{eventId}' IsRealNameRequired changed between reads (invariant I1 violated).");
         }
 
         if (!lockedEvent.IsQueueModeEnabled)

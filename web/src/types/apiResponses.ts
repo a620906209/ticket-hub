@@ -11,6 +11,7 @@ export interface EventSummary {
   posterUrl: string | null
   maxTicketsPerOrder: number | null
   isQueueModeEnabled: boolean
+  isRealNameRequired: boolean
 }
 
 // 對應 GET /api/events/{id}/queue/entries/me；status："NotJoined" / "Waiting" / "Admitted" / "Expired"
@@ -42,6 +43,9 @@ export interface MemberProfile {
   displayName: string
   role: string
   isActive: boolean
+  hasRegisteredRealName: boolean
+  realName: string | null
+  nationalIdLast4Masked: string | null
 }
 
 export interface AuthTokens {
@@ -157,6 +161,17 @@ export interface AdminEventSummary {
   availableSeatCount: number
   heldSeatCount: number
   soldSeatCount: number
+  isRealNameRequired: boolean
+}
+
+// 對應 GET /api/admin/tickets/{ticketId}/holder；完整末四碼只在此回應出現，供現場比對證件
+// （real-name-verification design.md 決策 4、5），前端不得快取或持久化。
+export interface TicketHolder {
+  ticketId: string
+  ticketStatus: string
+  isRealNameRequired: boolean
+  holderRealName: string | null
+  holderNationalIdLast4: string | null
 }
 
 // 對應 GET /api/admin/events/{eventId}/sales-report（sales-report spec.md）。unclassifiedItemCount

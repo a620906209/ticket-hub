@@ -166,3 +166,67 @@ describe('EventCreatePage 建立活動：場館／座位圖下拉選單', () => 
     expect(pushMock).toHaveBeenCalledWith({ name: 'admin-events' })
   })
 })
+
+describe('EventCreatePage 需實名設定（real-name-verification）', () => {
+  beforeEach(() => {
+    pushMock.mockReset()
+    vi.mocked(adminApi.createEvent).mockReset().mockResolvedValue({ id: 'event-1' })
+    vi.mocked(adminApi.getVenues).mockResolvedValue([{ id: 'venue-a', name: 'Venue A' }])
+    vi.mocked(adminApi.getVenueById).mockResolvedValue({
+      id: 'venue-a',
+      name: 'Venue A',
+      seatMaps: [{ id: 'seatmap-1', seatCount: 10 }],
+    })
+  })
+
+  async function fillRequiredFields(wrapper: ReturnType<typeof mountPage>): Promise<void> {
+    const [venueSelect, seatMapSelect] = wrapper.findAll('select')
+    await venueSelect.setValue('venue-a')
+    await flushPromises()
+    await seatMapSelect.setValue('seatmap-1')
+    await wrapper.find('input[maxlength="200"]').setValue('Concert')
+    await wrapper.findComponent(ElDatePickerStub).setValue('2026-12-31T20:00')
+  }
+
+  function realNameCheckbox(wrapper: ReturnType<typeof mountPage>) {
+    return wrapper.find('input[type="checkbox"][name="isRealNameRequired"]')
+  }
+
+  // createEvent 第 8 個參數即 isRealNameRequired；它如何放進請求 body 由 api/admin.test.ts 驗證。
+  function sentIsRealNameRequired(): unknown {
+    return vi.mocked(adminApi.createEvent).mock.calls[0][7]
+  }
+
+  it('[AWU-EVENT-RN-003] 進入頁面時需實名勾選框未勾選，旁邊有建立後不可變更的說明', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect((realNameCheckbox(wrapper).element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.text()).toContain('建立後不可變更；買家需先登記實名才能購票，入場時需核對證件')
+  })
+
+  it('[AWU-EVENT-RN-001] 勾選需實名後送出，isRealNameRequired 為 true', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await fillRequiredFields(wrapper)
+
+    await realNameCheckbox(wrapper).setValue(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminApi.createEvent).toHaveBeenCalledTimes(1)
+    expect(sentIsRealNameRequired()).toBe(true)
+  })
+
+  it('[AWU-EVENT-RN-002] 未勾選需實名送出，isRealNameRequired 為 false', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await fillRequiredFields(wrapper)
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(adminApi.createEvent).toHaveBeenCalledTimes(1)
+    expect(sentIsRealNameRequired()).toBe(false)
+  })
+})

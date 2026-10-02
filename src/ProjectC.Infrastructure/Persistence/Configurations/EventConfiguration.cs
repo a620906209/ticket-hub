@@ -25,6 +25,8 @@ public class EventConfiguration : IEntityTypeConfiguration<Event>
         builder.Property(e => e.MaxTicketsPerOrder);
         builder.Property(e => e.CreatedByMemberId);
         builder.Property(e => e.CreatedAtUtc);
+        // getter-only 的建構子綁定屬性 EF 不會自動對映，必須明確 Property()；預設 false 讓既有活動回填為不需實名。
+        builder.Property(e => e.IsRealNameRequired).IsRequired().HasDefaultValue(false);
 
         // Event 只用純量欄位參照 Venue／SeatMap，沒有 navigation，一樣用 HasOne<T>().WithMany() 建立 FK 約束。
         builder.HasOne<Venue>()

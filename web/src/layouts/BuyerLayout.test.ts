@@ -7,11 +7,13 @@ import router from '../router/index'
 import { useAuthStore } from '../stores/auth'
 import * as organizersApi from '../api/organizers'
 import * as eventsApi from '../api/events'
+import * as membersApi from '../api/members'
 import type { MemberProfile } from '../types/apiResponses'
 
 vi.mock('../api/organizers')
 // 買家端首頁（活動列表）會在 RouterView 內實際渲染並呼叫 API，mock 掉避免打出真實請求。
 vi.mock('../api/events')
+vi.mock('../api/members')
 
 // decodeJwtPayload 只做 base64url decode + JSON.parse，不驗證簽章，見 utils/jwt.ts。
 // 刻意不帶 OrganizerId claim：驗證入口不要求已切換 Organizer（BW-ADMIN-ENTRY-001）。
@@ -22,7 +24,8 @@ let wrapper: VueWrapper | null = null
 async function mountAtHomeAs(role: MemberProfile['role']): Promise<VueWrapper> {
   const authStore = useAuthStore()
   authStore.accessToken = ACCESS_TOKEN_WITHOUT_ORGANIZER
-  authStore.member = { id: '1', email: 'user@example.com', displayName: '會員選單', role, isActive: true }
+  authStore.member = { id: '1', email: 'user@example.com', displayName: '會員選單', role, isActive: true,
+    hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
   await router.push('/')
   // el-dropdown 選單以 Teleport 渲染到 body，必須掛到 document 上才找得到。
   wrapper = mount(RouterView, { global: { plugins: [ElementPlus, router] }, attachTo: document.body })
@@ -46,6 +49,10 @@ describe('BuyerLayout 會員下拉選單的主辦方審核入口', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.mocked(eventsApi.getEvents).mockReset().mockResolvedValue([])
+    vi.mocked(membersApi.getMyProfile).mockReset().mockResolvedValue({
+      id: '1', email: 'user@example.com', displayName: '會員選單', role: 'Member', isActive: true,
+      hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null,
+    })
     vi.mocked(organizersApi.getPendingOrganizers).mockReset().mockResolvedValue([
       {
         id: 'org-pending-1',
@@ -84,5 +91,18 @@ describe('BuyerLayout 會員下拉選單的主辦方審核入口', () => {
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/admin/organizers'))
     await flushPromises()
     expect(layout.text()).toContain('待審核的主辦方')
+  })
+
+  it('[BW-RN-PAGE-009] 會員選單有實名資料，點選後導向實名資料頁', async () => {
+    const layout = await mountAtHomeAs('Member')
+
+    await openMemberDropdown(layout)
+    findMenuItem('實名資料')!.click()
+    await flushPromises()
+
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/me/real-name'))
+    await flushPromises()
+    expect(membersApi.getMyProfile).toHaveBeenCalled()
+    expect(layout.text()).toContain('登記後無法自行修改')
   })
 })

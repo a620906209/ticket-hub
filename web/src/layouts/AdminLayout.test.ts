@@ -33,7 +33,7 @@ describe('AdminLayout', () => {
     // 場館頁要求已切換 Organizer（AWU-GUARD-002）；沒帶 OrganizerId claim 會被導到「我的主辦方」頁，
     // 讓測試實際渲染的是那一頁而不是場館頁。
     authStore.accessToken = fakeAccessTokenWithOrganizerId('org-1')
-    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true }
+    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
     await router.push('/admin/venues')
   })
 
@@ -41,7 +41,7 @@ describe('AdminLayout', () => {
   // 放行並停在核銷頁——同時證明「可點選」「目標路徑正確」「守衛放行非 Admin 成員」。
   it('[ADMIN-REDEEM-NAV-ENTRY] 非 Admin 的 Organizer 成員點擊「票券核銷」選單後導覽至 /admin/redeem', async () => {
     const authStore = useAuthStore()
-    authStore.member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true }
+    authStore.member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
     const wrapper = mountLayout()
 
     const menuItem = wrapper.findAll('.el-menu-item').find((item) => item.text() === '票券核銷')
@@ -64,7 +64,7 @@ describe('AdminLayout 導覽列目前 Organizer 名稱顯示', () => {
     setActivePinia(createPinia())
     vi.mocked(organizersApi.getMyOrganizers).mockReset()
     const authStore = useAuthStore()
-    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true }
+    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
     await router.push('/admin/venues')
   })
 
@@ -117,7 +117,7 @@ describe('AdminLayout 導覽選單依角色顯示', () => {
   it('[AWU-NAV-001] 已切換 Organizer 的非 Admin 成員看到場館、活動、訂單、核銷選單，看不到審核選單', async () => {
     const authStore = useAuthStore()
     authStore.accessToken = fakeAccessTokenWithOrganizerId('org-1')
-    authStore.member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true }
+    authStore.member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
     await router.push('/admin/venues')
 
     const wrapper = mountLayout()
@@ -129,7 +129,7 @@ describe('AdminLayout 導覽選單依角色顯示', () => {
   it('[AWU-NAV-002] 已切換 Organizer 的 Admin 看到全部選單，含審核選單', async () => {
     const authStore = useAuthStore()
     authStore.accessToken = fakeAccessTokenWithOrganizerId('org-1')
-    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true }
+    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
     await router.push('/admin/venues')
 
     const wrapper = mountLayout()
@@ -142,7 +142,7 @@ describe('AdminLayout 導覽選單依角色顯示', () => {
   it('[AWU-NAV-004] 尚未切換 Organizer 的 Admin 在審核頁仍看得到一般選單與審核選單', async () => {
     const authStore = useAuthStore()
     authStore.accessToken = 'access-token'
-    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true }
+    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
     await router.push('/admin/organizers')
 
     const wrapper = mountLayout()

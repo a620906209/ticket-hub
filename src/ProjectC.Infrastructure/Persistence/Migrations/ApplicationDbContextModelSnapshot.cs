@@ -113,6 +113,11 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsQueueModeEnabled")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsRealNameRequired")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<int?>("MaxTicketsPerOrder")
                         .HasColumnType("integer");
 
@@ -203,9 +208,18 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("NationalIdLast4")
+                        .HasMaxLength(4)
+                        .HasColumnType("character(4)")
+                        .IsFixedLength();
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("RealName")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<int>("Role")
                         .HasColumnType("integer");
@@ -215,7 +229,10 @@ namespace ProjectC.Infrastructure.Persistence.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("Members", (string)null);
+                    b.ToTable("Members", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Members_RealName_NationalIdLast4", "(\"RealName\" IS NULL) = (\"NationalIdLast4\" IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("ProjectC.Domain.Orders.Order", b =>
