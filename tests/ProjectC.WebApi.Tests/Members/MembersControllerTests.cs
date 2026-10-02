@@ -331,6 +331,20 @@ public class MembersControllerTests : IClassFixture<CustomWebApplicationFactory>
         (await GetStoredRealNameAsync(memberId)).Should().Be(("王小明", "1234"));
     }
 
+    // RNV-NOSTORE-006：更新顯示名稱的回應同樣帶出姓名與遮蔽末四碼，不得被瀏覽器或中介快取保存。
+    [Fact]
+    public async Task UpdateMe_WhenRealNameRegistered_ReturnsRealNameWithNoStore()
+    {
+        var (client, _) = await CreateAuthenticatedMemberAsync();
+        (await client.PutAsJsonAsync(RealNameEndpoint, RealNameBody("王小明", "1234"))).EnsureSuccessStatusCode();
+
+        var response = await client.PutAsJsonAsync("/api/members/me", new { displayName = "New Name" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<MemberProfileResponse>())!.RealName.Should().Be("王小明");
+        AssertNoStore(response);
+    }
+
     private sealed record MemberProfileResponse(
         Guid Id, string Email, string DisplayName, string Role, bool IsActive,
         bool HasRegisteredRealName = false, string? RealName = null, string? NationalIdLast4Masked = null);

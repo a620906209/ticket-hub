@@ -96,7 +96,7 @@
 - **THEN** 系統核銷成功，票券轉為 `Redeemed`
 
 ### Requirement: 身分證末四碼遮蔽規則
-除「核銷時查詢持票人」端點（見 `ticket-redemption` 能力）外，系統所有 API 回應 MUST NOT 回傳完整的身分證末四碼，只能回傳遮蔽值。`Cache-Control: no-store` 的適用範圍：查詢個人資料（`GET /api/members/me`）、實名登記（`PUT /api/members/me/real-name`）、查詢持票人（`GET /api/admin/tickets/{id}/holder`）三個端點，由端點本身（Controller action）產生的所有回應都 MUST 帶 `Cache-Control: no-store`，不論狀態碼（200、400、404、409）、也不論回應是否實際含個資，這樣不必逐一判斷哪個狀態碼含個資。由驗證／授權 middleware 在進入端點之前產生的 401、403，`[ApiController]` 自動模型驗證在進入端點之前產生的 400（例如 JSON 格式錯誤），以及由全域例外處理產生的 500，不在此要求內：這些回應由框架產生、不含任何實名欄位（RNV-ERROR-001、RDM-HOLDER-004／005、RDM-HOLDER-007 另有斷言）。所有錯誤回應（ProblemDetails）MUST NOT 包含姓名或末四碼（不論完整或遮蔽）。遮蔽值格式固定為兩個星號加上末兩碼（例如末四碼「1234」遮蔽為「**34」）。真實姓名對會員本人以完整值回傳。
+除「核銷時查詢持票人」端點（見 `ticket-redemption` 能力）外，系統所有 API 回應 MUST NOT 回傳完整的身分證末四碼，只能回傳遮蔽值。`Cache-Control: no-store` 的適用範圍：查詢個人資料（`GET /api/members/me`）、更新個人資料（`PUT /api/members/me`，回應同樣含姓名與遮蔽末四碼）、實名登記（`PUT /api/members/me/real-name`）、查詢持票人（`GET /api/admin/tickets/{id}/holder`）四個端點，由端點本身（Controller action）產生的所有回應都 MUST 帶 `Cache-Control: no-store`，不論狀態碼（200、400、404、409）、也不論回應是否實際含個資，這樣不必逐一判斷哪個狀態碼含個資。由驗證／授權 middleware 在進入端點之前產生的 401、403，`[ApiController]` 自動模型驗證在進入端點之前產生的 400（例如 JSON 格式錯誤），以及由全域例外處理產生的 500，不在此要求內：這些回應由框架產生、不含任何實名欄位（RNV-ERROR-001、RDM-HOLDER-004／005、RDM-HOLDER-007 另有斷言）。所有錯誤回應（ProblemDetails）MUST NOT 包含姓名或末四碼（不論完整或遮蔽）。遮蔽值格式固定為兩個星號加上末兩碼（例如末四碼「1234」遮蔽為「**34」）。真實姓名對會員本人以完整值回傳。
 
 #### Scenario: RNV-MASK-001 遮蔽格式
 - **WHEN** 系統遮蔽末四碼「0912」
@@ -125,6 +125,10 @@
 #### Scenario: RNV-NOSTORE-005 查詢持票人由端點產生的錯誤回應同樣帶 no-store
 - **WHEN** 操作人員查詢其他 Organizer 的票券得到 404，或查詢自家 `Redeemed` 票券得到 409
 - **THEN** 兩種回應的標頭 `Cache-Control` 都含 `no-store`
+
+#### Scenario: RNV-NOSTORE-006 更新個人資料的回應帶 no-store
+- **WHEN** 已登記實名的會員呼叫 `PUT /api/members/me` 更新顯示名稱，回應 200 且含姓名與遮蔽末四碼
+- **THEN** 回應標頭 `Cache-Control` 含 `no-store`
 
 #### Scenario: RNV-ERROR-001 錯誤回應（ProblemDetails）不含實名資料
 - **WHEN** 已登記實名的會員再次登記收到 409，或需實名活動的下單、排隊、核銷收到 `RealNameRequired`／`HolderVerificationRequired`

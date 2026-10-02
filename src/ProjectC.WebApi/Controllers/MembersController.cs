@@ -36,6 +36,7 @@ public class MembersController : ControllerBase
     }
 
     [HttpPut("me")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> UpdateMe(UpdateMyProfileRequest request, CancellationToken cancellationToken)
     {
         var result = await _updateMyProfileHandler.HandleAsync(User.GetMemberId(), request, cancellationToken);

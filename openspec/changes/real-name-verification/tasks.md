@@ -161,6 +161,7 @@
   - RNV-NOSTORE-001：已登記會員 `GET /api/members/me` 回 200，標頭 `Cache-Control` 含 `no-store`
   - RNV-NOSTORE-002：未登記會員 `GET /api/members/me` 回 200，標頭 `Cache-Control` 含 `no-store`
   - RNV-NOSTORE-003：實名登記端點的 200（成功）、409（已登記）、400（末四碼「12a4」）三種回應，標頭 `Cache-Control` 都含 `no-store`
+  - RNV-NOSTORE-006：已登記會員 `PUT /api/members/me` 回 200，標頭 `Cache-Control` 含 `no-store`
   - RNV-ERROR-001：再次登記的 409 body 不含已登記的姓名與末四碼，也不含本次送出的值
   - MM-PROFILE-RN-001：未登記會員 `GET /me` 回 `hasRegisteredRealName = false`、另兩欄為 null
   - MM-PROFILE-RN-002：已登記會員 `GET /me` 回完整姓名與「**34」
@@ -403,6 +404,7 @@
 | RNV-NOSTORE-003 | real-name-verification | 5.1 |
 | RNV-NOSTORE-004 | real-name-verification | 5.11 |
 | RNV-NOSTORE-005 | real-name-verification | 5.11 |
+| RNV-NOSTORE-006 | real-name-verification | 5.1 |
 | RNV-ERROR-001 | real-name-verification | 5.1、5.6、5.8 |
 | RNV-LOG-001 | real-name-verification | 5.13 |
 | RNV-LOG-002 | real-name-verification | 5.14 |
