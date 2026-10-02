@@ -196,4 +196,102 @@ public class EventQueueControllerTests : IClassFixture<CustomWebApplicationFacto
         afterDisable.AdmittedAtUtc.Should().Be(baseline.AdmittedAtUtc);
         afterDisable.AdmissionExpiresAtUtc.Should().Be(baseline.AdmissionExpiresAtUtc);
     }
+
+    // ---- real-name-verification：加入排隊的實名閘門（PQ-RN-JOIN-001~006） ----
+
+    private async Task<int> CountQueueEntriesAsync(Guid eventId, Guid memberId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return await dbContext.PurchaseQueueEntries.AsNoTracking().CountAsync(e => e.EventId == eventId && e.MemberId == memberId);
+    }
+
+    // [PQ-RN-JOIN-001] 未登記者不得佔用排隊名額（否則取得入場資格後才在下單被擋，名額白白浪費）。
+    [Fact]
+    public async Task JoinQueue_WhenEventRequiresRealNameAndMemberUnregistered_Returns403WithoutCreatingEntry()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true, isQueueModeEnabled: true);
+        var member = await RealNameTestData.CreateMemberAsync(_factory);
+
+        var response = await RealNameTestData.JoinQueueAsync(member.Client, seededEvent.EventId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be("RealNameRequired");
+        (await CountQueueEntriesAsync(seededEvent.EventId, member.MemberId)).Should().Be(0);
+    }
+
+    // [PQ-RN-JOIN-002]
+    [Fact]
+    public async Task JoinQueue_WhenEventRequiresRealNameAndMemberRegistered_Returns201WithWaitingEntry()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true, isQueueModeEnabled: true);
+        await FillAdmissionSlotsAsync(seededEvent.EventId);
+        var member = await RealNameTestData.CreateRegisteredMemberAsync(_factory);
+
+        var response = await RealNameTestData.JoinQueueAsync(member.Client, seededEvent.EventId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var entry = await ReadQueueEntryAsync((await response.Content.ReadFromJsonAsync<CreatedResponse>())!.Id);
+        entry.MemberId.Should().Be(member.MemberId);
+        entry.Status.Should().Be(PurchaseQueueEntryStatus.Waiting);
+    }
+
+    // [PQ-RN-JOIN-003] 驗證碼檢查先於實名閘門：機器人流量不得藉由 403／201 的差異探測會員是否已登記實名。
+    [Fact]
+    public async Task JoinQueue_WhenCaptchaWrongOnRealNameEvent_ReturnsCaptchaInvalidNotRealNameRequired()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true, isQueueModeEnabled: true);
+        var member = await RealNameTestData.CreateMemberAsync(_factory);
+
+        var response = await member.Client.PostAsJsonAsync(
+            $"/api/events/{seededEvent.EventId}/queue/entries",
+            new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, "WRONG"));
+
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be(nameof(ErrorType.CaptchaInvalid));
+        (await CountQueueEntriesAsync(seededEvent.EventId, member.MemberId)).Should().Be(0);
+    }
+
+    // [PQ-RN-JOIN-004]
+    [Fact]
+    public async Task JoinQueue_WhenEventDoesNotRequireRealNameAndMemberUnregistered_Returns201()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: false, isQueueModeEnabled: true);
+        var member = await RealNameTestData.CreateMemberAsync(_factory);
+
+        var response = await RealNameTestData.JoinQueueAsync(member.Client, seededEvent.EventId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await CountQueueEntriesAsync(seededEvent.EventId, member.MemberId)).Should().Be(1);
+    }
+
+    // [PQ-RN-JOIN-005]
+    [Fact]
+    public async Task JoinQueue_WhenEventDoesNotExistAndMemberUnregistered_Returns404NotRealNameRequired()
+    {
+        var member = await RealNameTestData.CreateMemberAsync(_factory);
+
+        var response = await RealNameTestData.JoinQueueAsync(member.Client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().NotBe("RealNameRequired");
+    }
+
+    // [PQ-RN-JOIN-006] 未開熱門搶購模式時沿用既有 409，不因實名設定改變錯誤種類。
+    [Fact]
+    public async Task JoinQueue_WhenRealNameEventHasQueueModeDisabled_Returns409NotRealNameRequired()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true, isQueueModeEnabled: false);
+        var member = await RealNameTestData.CreateMemberAsync(_factory);
+
+        var response = await RealNameTestData.JoinQueueAsync(member.Client, seededEvent.EventId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().NotBe("RealNameRequired");
+        (await CountQueueEntriesAsync(seededEvent.EventId, member.MemberId)).Should().Be(0);
+    }
 }

@@ -6,6 +6,7 @@ using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.Payments;
 using ProjectC.Domain.PurchaseQueue;
@@ -34,6 +35,7 @@ public class OrderServiceTests
         public FakeEmailNotificationService EmailNotificationService { get; } = new();
         public FakeQueryCache QueryCache { get; } = new();
         public FakePurchaseQueueAdmissionMirror AdmissionMirror { get; } = new();
+        public FakeMemberRealNameRepository MemberRealNameRepository { get; } = new();
 
         public OrderService CreateOrderService() => new(
             TicketTypeRepository,
@@ -52,14 +54,15 @@ public class OrderServiceTests
             DbContext,
             NullLogger<OrderService>.Instance,
             QueryCache,
-            AdmissionMirror);
+            AdmissionMirror,
+            MemberRealNameRepository);
 
         public (Event Event, SeatMap SeatMap, EventSeat EventSeat, TicketType TicketType) SeedEventWithSeatAndTicketType(
-            string seatZoneCode = "A", string ticketTypeZoneCode = "A")
+            string seatZoneCode = "A", string ticketTypeZoneCode = "A", bool isRealNameRequired = false)
         {
             var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
             var seat = seatMap.AddSeat(seatZoneCode, "1");
-            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid());
+            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), isRealNameRequired: isRealNameRequired);
             var eventSeat = @event.CreateEventSeats(seatMap).Single(s => s.SeatId == seat.Id);
 
             if (ticketTypeZoneCode != seatZoneCode)
@@ -75,12 +78,12 @@ public class OrderServiceTests
         }
 
         public (Event Event, TicketType TicketType, List<EventSeat> EventSeats) SeedEventWithMultipleSeats(
-            int seatCount, int? maxTicketsPerOrder, string zoneCode = "A")
+            int seatCount, int? maxTicketsPerOrder, string zoneCode = "A", bool isRealNameRequired = false)
         {
             var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
             var seatTemplates = Enumerable.Range(1, seatCount).Select(n => seatMap.AddSeat(zoneCode, n.ToString())).ToList();
             var @event = new Event(
-                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), maxTicketsPerOrder: maxTicketsPerOrder);
+                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), maxTicketsPerOrder: maxTicketsPerOrder, isRealNameRequired: isRealNameRequired);
             var eventSeats = @event.CreateEventSeats(seatMap).ToList();
             var ticketType = @event.CreateTicketType(zoneCode, 500m, seatMap);
 
@@ -870,5 +873,168 @@ public class OrderServiceTests
         order.Status.Should().Be(OrderStatus.Cancelled);
         eventSeat.GetStatus(fixture.DateTimeProvider.UtcNow).Should().Be(EventSeatStatus.Available);
         countTicketType.AvailableQuantity.Should().Be(10, "取消混合訂單須完整歸還計數項目的庫存，不能只釋放座位");
+    }
+
+    // ---- PlaceOrderAsync：實名閘門（real-name-verification TP-RN-ORDER-*）----
+
+    private static Event CopyWithRealNameRequired(Event source, bool isRealNameRequired) => new(
+        source.Id, source.Title, source.StartAtUtc, source.VenueId, source.SeatMapId, source.OrganizerId,
+        isRealNameRequired: isRealNameRequired);
+
+    // 閘門的價值在於「被擋下的請求不得佔用任何座位或庫存」，所以失敗案例一律檢查沒有鎖定、沒有扣減、沒有提交。
+    private static void AssertNoSeatOrStockTouched(Fixture fixture, EventSeat eventSeat, TicketType ticketType, int? expectedAvailableQuantity)
+    {
+        fixture.EventSeatRepository.GetForUpdateCallCount.Should().Be(0);
+        fixture.TicketTypeRepository.GetForUpdateCallCount.Should().Be(0);
+        eventSeat.GetStatus(Now).Should().Be(EventSeatStatus.Available);
+        ticketType.AvailableQuantity.Should().Be(expectedAvailableQuantity);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+        (fixture.UnitOfWork.LastTransaction?.Committed ?? false).Should().BeFalse();
+    }
+
+    // TP-RN-ORDER-001
+    [Fact]
+    public async Task PlaceOrderAsync_WhenRealNameRequiredAndBuyerNotRegistered_ReturnsRealNameRequiredBeforeTransaction()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(isRealNameRequired: true);
+        var availableQuantityBefore = ticketType.AvailableQuantity;
+        var buyerId = Guid.NewGuid();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(buyerId, request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.RealNameRequired);
+        result.Error.Message.Should().Contain(@event.Id.ToString());
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        fixture.MemberRealNameRepository.LastGetMemberId.Should().Be(buyerId);
+        AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, availableQuantityBefore);
+    }
+
+    // TP-RN-ORDER-002：同時確認實名只查一次（主要檢查已查過，補位檢查不得再查）且 token 有向下傳遞。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenRealNameRequiredAndBuyerRegistered_CreatesOrder()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(isRealNameRequired: true);
+        var buyerId = Guid.NewGuid();
+        fixture.MemberRealNameRepository.Data[buyerId] = new MemberRealName("王小明", "1234");
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(buyerId, request, cancellationTokenSource.Token);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeTrue();
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(1);
+        fixture.MemberRealNameRepository.LastGetToken.Should().Be(cancellationTokenSource.Token);
+    }
+
+    // TP-RN-ORDER-003：不需實名的活動不得因此多一次查詢，也不得因未登記被擋。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenRealNameNotRequiredAndBuyerNotRegistered_SucceedsWithoutQueryingRealName()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+    }
+
+    // TP-RN-ORDER-004：先引導登記實名，登記後才回報張數錯誤，避免使用者修正張數後又被實名擋下。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenRealNameMissingAndMaxTicketsExceeded_ReturnsRealNameRequired()
+    {
+        var fixture = new Fixture();
+        var (_, ticketType, eventSeats) = fixture.SeedEventWithMultipleSeats(seatCount: 3, maxTicketsPerOrder: 2, isRealNameRequired: true);
+        var request = new PlaceOrderRequest(eventSeats
+            .Select(seat => new PlaceOrderSelectionRequest(seat.Id, ticketType.Id))
+            .ToList());
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.RealNameRequired);
+    }
+
+    // TP-RN-ORDER-006：跨活動時尚無唯一活動可判斷是否需實名，必須先回報跨活動錯誤且不查實名。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenItemsSpanRealNameEventAndOtherEvent_ReturnsCrossEventValidationWithoutQueryingRealName()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeatA, ticketTypeA) = fixture.SeedEventWithSeatAndTicketType(isRealNameRequired: true);
+        var (_, countTicketTypeB) = fixture.SeedEventWithCountBasedTicketType(availableQuantity: 10);
+        var request = new PlaceOrderRequest([
+            new PlaceOrderSelectionRequest(eventSeatA.Id, ticketTypeA.Id),
+            new PlaceOrderSelectionRequest(null, countTicketTypeB.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.Message.Should().Contain("same event");
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+        countTicketTypeB.AvailableQuantity.Should().Be(10);
+        AssertNoSeatOrStockTouched(fixture, eventSeatA, ticketTypeA, ticketTypeA.AvailableQuantity);
+    }
+
+    // TP-RN-ORDER-007：交易外讀不到活動時主要檢查被跳過；補位檢查必須在排隊資格與任何鎖定之前擋下。
+    // 活動刻意開啟熱門搶購模式，若補位檢查放錯位置，會先回 QueueAdmissionRequired 而非 RealNameRequired。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenPreTransactionReadIsNullAndLockedEventRequiresRealName_ReturnsRealNameRequiredBeforeQueueCheck()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(isRealNameRequired: true);
+        @event.EnableQueueMode();
+        var availableQuantityBefore = ticketType.AvailableQuantity;
+        fixture.EventRepository.GetByIdOverride = _ => null;
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.RealNameRequired);
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(1);
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+        AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, availableQuantityBefore);
+    }
+
+    // TP-RN-ORDER-008：兩次讀取不一致代表 I1 被破壞，不論買家是否已登記都不得靜默採信任一方。
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task PlaceOrderAsync_WhenRealNameFlagFlipsFromFalseToTrueBetweenReads_ThrowsWithoutTouchingSeatOrStock(bool isBuyerRegistered)
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        var availableQuantityBefore = ticketType.AvailableQuantity;
+        var buyerId = Guid.NewGuid();
+        if (isBuyerRegistered)
+            fixture.MemberRealNameRepository.Data[buyerId] = new MemberRealName("王小明", "1234");
+        fixture.EventRepository.GetForUpdateOverride = _ => CopyWithRealNameRequired(@event, true);
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var act = () => fixture.CreateOrderService().PlaceOrderAsync(buyerId, request, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain(@event.Id.ToString());
+        AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, availableQuantityBefore);
+    }
+
+    // TP-RN-ORDER-009
+    [Fact]
+    public async Task PlaceOrderAsync_WhenRealNameFlagFlipsFromTrueToFalseBetweenReads_ThrowsWithoutTouchingSeatOrStock()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(isRealNameRequired: true);
+        var availableQuantityBefore = ticketType.AvailableQuantity;
+        var buyerId = Guid.NewGuid();
+        fixture.MemberRealNameRepository.Data[buyerId] = new MemberRealName("王小明", "1234");
+        fixture.EventRepository.GetForUpdateOverride = _ => CopyWithRealNameRequired(@event, false);
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var act = () => fixture.CreateOrderService().PlaceOrderAsync(buyerId, request, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain(@event.Id.ToString());
+        AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, availableQuantityBefore);
     }
 }

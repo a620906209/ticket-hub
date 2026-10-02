@@ -10,6 +10,11 @@ using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.WebApi.Tests.TestSupport;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using ProjectC.Domain.Events;
+using ProjectC.Domain.PurchaseQueue;
+using ProjectC.Infrastructure.Persistence;
 
 namespace ProjectC.WebApi.Tests.Orders;
 
@@ -387,5 +392,124 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
         var response = await buyerClient.GetAsync($"/api/orders/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    // ---- real-name-verification：下單實名閘門（TP-RN-ORDER-*、RNV-ERROR-001） ----
+
+    private sealed record InventorySnapshot(EventSeatStatus SeatStatus, int? AvailableQuantity, int OrderCount);
+
+    private async Task<InventorySnapshot> ReadInventorySnapshotAsync(RealNameTestData.SeededEvent seededEvent)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var eventSeat = await dbContext.EventSeats.AsNoTracking().SingleAsync(s => s.Id == seededEvent.EventSeatId);
+        var ticketType = await dbContext.TicketTypes.AsNoTracking().SingleAsync(t => t.Id == seededEvent.TicketTypeId);
+        var orderCount = await dbContext.Orders.AsNoTracking().CountAsync(o => o.EventId == seededEvent.EventId);
+        return new InventorySnapshot(eventSeat.GetStatus(DateTime.UtcNow), ticketType.AvailableQuantity, orderCount);
+    }
+
+    private static readonly string[] StandardProblemDetailsFields = ["type", "title", "status", "detail", "instance", "traceId"];
+
+    // [TP-RN-ORDER-001]／[RNV-ERROR-001] 閘門必須在鎖座位與扣庫存之前擋下；錯誤 body 只有標準 ProblemDetails 欄位。
+    [Fact]
+    public async Task PlaceOrder_WhenEventRequiresRealNameAndBuyerUnregistered_Returns403WithoutTouchingInventory()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true);
+        var buyer = await RealNameTestData.CreateMemberAsync(_factory);
+        var before = await ReadInventorySnapshotAsync(seededEvent);
+
+        var response = await RealNameTestData.PlaceOrderAsync(buyer.Client, seededEvent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be("RealNameRequired");
+        var after = await ReadInventorySnapshotAsync(seededEvent);
+        after.Should().Be(before);
+        after.SeatStatus.Should().Be(EventSeatStatus.Available);
+        after.OrderCount.Should().Be(0);
+
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.EnumerateObject().Select(p => p.Name).Should().BeSubsetOf(StandardProblemDetailsFields);
+        body.RootElement.GetProperty("detail").GetString().Should()
+            .NotContainEquivalentOf("nationalId").And.NotContainEquivalentOf(buyer.MemberId.ToString());
+    }
+
+    // [TP-RN-ORDER-002]
+    [Fact]
+    public async Task PlaceOrder_WhenEventRequiresRealNameAndBuyerRegistered_Returns201AndCreatesOrder()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true);
+        var buyer = await RealNameTestData.CreateRegisteredMemberAsync(_factory);
+
+        var response = await RealNameTestData.PlaceOrderAsync(buyer.Client, seededEvent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await ReadInventorySnapshotAsync(seededEvent)).OrderCount.Should().Be(1);
+    }
+
+    // [TP-RN-ORDER-003] 不需實名的活動維持上線前行為。
+    [Fact]
+    public async Task PlaceOrder_WhenEventDoesNotRequireRealNameAndBuyerUnregistered_Returns201()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: false);
+        var buyer = await RealNameTestData.CreateMemberAsync(_factory);
+
+        var response = await RealNameTestData.PlaceOrderAsync(buyer.Client, seededEvent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await ReadInventorySnapshotAsync(seededEvent)).OrderCount.Should().Be(1);
+    }
+
+    // [TP-RN-ORDER-005] 已取得入場資格不代表可略過實名；被擋下時不得消耗入場資格。
+    [Fact]
+    public async Task PlaceOrder_WhenUnregisteredBuyerIsAdmitted_Returns403AndLeavesQueueEntryUntouched()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seededEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true, isQueueModeEnabled: true);
+        var buyer = await RealNameTestData.CreateMemberAsync(_factory);
+        var now = DateTime.UtcNow;
+        var entry = new PurchaseQueueEntry(Guid.NewGuid(), seededEvent.EventId, buyer.MemberId, now.AddMinutes(-5));
+        entry.Admit(now, now.AddMinutes(30));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            dbContext.PurchaseQueueEntries.Add(entry);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var response = await RealNameTestData.PlaceOrderAsync(buyer.Client, seededEvent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be("RealNameRequired");
+        using var readScope = _factory.Services.CreateScope();
+        var readContext = readScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var storedEntry = await readContext.PurchaseQueueEntries.AsNoTracking().SingleAsync(e => e.Id == entry.Id);
+        storedEntry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
+        storedEntry.AdmissionExpiresAtUtc.Should().BeCloseTo(entry.AdmissionExpiresAtUtc!.Value, TimeSpan.FromMilliseconds(1));
+    }
+
+    // [TP-RN-ORDER-006] 跨活動項目屬於請求格式錯誤，必須先於實名閘門回既有 400，且不動到任何庫存。
+    [Fact]
+    public async Task PlaceOrder_WhenItemsSpanEventsIncludingRealNameEvent_Returns400ValidationWithoutTouchingInventory()
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var realNameEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true);
+        var otherEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: false);
+        var buyer = await RealNameTestData.CreateMemberAsync(_factory);
+        var realNameBefore = await ReadInventorySnapshotAsync(realNameEvent);
+        var otherBefore = await ReadInventorySnapshotAsync(otherEvent);
+
+        var response = await buyer.Client.PostAsJsonAsync("/api/orders", new PlaceOrderRequest(
+        [
+            new PlaceOrderSelectionRequest(realNameEvent.EventSeatId, realNameEvent.TicketTypeId),
+            new PlaceOrderSelectionRequest(otherEvent.EventSeatId, otherEvent.TicketTypeId),
+        ]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().NotBe("RealNameRequired");
+        (await ReadInventorySnapshotAsync(realNameEvent)).Should().Be(realNameBefore);
+        (await ReadInventorySnapshotAsync(otherEvent)).Should().Be(otherBefore);
     }
 }

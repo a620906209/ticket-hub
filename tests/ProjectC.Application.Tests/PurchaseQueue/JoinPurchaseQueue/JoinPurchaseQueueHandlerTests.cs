@@ -3,6 +3,7 @@ using ProjectC.Application.Common;
 using ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Members;
 using ProjectC.Domain.PurchaseQueue;
 
 namespace ProjectC.Application.Tests.PurchaseQueue.JoinPurchaseQueue;
@@ -22,6 +23,7 @@ public class JoinPurchaseQueueHandlerTests
         public FakeDateTimeProvider DateTimeProvider { get; } = new() { UtcNow = Now };
         public FakeCaptchaService CaptchaService { get; } = new();
         public FakePurchaseQueueAdmissionMirror AdmissionMirror { get; } = new();
+        public FakeMemberRealNameRepository MemberRealNameRepository { get; } = new();
 
         public JoinPurchaseQueueHandler CreateHandler() => new(
             EventRepository,
@@ -30,11 +32,13 @@ public class JoinPurchaseQueueHandlerTests
             DateTimeProvider,
             new JoinPurchaseQueueRequestValidator(),
             CaptchaService,
-            AdmissionMirror);
+            AdmissionMirror,
+            MemberRealNameRepository);
 
-        public Event SeedEvent(bool isQueueModeEnabled = true)
+        public Event SeedEvent(bool isQueueModeEnabled = true, bool isRealNameRequired = false)
         {
-            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+            var @event = new Event(
+                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), isRealNameRequired: isRealNameRequired);
             if (isQueueModeEnabled) @event.EnableQueueMode();
             EventRepository.Data.Add(@event);
             return @event;
@@ -238,5 +242,139 @@ public class JoinPurchaseQueueHandlerTests
         var act = () => fixture.CreateHandler().HandleAsync(Guid.NewGuid(), Guid.NewGuid(), ValidRequest, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    // ---- 實名閘門（real-name-verification PQ-RN-JOIN-*）----
+    // 排隊閘門只是提早告知；未登記者若能排隊，會白白佔用名額、入場後才在下單被擋。
+
+    private static Event CopyWithRealNameRequired(Event source, bool isRealNameRequired)
+    {
+        var copy = new Event(
+            source.Id, source.Title, source.StartAtUtc, source.VenueId, source.SeatMapId, source.OrganizerId,
+            isRealNameRequired: isRealNameRequired);
+        if (source.IsQueueModeEnabled) copy.EnableQueueMode();
+        return copy;
+    }
+
+    // PQ-RN-JOIN-001
+    [Fact]
+    public async Task HandleAsync_WhenRealNameRequiredAndMemberNotRegistered_ReturnsRealNameRequiredBeforeTransaction()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(isRealNameRequired: true);
+        var memberId = Guid.NewGuid();
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, memberId, ValidRequest, cancellationTokenSource.Token);
+
+        result.Error!.Type.Should().Be(ErrorType.RealNameRequired);
+        result.Error.Message.Should().Contain(@event.Id.ToString());
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        fixture.PurchaseQueueRepository.Data.Should().BeEmpty();
+        fixture.MemberRealNameRepository.LastGetMemberId.Should().Be(memberId);
+        fixture.MemberRealNameRepository.LastGetToken.Should().Be(cancellationTokenSource.Token);
+    }
+
+    // PQ-RN-JOIN-002
+    [Fact]
+    public async Task HandleAsync_WhenRealNameRequiredAndMemberRegistered_CreatesWaitingEntry()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(isRealNameRequired: true);
+        var memberId = Guid.NewGuid();
+        fixture.MemberRealNameRepository.Data[memberId] = new MemberRealName("王小明", "1234");
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, memberId, ValidRequest, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.PurchaseQueueRepository.Data.Should().ContainSingle()
+            .Which.Status.Should().Be(PurchaseQueueEntryStatus.Waiting);
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(1);
+    }
+
+    // PQ-RN-JOIN-003：驗證碼先於實名，避免未通過驗證碼的請求就能探測會員是否已登記實名。
+    [Fact]
+    public async Task HandleAsync_WhenCaptchaWrongAndRealNameMissing_ReturnsCaptchaInvalidWithoutQueryingRealName()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(isRealNameRequired: true);
+
+        var result = await fixture.CreateHandler().HandleAsync(
+            @event.Id, Guid.NewGuid(), new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, "WRONG"), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.CaptchaInvalid);
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+    }
+
+    // PQ-RN-JOIN-004
+    [Fact]
+    public async Task HandleAsync_WhenRealNameNotRequiredAndMemberNotRegistered_CreatesWaitingEntryWithoutQueryingRealName()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent();
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+    }
+
+    // PQ-RN-JOIN-005
+    [Fact]
+    public async Task HandleAsync_WhenEventDoesNotExistAndRealNameMissing_ReturnsNotFoundWithoutQueryingRealName()
+    {
+        var fixture = new Fixture();
+
+        var result = await fixture.CreateHandler().HandleAsync(Guid.NewGuid(), Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+    }
+
+    // PQ-RN-JOIN-006
+    [Fact]
+    public async Task HandleAsync_WhenRealNameRequiredButQueueModeDisabled_ReturnsConflictWithoutQueryingRealName()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(isQueueModeEnabled: false, isRealNameRequired: true);
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Conflict);
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+    }
+
+    // PQ-RN-JOIN-007：兩次讀取不一致代表 I1 被破壞，不得靜默採信任一方。
+    [Fact]
+    public async Task HandleAsync_WhenRealNameFlagFlipsFromFalseToTrueBetweenReads_ThrowsWithoutCreatingEntry()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent();
+        var memberId = Guid.NewGuid();
+        fixture.MemberRealNameRepository.Data[memberId] = new MemberRealName("王小明", "1234");
+        fixture.EventRepository.GetForUpdateOverride = _ => CopyWithRealNameRequired(@event, true);
+
+        var act = () => fixture.CreateHandler().HandleAsync(@event.Id, memberId, ValidRequest, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain(@event.Id.ToString());
+        fixture.PurchaseQueueRepository.Data.Should().BeEmpty();
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeFalse();
+    }
+
+    // PQ-RN-JOIN-008
+    [Fact]
+    public async Task HandleAsync_WhenRealNameFlagFlipsFromTrueToFalseBetweenReads_ThrowsWithoutCreatingEntry()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(isRealNameRequired: true);
+        var memberId = Guid.NewGuid();
+        fixture.MemberRealNameRepository.Data[memberId] = new MemberRealName("王小明", "1234");
+        fixture.EventRepository.GetForUpdateOverride = _ => CopyWithRealNameRequired(@event, false);
+
+        var act = () => fixture.CreateHandler().HandleAsync(@event.Id, memberId, ValidRequest, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain(@event.Id.ToString());
+        fixture.PurchaseQueueRepository.Data.Should().BeEmpty();
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeFalse();
     }
 }

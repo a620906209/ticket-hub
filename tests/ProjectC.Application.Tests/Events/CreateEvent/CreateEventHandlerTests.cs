@@ -199,4 +199,28 @@ public class CreateEventHandlerTests
         result.IsSuccess.Should().BeFalse();
         _queryCache.RemoveCalls.Should().BeEmpty();
     }
+
+    // EVT-REALNAME-001：旗標建立後不可變更（I1），建立時沒存進去就無法補救。
+    [Fact]
+    public async Task HandleAsync_WhenIsRealNameRequiredTrue_StoresTrue()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId, IsRealNameRequired: true);
+
+        var result = await _handler.HandleAsync(AdminMemberId, OrganizerId, request, CancellationToken.None);
+
+        _eventRepository.Data.Single(e => e.Id == result.Value).IsRealNameRequired.Should().BeTrue();
+    }
+
+    // EVT-REALNAME-002：既有客戶端不帶此欄位，不得因此建立出需實名活動。
+    [Fact]
+    public async Task HandleAsync_WhenIsRealNameRequiredOmitted_StoresFalse()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId);
+
+        var result = await _handler.HandleAsync(AdminMemberId, OrganizerId, request, CancellationToken.None);
+
+        _eventRepository.Data.Single(e => e.Id == result.Value).IsRealNameRequired.Should().BeFalse();
+    }
 }

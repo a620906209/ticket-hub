@@ -27,6 +27,7 @@ function buildEvent(overrides: Partial<AdminEventSummary> = {}): AdminEventSumma
     availableSeatCount: 0,
     heldSeatCount: 0,
     soldSeatCount: 0,
+    isRealNameRequired: false,
     ...overrides,
   }
 }
@@ -301,5 +302,26 @@ describe('EventListPage 建立票種：座位制／計數制（RequiresSeat 開�
     expect(wrapper.text()).toContain('座位制')
     expect(wrapper.text()).toContain('計數制')
     expect(wrapper.text()).toContain('300')
+  })
+})
+
+describe('EventListPage 需實名標示（real-name-verification）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(adminApi.getAdminEvents).mockReset()
+  })
+
+  it('[AWU-EVENT-RN-004] 需實名活動該列顯示「需實名」文字，不需實名活動該列不顯示', async () => {
+    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([
+      buildEvent({ id: 'event-rn', title: '實名演唱會', isRealNameRequired: true }),
+      buildEvent({ id: 'event-plain', title: '一般演唱會', isRealNameRequired: false }),
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const rowFor = (title: string) => wrapper.findAll('.el-table__row').find((row) => row.text().includes(title))
+    expect(rowFor('實名演唱會')?.text()).toContain('需實名')
+    expect(rowFor('一般演唱會')).toBeDefined()
+    expect(rowFor('一般演唱會')?.text()).not.toContain('需實名')
   })
 })

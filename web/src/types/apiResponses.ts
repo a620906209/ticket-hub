@@ -11,6 +11,7 @@ export interface EventSummary {
   posterUrl: string | null
   maxTicketsPerOrder: number | null
   isQueueModeEnabled: boolean
+  isRealNameRequired: boolean
 }
 
 // 對應 GET /api/events/{id}/queue/entries/me；status："NotJoined" / "Waiting" / "Admitted" / "Expired"
@@ -160,6 +161,7 @@ export interface AdminEventSummary {
   availableSeatCount: number
   heldSeatCount: number
   soldSeatCount: number
+  isRealNameRequired: boolean
 }
 
 // 對應 GET /api/admin/events/{eventId}/sales-report（sales-report spec.md）。unclassifiedItemCount

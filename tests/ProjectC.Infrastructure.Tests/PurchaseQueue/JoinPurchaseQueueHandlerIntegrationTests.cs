@@ -124,7 +124,8 @@ public class JoinPurchaseQueueHandlerIntegrationTests
             new FixedDateTimeProvider(now),
             new JoinPurchaseQueueRequestValidator(),
             new FakeCaptchaService(),
-            new FakePurchaseQueueAdmissionMirror());
+            new FakePurchaseQueueAdmissionMirror(),
+            new MemberRealNameRepository(dbContext));
 
         var request = new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer);
         var result = await handler.HandleAsync(eventId, memberId, request, CancellationToken.None);
@@ -174,7 +175,8 @@ public class JoinPurchaseQueueHandlerIntegrationTests
             new FixedDateTimeProvider(now),
             new JoinPurchaseQueueRequestValidator(),
             new FakeCaptchaService(),
-            new FakePurchaseQueueAdmissionMirror());
+            new FakePurchaseQueueAdmissionMirror(),
+            new MemberRealNameRepository(dbContext));
 
         var request = new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer);
         var result = await handler.HandleAsync(eventId, memberId, request, CancellationToken.None);

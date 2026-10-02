@@ -7,4 +7,5 @@ public sealed record CreateEventRequest(
     Guid SeatMapId,
     string? Description = null,
     string? PosterUrl = null,
-    int? MaxTicketsPerOrder = null);
+    int? MaxTicketsPerOrder = null,
+    bool? IsRealNameRequired = null);

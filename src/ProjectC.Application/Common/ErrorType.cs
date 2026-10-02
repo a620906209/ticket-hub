@@ -10,4 +10,5 @@ public enum ErrorType
     QueueAdmissionRequired,
     InvalidTicketSignature,
     CaptchaInvalid,
+    RealNameRequired,
 }

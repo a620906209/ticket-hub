@@ -33,6 +33,9 @@ public static class ResultExtensions
             // status 判斷，其他語意的 400（例如 Email／密碼欄位驗證失敗）會被誤判成驗證碼錯誤，導致
             // 前端誤清空驗證碼輸入並不必要地換發新圖（captcha-verification design.md 決策 8 補充）。
             ErrorType.CaptchaInvalid => StatusCodes.Status400BadRequest,
+            // Title 沿用下方 error.Type.ToString()，前端據此（而非泛用 403）判斷是否顯示實名登記引導，
+            // 比照 QueueAdmissionRequired 的既有慣例；訊息只含 Id，因為會原樣放進 Detail（real-name-verification design.md 決策 3、5）。
+            ErrorType.RealNameRequired => StatusCodes.Status403Forbidden,
             ErrorType.NotFound => StatusCodes.Status404NotFound,
             ErrorType.Conflict => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,

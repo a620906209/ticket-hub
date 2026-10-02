@@ -6,6 +6,7 @@ using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Members;
 using ProjectC.Domain.Notifications;
 using ProjectC.Domain.Orders;
 using ProjectC.Domain.PurchaseQueue;
@@ -33,6 +34,7 @@ public sealed class OrderService
     private readonly ILogger<OrderService> _logger;
     private readonly IQueryCache _queryCache;
     private readonly IPurchaseQueueAdmissionMirror _admissionMirror;
+    private readonly IMemberRealNameRepository _memberRealNameRepository;
 
     public OrderService(
         ITicketTypeRepository ticketTypeRepository,
@@ -51,8 +53,10 @@ public sealed class OrderService
         IApplicationDbContext dbContext,
         ILogger<OrderService> logger,
         IQueryCache queryCache,
-        IPurchaseQueueAdmissionMirror admissionMirror)
+        IPurchaseQueueAdmissionMirror admissionMirror,
+        IMemberRealNameRepository memberRealNameRepository)
     {
+        _memberRealNameRepository = memberRealNameRepository;
         _ticketTypeRepository = ticketTypeRepository;
         _eventSeatRepository = eventSeatRepository;
         _eventRepository = eventRepository;
@@ -159,6 +163,17 @@ public sealed class OrderService
         // 每筆訂單限購張數：依 Quantity 加總（座位項目已在上面驗證固定為 1，語意自然相容）。
         // 上面的跨活動檢查已經保證所有票種屬於同一場活動，這裡不再是「任選第一個」，是唯一的活動。
         var orderEvent = await _eventRepository.GetByIdAsync(distinctEventIds[0], cancellationToken);
+
+        // 實名閘門（主要檢查）放在交易外、限購之前（real-name-verification design.md 決策 3）。交易外判斷之所以安全，
+        // 依賴兩個不變量：I1 Event.IsRealNameRequired 建構後不可變；I2 會員實名只能從未登記變成已登記。
+        // 未來若新增活動編輯可改此旗標（破壞 I1），必須改以交易內 lockedEvent 為唯一權威，比照 IsQueueModeEnabled；
+        // 若新增會員刪除／實名清除（破壞 I2），會員實名的讀取必須移進交易並加鎖，或改在訂單保存實名快照。
+        if (orderEvent is { IsRealNameRequired: true } &&
+            await _memberRealNameRepository.GetAsync(buyerId, cancellationToken) is null)
+        {
+            return Result<Guid>.Failure(Error.RealNameRequired($"Event '{orderEvent.Id}' requires real-name registration."));
+        }
+
         if (orderEvent is { MaxTicketsPerOrder: { } maxTicketsPerOrder })
         {
             // Quantity 是外部輸入，validator 只保證 >= 1、沒有上限；Sum(int) 用的是 checked int 累加，
@@ -181,6 +196,21 @@ public sealed class OrderService
         if (lockedEvent is null)
         {
             return Result<Guid>.Failure(Error.NotFound($"Event '{distinctEventIds[0]}' was not found."));
+        }
+
+        // 實名閘門補位：交易外讀不到活動時主要檢查被跳過，這裡以 lockedEvent 補上，必須在排隊資格與任何座位／庫存鎖定之前。
+        // 兩次都讀到但旗標不同代表 I1 被破壞，不靜默採信任一方（design.md 決策 3）。
+        if (orderEvent is null)
+        {
+            if (lockedEvent.IsRealNameRequired &&
+                await _memberRealNameRepository.GetAsync(buyerId, cancellationToken) is null)
+            {
+                return Result<Guid>.Failure(Error.RealNameRequired($"Event '{lockedEvent.Id}' requires real-name registration."));
+            }
+        }
+        else if (orderEvent.IsRealNameRequired != lockedEvent.IsRealNameRequired)
+        {
+            throw new InvalidOperationException($"Event '{lockedEvent.Id}' IsRealNameRequired changed between reads (invariant I1 violated).");
         }
 
         PurchaseQueueEntry? queueEntry = null;

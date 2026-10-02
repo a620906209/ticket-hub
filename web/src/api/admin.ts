@@ -30,10 +30,11 @@ export function createEvent(
   description?: string,
   posterUrl?: string,
   maxTicketsPerOrder?: number,
+  isRealNameRequired = false,
 ): Promise<{ id: string }> {
   return authorizedRequest('/admin/events', {
     method: 'POST',
-    body: { title, startAtUtc, venueId, seatMapId, description, posterUrl, maxTicketsPerOrder },
+    body: { title, startAtUtc, venueId, seatMapId, description, posterUrl, maxTicketsPerOrder, isRealNameRequired },
   })
 }
 

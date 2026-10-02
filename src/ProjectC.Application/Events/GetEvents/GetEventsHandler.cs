@@ -38,7 +38,8 @@ public sealed class GetEventsHandler
                 e.Description,
                 e.PosterUrl,
                 e.MaxTicketsPerOrder,
-                e.IsQueueModeEnabled))
+                e.IsQueueModeEnabled,
+                e.IsRealNameRequired))
             .ToList();
 
         await _queryCache.SetAsync(CacheKey, dtos, TimeSpan.FromSeconds(_queryCacheOptions.EventListTtlSeconds), cancellationToken);

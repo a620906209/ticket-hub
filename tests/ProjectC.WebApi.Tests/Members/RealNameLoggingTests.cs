@@ -57,4 +57,30 @@ public class RealNameLoggingTests : IClassFixture<LogCapturingWebApplicationFact
         (await profile.Content.ReadAsStringAsync()).Should().Contain(realName, "確認這條路徑真的讀到了個資");
         AssertNoLogContains(realName, last4);
     }
+
+    // [RNV-LOG-003] 閘門讀了實名也不得寫進日誌；擋下未登記者時不得把「實名狀態」當結構化屬性記錄。
+    [Fact]
+    public async Task RealNameGates_ForRegisteredAndUnregisteredBuyers_NeverLogRealNameData()
+    {
+        const string realName = "閘門日誌測試己";
+        const string last4 = "9024";
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var orderEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true);
+        var queueEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true, isQueueModeEnabled: true);
+        var registeredBuyer = await RealNameTestData.CreateRegisteredMemberAsync(_factory, realName, last4);
+        var unregisteredBuyer = await RealNameTestData.CreateMemberAsync(_factory);
+
+        (await RealNameTestData.PlaceOrderAsync(registeredBuyer.Client, orderEvent)).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await RealNameTestData.JoinQueueAsync(registeredBuyer.Client, queueEvent.EventId)).StatusCode.Should().Be(HttpStatusCode.Created);
+        AssertNoLogContains(realName, last4);
+
+        _factory.LogSink.Clear();
+        (await RealNameTestData.PlaceOrderAsync(unregisteredBuyer.Client, orderEvent)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await RealNameTestData.JoinQueueAsync(unregisteredBuyer.Client, queueEvent.EventId)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        _factory.LogSink.Events.Should().NotBeEmpty();
+        _factory.LogSink.Events.SelectMany(e => e.Properties.Keys)
+            .Should().NotContain(key => key.Contains("RealName", StringComparison.OrdinalIgnoreCase)
+                || key.Contains("NationalId", StringComparison.OrdinalIgnoreCase));
+    }
 }
