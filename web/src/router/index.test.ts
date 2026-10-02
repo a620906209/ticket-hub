@@ -15,7 +15,7 @@ type Role = 'Member' | 'Admin'
 function signIn(role: Role, organizerId?: string): void {
   const authStore = useAuthStore()
   authStore.accessToken = fakeAccessToken(organizerId ? { sub: '1', OrganizerId: organizerId } : { sub: '1' })
-  authStore.member = { id: '1', email: 'a@example.com', displayName: 'A', role, isActive: true }
+  authStore.member = { id: '1', email: 'a@example.com', displayName: 'A', role, isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
 }
 
 describe('router guard', () => {

@@ -9,7 +9,7 @@ namespace ProjectC.Infrastructure.Tests.TestSupport;
 public static class TicketingTestData
 {
     public static async Task<(Guid EventId, List<Guid> EventSeatIds)> SeedEventWithSeatsAsync(
-        ApplicationDbContext dbContext, int seatCount, CancellationToken ct = default)
+        ApplicationDbContext dbContext, int seatCount, CancellationToken ct = default, bool isRealNameRequired = false)
     {
         var venue = new Venue(Guid.NewGuid(), $"Test Venue {Guid.NewGuid():N}");
         var seatMap = new SeatMap(Guid.NewGuid(), venue.Id);
@@ -17,7 +17,7 @@ public static class TicketingTestData
             seatMap.AddSeat("A", $"{i + 1}");
 
         var organizerId = await OrganizerTestData.SeedApprovedOrganizerAsync(dbContext, ct);
-        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId);
+        var @event = new Event(Guid.NewGuid(), "Test Event", DateTime.UtcNow.AddDays(30), venue.Id, seatMap.Id, organizerId, isRealNameRequired: isRealNameRequired);
         var eventSeats = @event.CreateEventSeats(seatMap);
 
         dbContext.Venues.Add(venue);

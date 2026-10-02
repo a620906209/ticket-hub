@@ -8,7 +8,7 @@ vi.mock('../api/auth')
 
 const REFRESH_TOKEN_STORAGE_KEY = 'ticketing.refreshToken'
 
-const member = { id: 'm1', email: 'a@example.com', displayName: 'A', role: 'Member', isActive: true }
+const member = { id: 'm1', email: 'a@example.com', displayName: 'A', role: 'Member', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
 const adminMember = { ...member, role: 'Admin' }
 
 describe('auth store', () => {

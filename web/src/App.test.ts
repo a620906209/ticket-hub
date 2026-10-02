@@ -29,7 +29,7 @@ describe('App 登入失效時導回登入頁', () => {
   ])('停在 %s 時登入失效，導向登入頁並帶 redirect', async (path) => {
     const authStore = useAuthStore()
     authStore.accessToken = fakeAccessToken({ sub: '1', OrganizerId: 'org-1' })
-    authStore.member = { id: '1', email: 'a@example.com', displayName: 'A', role: 'Admin', isActive: true }
+    authStore.member = { id: '1', email: 'a@example.com', displayName: 'A', role: 'Admin', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
     await router.push(path)
     expect(router.currentRoute.value.path).toBe(path)
     mount(App, { global: { plugins: [ElementPlus, router], stubs: { RouterView: true } } })

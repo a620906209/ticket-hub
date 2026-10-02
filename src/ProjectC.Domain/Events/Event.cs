@@ -18,6 +18,10 @@ public sealed class Event
     public DateTime? CreatedAtUtc { get; }
     public bool IsQueueModeEnabled { get; private set; }
 
+    /// <summary>建構時指定、之後不可變（不變量 I1）；下單閘門依此只在交易外讀一次，
+    /// 若未來新增變更方法，須改以交易內鎖定讀取為權威（real-name-verification design.md 決策 3）。</summary>
+    public bool IsRealNameRequired { get; }
+
     public Event(
         Guid id,
         string title,
@@ -29,7 +33,8 @@ public sealed class Event
         string? posterUrl = null,
         int? maxTicketsPerOrder = null,
         Guid? createdByMemberId = null,
-        DateTime? createdAtUtc = null)
+        DateTime? createdAtUtc = null,
+        bool isRealNameRequired = false)
     {
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("Event title is required.", nameof(title));
@@ -55,6 +60,7 @@ public sealed class Event
         MaxTicketsPerOrder = maxTicketsPerOrder;
         CreatedByMemberId = createdByMemberId;
         CreatedAtUtc = createdAtUtc;
+        IsRealNameRequired = isRealNameRequired;
     }
 
     /// <summary>為此活動的座位圖建立專屬 EventSeat 庫存；不會被儲存在 Event 上，呼叫端自行保存回傳結果。</summary>

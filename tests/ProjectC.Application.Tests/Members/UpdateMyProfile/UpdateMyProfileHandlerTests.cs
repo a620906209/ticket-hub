@@ -45,4 +45,20 @@ public class UpdateMyProfileHandlerTests
         result.Error!.Type.Should().Be(ErrorType.Validation);
         member.DisplayName.Should().Be("Alice");
     }
+
+    // MM-UPDATE-RN-001（Application 層）：更新個人資料不得成為修改實名的旁路。
+    [Fact]
+    public async Task HandleAsync_WhenRealNameRegistered_KeepsRealNameAndReturnsMaskedLast4()
+    {
+        var member = Member.Register("user@example.com", "Alice", "hashed:secret");
+        member.RegisterRealName("王小明", "1234");
+        _dbContext.MemberData.Add(member);
+
+        var result = await _handler.HandleAsync(member.Id, new UpdateMyProfileRequest("Alice Chen"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        (member.RealName, member.NationalIdLast4).Should().Be(("王小明", "1234"));
+        result.Value!.RealName.Should().Be("王小明");
+        result.Value.NationalIdLast4Masked.Should().Be("**34");
+    }
 }

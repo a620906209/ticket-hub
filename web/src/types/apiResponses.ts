@@ -42,6 +42,9 @@ export interface MemberProfile {
   displayName: string
   role: string
   isActive: boolean
+  hasRegisteredRealName: boolean
+  realName: string | null
+  nationalIdLast4Masked: string | null
 }
 
 export interface AuthTokens {

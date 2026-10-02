@@ -169,7 +169,7 @@ describe('EventListPage 銷售報表入口', () => {
   }
 
   it('[AWU-NAV-003] 非 Admin 使用者看得到每筆活動的銷售報表入口，且連結指向對應活動的銷售報表路由', async () => {
-    useAuthStore().member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true }
+    useAuthStore().member = { id: '2', email: 'member@example.com', displayName: 'Member', role: 'Member', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
     const wrapper = mount(EventListPage, { global: { plugins: [ElementPlus], stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
 

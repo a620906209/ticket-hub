@@ -26,6 +26,7 @@ using ProjectC.Application.Members.Activate;
 using ProjectC.Application.Members.Deactivate;
 using ProjectC.Application.Members.GetMyProfile;
 using ProjectC.Application.Members.Register;
+using ProjectC.Application.Members.RegisterRealName;
 using ProjectC.Application.Members.UpdateMyProfile;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.GetOrderById;
@@ -128,6 +129,7 @@ try
     builder.Services.AddScoped<ITicketRepository, TicketRepository>();
     builder.Services.AddScoped<IPurchaseQueueRepository, PurchaseQueueRepository>();
     builder.Services.AddScoped<IMemberDisplayNameReader, MemberDisplayNameReader>();
+    builder.Services.AddScoped<IMemberRealNameRepository, MemberRealNameRepository>();
 
     // JwtOptions：啟動時驗證，SigningKey 等缺失直接讓應用程式啟動失敗（Fail Fast，見 design.md 決策 9）。
     builder.Services
@@ -328,6 +330,7 @@ try
     builder.Services.AddScoped<RegisterMemberHandler>();
     builder.Services.AddScoped<GetMyProfileHandler>();
     builder.Services.AddScoped<UpdateMyProfileHandler>();
+    builder.Services.AddScoped<RegisterRealNameHandler>();
     builder.Services.AddScoped<ActivateMemberHandler>();
     builder.Services.AddScoped<DeactivateMemberHandler>();
     builder.Services.AddScoped<LoginHandler>();
