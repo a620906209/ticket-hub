@@ -28,11 +28,19 @@ public sealed class FakeOrderRepository : IOrderRepository
             .ToList());
     }
 
-    public Task<Guid?> GetOrganizerIdByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
+    // 同 OrganizerIdByEventId：假物件無法 join Events，由測試指定哪些活動需實名。
+    public HashSet<Guid> RealNameRequiredEventIds { get; } = new();
+
+    public CancellationToken? LastGetRedemptionContextToken { get; private set; }
+
+    public Task<RedemptionContext?> GetRedemptionContextByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
     {
+        LastGetRedemptionContextToken = cancellationToken;
         var order = Data.FirstOrDefault(o => o.Items.Any(i => i.Id == orderItemId));
-        Guid? organizerId = order is not null && OrganizerIdByEventId.TryGetValue(order.EventId, out var owner) ? owner : null;
-        return Task.FromResult(organizerId);
+        RedemptionContext? context = order is not null && OrganizerIdByEventId.TryGetValue(order.EventId, out var owner)
+            ? new RedemptionContext(owner, RealNameRequiredEventIds.Contains(order.EventId), order.BuyerId)
+            : null;
+        return Task.FromResult(context);
     }
 
     public Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)

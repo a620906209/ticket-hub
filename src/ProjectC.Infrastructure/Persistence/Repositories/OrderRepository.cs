@@ -21,13 +21,13 @@ public class OrderRepository : IOrderRepository
             .Where(o => _dbContext.Events.Any(e => e.Id == o.EventId && e.OrganizerId == organizerId))
             .ToListAsync(cancellationToken);
 
-    public async Task<Guid?> GetOrganizerIdByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
+    public async Task<RedemptionContext?> GetRedemptionContextByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
         => await (
             from order in _dbContext.Orders
             from item in order.Items
             join @event in _dbContext.Events on order.EventId equals @event.Id
             where item.Id == orderItemId
-            select (Guid?)@event.OrganizerId)
+            select new RedemptionContext(@event.OrganizerId, @event.IsRealNameRequired, order.BuyerId))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)

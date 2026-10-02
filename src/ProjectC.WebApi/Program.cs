@@ -45,6 +45,7 @@ using ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketQrCode;
 using ProjectC.Application.Tickets.GetTicketTypes;
+using ProjectC.Application.Tickets.GetTicketHolder;
 using ProjectC.Application.Tickets.RedeemTicket;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
@@ -307,6 +308,7 @@ try
     builder.Services.AddScoped<GetMyOrderDetailHandler>();
     builder.Services.AddScoped<GetTicketQrCodeHandler>();
     builder.Services.AddScoped<RedeemTicketHandler>();
+    builder.Services.AddScoped<GetTicketHolderHandler>();
     builder.Services.AddScoped<SetEventQueueModeHandler>();
     builder.Services.AddScoped<JoinPurchaseQueueHandler>();
     builder.Services.AddScoped<GetMyQueueStatusHandler>();

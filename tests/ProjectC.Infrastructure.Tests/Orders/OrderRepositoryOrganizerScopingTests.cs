@@ -105,26 +105,26 @@ public class OrderRepositoryOrganizerScopingTests
 
     // 對應 AC: RDM-AUTHZ-004（歸屬查詢回傳票券所屬活動的 OrganizerId）
     [Fact]
-    public async Task GetOrganizerIdByOrderItemIdAsync_WhenOrderItemExists_ReturnsEventOrganizerId()
+    public async Task GetRedemptionContextByOrderItemIdAsync_WhenOrderItemExists_ReturnsEventOrganizerId()
     {
         await using var seedDbContext = _fixture.CreateDbContext();
         var organizerA = await SeedOrganizerWithOrdersAsync(seedDbContext, orderCount: 1);
         await SeedOrganizerWithOrdersAsync(seedDbContext, orderCount: 1);
 
         await using var readDbContext = _fixture.CreateDbContext();
-        var organizerId = await new OrderRepository(readDbContext).GetOrganizerIdByOrderItemIdAsync(organizerA.OrderItemIds[0], CancellationToken.None);
+        var context = await new OrderRepository(readDbContext).GetRedemptionContextByOrderItemIdAsync(organizerA.OrderItemIds[0], CancellationToken.None);
 
-        organizerId.Should().Be(organizerA.OrganizerId);
+        context!.OrganizerId.Should().Be(organizerA.OrganizerId);
     }
 
     // 對應 AC: RDM-AUTHZ-007（查無時回 null，由 Handler 大聲失敗）
     [Fact]
-    public async Task GetOrganizerIdByOrderItemIdAsync_WhenOrderItemNotFound_ReturnsNull()
+    public async Task GetRedemptionContextByOrderItemIdAsync_WhenOrderItemNotFound_ReturnsNull()
     {
         await using var readDbContext = _fixture.CreateDbContext();
 
-        var organizerId = await new OrderRepository(readDbContext).GetOrganizerIdByOrderItemIdAsync(Guid.NewGuid(), CancellationToken.None);
+        var context = await new OrderRepository(readDbContext).GetRedemptionContextByOrderItemIdAsync(Guid.NewGuid(), CancellationToken.None);
 
-        organizerId.Should().BeNull();
+        context.Should().BeNull();
     }
 }

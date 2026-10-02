@@ -2,6 +2,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Members;
@@ -10,6 +12,7 @@ using ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
+using ProjectC.Infrastructure.Persistence;
 
 namespace ProjectC.WebApi.Tests.TestSupport;
 
@@ -22,6 +25,8 @@ public static class RealNameTestData
     public sealed record SeededEvent(Guid EventId, Guid EventSeatId, Guid TicketTypeId);
 
     public sealed record SeededMember(HttpClient Client, Guid MemberId);
+
+    public sealed record SeededTicket(Guid TicketId, Guid EventId, SeededMember Buyer);
 
     private static async Task<Guid> ReadCreatedIdAsync(HttpResponseMessage response)
     {
@@ -96,4 +101,29 @@ public static class RealNameTestData
         => memberClient.PostAsJsonAsync(
             $"/api/events/{eventId}/queue/entries",
             new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, FakeCaptchaService.ValidAnswer));
+
+    /// <summary>需實名活動時買家先登記實名（下單閘門要求），再走「下單 → 確認付款」真正出票。</summary>
+    public static async Task<SeededTicket> SeedIssuedTicketAsync(
+        WebApplicationFactory<Program> factory,
+        HttpClient organizerClient,
+        bool isRealNameRequired,
+        string realName = "王小明",
+        string nationalIdLast4 = "1234",
+        DateTime? startsAtUtc = null)
+    {
+        var seededEvent = await SeedEventAsync(factory, organizerClient, isRealNameRequired, startsAtUtc: startsAtUtc);
+        var buyer = await CreateRegisteredMemberAsync(factory, realName, nationalIdLast4);
+        var orderId = await ReadCreatedIdAsync(await PlaceOrderAsync(buyer.Client, seededEvent));
+        var confirmResponse = await buyer.Client.PostAsync($"/api/orders/{orderId}/confirm", null);
+        confirmResponse.EnsureSuccessStatusCode();
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var orderItemIds = await dbContext.OrderItems.AsNoTracking()
+            .Where(i => EF.Property<Guid>(i, "OrderId") == orderId)
+            .Select(i => i.Id)
+            .ToListAsync();
+        var ticket = await dbContext.Tickets.AsNoTracking().SingleAsync(t => orderItemIds.Contains(t.OrderItemId));
+        return new SeededTicket(ticket.Id, seededEvent.EventId, buyer);
+    }
 }

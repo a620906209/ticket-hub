@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { performRedemption } from '../utils/ticketRedemptionOutcome'
+import { lookupTicketHolder, performRedemption } from '../utils/ticketRedemptionOutcome'
 import { useRedemptionScanner, type RedemptionScannerDeps } from './useRedemptionScanner'
 
 vi.mock('../utils/ticketRedemptionOutcome')
@@ -548,5 +548,201 @@ describe('掃描模式常駐手動輸入切換（決策 6）', () => {
 
     expect(scanner.manualInputActive.value).toBe(true)
     expect(scanner.state.value).toBe('scanning') // 相機串流不需要因此中斷
+  })
+})
+
+// 頁面測試（RedemptionScannerPage.realName.test.ts）只能經由按鈕觸發，按鈕在 DOM 層已停用時
+// 測不到 composable 自己的防護；這裡直接呼叫，確認防護不依賴畫面（real-name-verification）。
+describe('持票人確認的 composable 防護（real-name-verification）', () => {
+  const holder = {
+    ticketId: VALID_GUID,
+    ticketStatus: 'Issued',
+    isRealNameRequired: true,
+    holderRealName: '王小明',
+    holderNationalIdLast4: '1234',
+  }
+
+  async function enterLoadedPanel() {
+    vi.mocked(performRedemption).mockResolvedValueOnce({ kind: 'holder-verification-required' })
+    vi.mocked(lookupTicketHolder).mockResolvedValue({ kind: 'found', holder })
+    const created = createScanner()
+    created.scanner.mount()
+    await vi.advanceTimersByTimeAsync(0)
+    created.scanner.handleDetectedContent(QR_CONTENT)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(created.scanner.holderVerification.value?.phase).toBe('loaded')
+    return created
+  }
+
+  beforeEach(() => {
+    vi.mocked(lookupTicketHolder).mockReset()
+  })
+
+  it.each([
+    ['holder-verification-required', { kind: 'holder-verification-required' }],
+    ['success', { kind: 'success' }],
+  ] as const)(
+    '核銷請求進行中元件 unmount，稍後回傳 %s 不查詢持票人、不顯示結果（不得在離開頁面後讀取個資）',
+    async (_label, outcome) => {
+      const redemption = createDeferred<Awaited<ReturnType<typeof performRedemption>>>()
+      vi.mocked(performRedemption).mockReturnValueOnce(redemption.promise)
+      const { scanner } = createScanner()
+      scanner.mount()
+      await vi.advanceTimersByTimeAsync(0)
+      scanner.handleDetectedContent(QR_CONTENT)
+
+      scanner.unmount()
+      redemption.resolve(outcome)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(lookupTicketHolder).not.toHaveBeenCalled()
+      expect(scanner.holderVerification.value).toBeNull()
+      expect(scanner.scanResult.value).toBeNull()
+    },
+  )
+
+  it('核銷請求進行中元件 unmount，稍後請求失敗不顯示錯誤結果', async () => {
+    const redemption = createDeferred<Awaited<ReturnType<typeof performRedemption>>>()
+    vi.mocked(performRedemption).mockReturnValueOnce(redemption.promise)
+    const { scanner } = createScanner()
+    scanner.mount()
+    await vi.advanceTimersByTimeAsync(0)
+    scanner.handleDetectedContent(QR_CONTENT)
+
+    scanner.unmount()
+    redemption.reject(new Error('network'))
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(scanner.scanResult.value).toBeNull()
+  })
+
+  it('[AWU-REDEEM-RN-006] 確認核銷處理中直接再呼叫一次 confirm，只送出一次核銷請求', async () => {
+    const { scanner } = await enterLoadedPanel()
+    const { promise, resolve } = createDeferred<{ kind: 'success' }>()
+    vi.mocked(performRedemption).mockReturnValueOnce(promise as ReturnType<typeof performRedemption>)
+
+    void scanner.confirmHolderVerification()
+    void scanner.confirmHolderVerification()
+    resolve({ kind: 'success' })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(performRedemption).toHaveBeenCalledTimes(2)
+    expect(performRedemption).toHaveBeenLastCalledWith(VALID_GUID, 'the-signature', true)
+    expect(scanner.scanResult.value).toBe('success')
+  })
+
+  it('確認核銷處理中呼叫放棄被忽略，不得在請求送出後讓面板消失', async () => {
+    const { scanner } = await enterLoadedPanel()
+    const { promise, resolve } = createDeferred<{ kind: 'success' }>()
+    vi.mocked(performRedemption).mockReturnValueOnce(promise as ReturnType<typeof performRedemption>)
+
+    void scanner.confirmHolderVerification()
+    scanner.abandonHolderVerification()
+
+    expect(scanner.holderVerification.value?.phase).toBe('confirming')
+    resolve({ kind: 'success' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(scanner.scanResult.value).toBe('success')
+  })
+
+  it('面板顯示期間不啟動自動恢復計時：經過 60 秒仍停在 holder-verification', async () => {
+    const { scanner } = await enterLoadedPanel()
+
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(scanner.state.value).toBe('holder-verification')
+    expect(scanner.holderVerification.value?.phase).toBe('loaded')
+  })
+
+  it.each([
+    ['found', { kind: 'found', holder }],
+    ['already-redeemed', { kind: 'already-redeemed' }],
+    ['failed', { kind: 'failed' }],
+  ] as const)('查詢持票人進行中放棄，稍後查詢以 %s 完成不得重新開啟面板或顯示結果', async (_label, lateOutcome) => {
+    vi.mocked(performRedemption).mockResolvedValueOnce({ kind: 'holder-verification-required' })
+    const lookup = createDeferred<Awaited<ReturnType<typeof lookupTicketHolder>>>()
+    vi.mocked(lookupTicketHolder).mockReturnValueOnce(lookup.promise)
+    const { scanner } = createScanner()
+    scanner.mount()
+    await vi.advanceTimersByTimeAsync(0)
+    scanner.handleDetectedContent(QR_CONTENT)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(scanner.holderVerification.value?.phase).toBe('loading')
+
+    scanner.abandonHolderVerification()
+    lookup.resolve(lateOutcome)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(scanner.holderVerification.value).toBeNull()
+    expect(scanner.scanResult.value).toBeNull()
+    expect(scanner.state.value).toBe('scanning')
+  })
+
+  it('重試只在查詢失敗時有效：面板已載入時呼叫重試不重新查詢', async () => {
+    const { scanner } = await enterLoadedPanel()
+
+    scanner.retryHolderLookup()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(lookupTicketHolder).toHaveBeenCalledTimes(1)
+    expect(scanner.holderVerification.value?.phase).toBe('loaded')
+  })
+
+  it('確認核銷的結果在背景時完成，切回前景才顯示結果', async () => {
+    const { scanner } = await enterLoadedPanel()
+    const { promise, resolve } = createDeferred<{ kind: 'success' }>()
+    vi.mocked(performRedemption).mockReturnValueOnce(promise as ReturnType<typeof performRedemption>)
+    void scanner.confirmHolderVerification()
+
+    const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    scanner.handleHidden()
+    resolve({ kind: 'success' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(scanner.scanResult.value).toBeNull()
+
+    hiddenSpy.mockReturnValue(false)
+    scanner.handleVisible()
+    expect(scanner.scanResult.value).toBe('success')
+    hiddenSpy.mockRestore()
+  })
+
+  // 面板期間切背景會釋放相機；放棄手動輸入的面板時相機還在重新初始化，此時再手動送出另一張票，
+  // 遲到的相機初始化不得蓋掉 'processing' 或在請求途中開始解碼，結束後也不得卡在「初始化相機中…」。
+  it('[AWU-REDEEM-RN-017] 放棄手動輸入面板時相機仍在初始化，再手動送出：初始化作廢、結果結束後重新取得相機', async () => {
+    const lateCamera = createDeferred<MediaStream>()
+    const lateStream = {} as MediaStream
+    const openCameraStream = vi
+      .fn()
+      .mockResolvedValueOnce(FAKE_STREAM)
+      .mockReturnValueOnce(lateCamera.promise)
+      .mockResolvedValue(FAKE_STREAM)
+    const { scanner, frames, stopCameraStream } = createScanner({ openCameraStream })
+    scanner.mount()
+    await vi.advanceTimersByTimeAsync(0)
+    vi.mocked(performRedemption).mockResolvedValueOnce({ kind: 'holder-verification-required' })
+    vi.mocked(lookupTicketHolder).mockResolvedValue({ kind: 'found', holder })
+    await scanner.submitManualRedemption(VALID_GUID)
+    await vi.advanceTimersByTimeAsync(0)
+    scanner.handleHidden()
+    scanner.handleVisible()
+
+    scanner.abandonHolderVerification()
+    expect(scanner.state.value).toBe('initializing')
+    expect(scanner.manualInputActive.value).toBe(true)
+    const redemption = createDeferred<Awaited<ReturnType<typeof performRedemption>>>()
+    vi.mocked(performRedemption).mockReturnValueOnce(redemption.promise)
+    void scanner.submitManualRedemption('7c9e6679-7425-40de-944b-e07fc1f90ae7')
+    lateCamera.resolve(lateStream)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(scanner.state.value).toBe('processing')
+    expect(stopCameraStream).toHaveBeenCalledWith(lateStream)
+    expect(frames.hasPending()).toBe(false)
+
+    redemption.resolve({ kind: 'success' })
+    await vi.advanceTimersByTimeAsync(1500)
+
+    expect(openCameraStream).toHaveBeenCalledTimes(3)
+    expect(scanner.state.value).toBe('scanning')
   })
 })

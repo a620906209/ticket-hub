@@ -23,6 +23,7 @@ function createFakeScanner(initialState: ScannerState = 'scanning') {
     state,
     manualInputActive,
     scanResult,
+    holderVerification: ref(null),
     videoElement: ref(null),
     mount: vi.fn(),
     unmount: vi.fn(),
@@ -38,6 +39,9 @@ function createFakeScanner(initialState: ScannerState = 'scanning') {
     handleHidden: vi.fn(),
     handleVisible: vi.fn(),
     handleDetectedContent: vi.fn(),
+    retryHolderLookup: vi.fn(),
+    confirmHolderVerification: vi.fn(),
+    abandonHolderVerification: vi.fn(),
   }
   vi.mocked(useRedemptionScanner).mockReturnValue(fake)
   return fake

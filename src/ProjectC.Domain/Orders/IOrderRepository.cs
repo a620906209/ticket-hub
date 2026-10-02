@@ -10,10 +10,11 @@ public interface IOrderRepository
     /// （見 order-report-redemption-organizer-scoping design.md Decision 1）。</summary>
     Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken);
 
-    /// <summary>以單一查詢（<c>OrderItems JOIN Orders JOIN Events</c>）只投影回該訂單明細所屬活動的 <c>OrganizerId</c>，
-    /// 查無時回傳 <see langword="null"/>。供核銷在持鎖交易內核對歸屬，刻意不載入 <see cref="Order"/> 實體以縮短鎖持有時間
-    /// （見 order-report-redemption-organizer-scoping design.md Decision 1）。</summary>
-    Task<Guid?> GetOrganizerIdByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken);
+    /// <summary>以單一查詢（<c>OrderItems JOIN Orders JOIN Events</c>）只投影回該訂單明細所屬活動的 <c>OrganizerId</c>、
+    /// <c>IsRealNameRequired</c> 與訂單的 <c>BuyerId</c>，查無時回傳 <see langword="null"/>。供核銷在持鎖交易內核對歸屬，
+    /// 刻意不載入 <see cref="Order"/> 實體以縮短鎖持有時間（見 order-report-redemption-organizer-scoping design.md Decision 1、
+    /// real-name-verification design.md 決策 4）。</summary>
+    Task<RedemptionContext?> GetRedemptionContextByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken);
 

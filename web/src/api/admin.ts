@@ -5,6 +5,7 @@ import type {
   OrderSummary,
   SalesReport,
   SeatMapDetail,
+  TicketHolder,
   VenueDetail,
   VenueSummary,
 } from '../types/apiResponses'
@@ -79,9 +80,15 @@ export function getEventSalesReport(eventId: string): Promise<SalesReport> {
   return authorizedRequest(`/admin/events/${eventId}/sales-report`)
 }
 
-export function redeemTicket(ticketId: string, signature: string | null): Promise<void> {
+// isHolderVerified 只在操作人員確認比對證件後才送出；未確認時不帶此欄位，由後端視為 false
+// （real-name-verification design.md 決策 4）。
+export function redeemTicket(ticketId: string, signature: string | null, isHolderVerified = false): Promise<void> {
   return authorizedRequest(`/admin/tickets/${ticketId}/redeem`, {
     method: 'PATCH',
-    body: { signature },
+    body: isHolderVerified ? { signature, isHolderVerified } : { signature },
   })
+}
+
+export function getTicketHolder(ticketId: string): Promise<TicketHolder> {
+  return authorizedRequest(`/admin/tickets/${ticketId}/holder`)
 }

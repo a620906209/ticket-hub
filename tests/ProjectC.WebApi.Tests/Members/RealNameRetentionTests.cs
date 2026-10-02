@@ -1,6 +1,11 @@
+using System.Net;
+using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ProjectC.Application.Tickets.GetTicketHolder;
+using ProjectC.Application.Tickets.RedeemTicket;
+using ProjectC.Domain.Tickets;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.WebApi.Tests.TestSupport;
 
@@ -26,6 +31,12 @@ public class RealNameRetentionTests : IClassFixture<CustomWebApplicationFactory>
         return (member.RealName, member.NationalIdLast4);
     }
 
+    private async Task DeactivateAsync(Guid memberId)
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminClientAsync(_factory);
+        (await adminClient.PostAsync($"/api/admin/members/{memberId}/deactivate", content: null)).EnsureSuccessStatusCode();
+    }
+
     // [RNV-RETAIN-001]
     [Fact]
     public async Task DeactivateThenActivate_KeepsRealNameUnchanged()
@@ -38,5 +49,35 @@ public class RealNameRetentionTests : IClassFixture<CustomWebApplicationFactory>
 
         (await adminClient.PostAsync($"/api/admin/members/{member.MemberId}/activate", content: null)).EnsureSuccessStatusCode();
         (await ReadStoredRealNameAsync(member.MemberId)).Should().Be(("保留測試庚", "0246"));
+    }
+
+    // [RNV-RETAIN-002]
+    [Fact]
+    public async Task GetHolder_AfterBuyerDeactivated_Returns200WithBuyerRealName()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await RealNameTestData.SeedIssuedTicketAsync(_factory, organizerClient, isRealNameRequired: true, "保留測試辛", "1357");
+        await DeactivateAsync(seeded.Buyer.MemberId);
+
+        var response = await organizerClient.GetAsync($"/api/admin/tickets/{seeded.TicketId}/holder");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<TicketHolderDto>())
+            .Should().Be(new TicketHolderDto(seeded.TicketId, "Issued", true, "保留測試辛", "1357"));
+    }
+
+    // [RNV-RETAIN-003]
+    [Fact]
+    public async Task Redeem_AfterBuyerDeactivatedWithHolderVerified_Returns204AndRedeemsTicket()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await RealNameTestData.SeedIssuedTicketAsync(_factory, organizerClient, isRealNameRequired: true);
+        await DeactivateAsync(seeded.Buyer.MemberId);
+
+        var response = await organizerClient.PatchAsJsonAsync(
+            $"/api/admin/tickets/{seeded.TicketId}/redeem", new RedeemTicketRequest(null, IsHolderVerified: true));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await OrganizerScopedTestData.ReadTicketAsync(_factory, seeded.TicketId)).Status.Should().Be(TicketStatus.Redeemed);
     }
 }

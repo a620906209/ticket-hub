@@ -5,7 +5,7 @@ import { useRedemptionScanner, type ScanResultKind } from '../../composables/use
 type AlertType = 'success' | 'warning' | 'error' | 'info'
 
 const scanner = useRedemptionScanner()
-const { state, manualInputActive, scanResult, videoElement } = scanner
+const { state, manualInputActive, scanResult, holderVerification, videoElement } = scanner
 
 const manualTicketId = ref('')
 const manualFormatError = ref('')
@@ -81,8 +81,51 @@ onUnmounted(scanner.unmount)
   <div class="redemption-scanner-page">
     <h1>票券核銷</h1>
 
+    <!-- 不加位移／縮放動畫，至多 150ms 淡入：入場高峰會出現數百次（design.md 決策 8 UI 細節） -->
+    <Transition name="holder-panel">
+      <section v-if="holderVerification" class="holder-panel" aria-label="持票人確認">
+        <p v-if="holderVerification.phase === 'loading'" class="holder-status">查詢持票人資料中…</p>
+
+        <template v-else-if="holderVerification.phase === 'lookup-failed'">
+          <el-alert title="查詢持票人資料失敗，請重試" type="error" show-icon :closable="false" role="alert" />
+          <div class="holder-actions">
+            <el-button type="primary" size="large" @click="scanner.retryHolderLookup">重試</el-button>
+            <el-button size="large" @click="scanner.abandonHolderVerification">放棄</el-button>
+          </div>
+        </template>
+
+        <template v-else-if="holderVerification.holder">
+          <p class="holder-hint">請比對證件後確認核銷（持票人即訂購會員）</p>
+          <dl class="holder-info">
+            <dt>姓名</dt>
+            <dd data-testid="holder-real-name">{{ holderVerification.holder.holderRealName }}</dd>
+            <dt>身分證末四碼</dt>
+            <dd data-testid="holder-national-id-last4">{{ holderVerification.holder.holderNationalIdLast4 }}</dd>
+          </dl>
+          <div class="holder-actions">
+            <el-button
+              type="primary"
+              size="large"
+              :loading="holderVerification.phase === 'confirming'"
+              :disabled="holderVerification.phase === 'confirming'"
+              @click="scanner.confirmHolderVerification"
+            >
+              確認核銷
+            </el-button>
+            <el-button
+              size="large"
+              :disabled="holderVerification.phase === 'confirming'"
+              @click="scanner.abandonHolderVerification"
+            >
+              放棄
+            </el-button>
+          </div>
+        </template>
+      </section>
+    </Transition>
+
     <div
-      v-if="scanResult"
+      v-if="!holderVerification && scanResult"
       ref="resultBannerRef"
       class="result-banner"
       :role="resultBannerIsAssertive ? 'alert' : 'status'"
@@ -95,7 +138,7 @@ onUnmounted(scanner.unmount)
       </el-button>
     </div>
 
-    <template v-else>
+    <template v-else-if="!holderVerification">
       <div v-if="state === 'initializing'" class="camera-status">初始化相機中…</div>
 
       <template v-if="!showManualForm">
@@ -144,5 +187,43 @@ onUnmounted(scanner.unmount)
 }
 .result-banner {
   margin-bottom: 16px;
+}
+.holder-panel {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+}
+.holder-hint,
+.holder-status {
+  margin: 0 0 12px;
+}
+.holder-info {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+}
+.holder-info dd {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  word-break: break-all;
+}
+.holder-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+.holder-actions .el-button {
+  flex: 1;
+  min-height: 48px;
+}
+.holder-panel-enter-active {
+  transition: opacity 120ms ease-out;
+}
+.holder-panel-enter-from {
+  opacity: 0;
 }
 </style>

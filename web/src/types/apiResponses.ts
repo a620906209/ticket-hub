@@ -164,6 +164,16 @@ export interface AdminEventSummary {
   isRealNameRequired: boolean
 }
 
+// 對應 GET /api/admin/tickets/{ticketId}/holder；完整末四碼只在此回應出現，供現場比對證件
+// （real-name-verification design.md 決策 4、5），前端不得快取或持久化。
+export interface TicketHolder {
+  ticketId: string
+  ticketStatus: string
+  isRealNameRequired: boolean
+  holderRealName: string | null
+  holderNationalIdLast4: string | null
+}
+
 // 對應 GET /api/admin/events/{eventId}/sales-report（sales-report spec.md）。unclassifiedItemCount
 // 等三個欄位直接來自後端查詢結果，前端 SHALL 依 unclassifiedItemCount > 0 判斷是否顯示提示，
 // 不得用 totalRevenue 減 byTicketType 加總反推筆數（見 spec.md「依票種明細排除無法歸類票種的已付款項目...」）。

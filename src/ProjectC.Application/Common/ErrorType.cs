@@ -11,4 +11,5 @@ public enum ErrorType
     InvalidTicketSignature,
     CaptchaInvalid,
     RealNameRequired,
+    HolderVerificationRequired,
 }

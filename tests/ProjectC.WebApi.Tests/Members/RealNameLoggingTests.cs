@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using ProjectC.Application.Tickets.RedeemTicket;
 using ProjectC.WebApi.Tests.TestSupport;
 using Serilog.Events;
 
@@ -38,6 +39,9 @@ public class RealNameLoggingTests : IClassFixture<LogCapturingWebApplicationFact
         }
     }
 
+    private static object? ReadScalar(LogEvent logEvent, string propertyName)
+        => logEvent.Properties.TryGetValue(propertyName, out var value) && value is ScalarValue scalar ? scalar.Value : null;
+
     // [RNV-LOG-001] 登記成功、重複登記、格式錯誤與讀取個人資料四條路徑都會接觸個資。
     [Fact]
     public async Task RealNameRequests_AcrossRegisterConflictValidationAndProfile_NeverLogRealNameOrLast4()
@@ -55,6 +59,62 @@ public class RealNameLoggingTests : IClassFixture<LogCapturingWebApplicationFact
         conflict.StatusCode.Should().Be(HttpStatusCode.Conflict);
         invalid.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await profile.Content.ReadAsStringAsync()).Should().Contain(realName, "確認這條路徑真的讀到了個資");
+        AssertNoLogContains(realName, last4);
+    }
+
+    // [RNV-LOG-002] 核銷前確認流程的三個請求都會讀到持票人個資。
+    [Fact]
+    public async Task RedemptionFlow_WithHolderLookup_NeverLogsHolderRealNameOrLast4()
+    {
+        const string realName = "核銷日誌測試丁";
+        const string last4 = "2468";
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seeded = await RealNameTestData.SeedIssuedTicketAsync(_factory, organizerClient, isRealNameRequired: true, realName, last4);
+        var redeemEndpoint = $"/api/admin/tickets/{seeded.TicketId}/redeem";
+
+        var unverified = await organizerClient.PatchAsJsonAsync(redeemEndpoint, new RedeemTicketRequest(null));
+        var holder = await organizerClient.GetAsync($"/api/admin/tickets/{seeded.TicketId}/holder");
+        var verified = await organizerClient.PatchAsJsonAsync(redeemEndpoint, new RedeemTicketRequest(null, IsHolderVerified: true));
+
+        unverified.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await holder.Content.ReadAsStringAsync()).Should().Contain(realName, "確認持票人查詢真的讀到了個資");
+        verified.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        AssertNoLogContains(realName, last4);
+    }
+
+    // [RDM-HOLDER-011] 每次查詢持票人（不論結果）都要留下可追溯「誰在哪個 Organizer 下查了哪張票」的稽核紀錄，但不含個資本身。
+    [Fact]
+    public async Task GetHolder_ForSuccessConflictAndNotFound_WritesStructuredAuditLogWithoutPersonalData()
+    {
+        const string realName = "稽核日誌測試戊";
+        const string last4 = "1357";
+        var (organizerClient, organizerId) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var callerMemberId = (await organizerClient.GetFromJsonAsync<CallerProfile>("/api/members/me"))!.Id;
+        var issued = await RealNameTestData.SeedIssuedTicketAsync(_factory, organizerClient, isRealNameRequired: true, realName, last4);
+        var redeemed = await RealNameTestData.SeedIssuedTicketAsync(_factory, organizerClient, isRealNameRequired: true, realName, last4);
+        (await organizerClient.PatchAsJsonAsync(
+            $"/api/admin/tickets/{redeemed.TicketId}/redeem", new RedeemTicketRequest(null, IsHolderVerified: true))).EnsureSuccessStatusCode();
+        var (otherOrganizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var otherTicket = await RealNameTestData.SeedIssuedTicketAsync(_factory, otherOrganizerClient, isRealNameRequired: true, realName, last4);
+
+        (await organizerClient.GetAsync($"/api/admin/tickets/{issued.TicketId}/holder")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await organizerClient.GetAsync($"/api/admin/tickets/{redeemed.TicketId}/holder")).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await organizerClient.GetAsync($"/api/admin/tickets/{otherTicket.TicketId}/holder")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        LogEvent SingleAuditLog(Guid ticketId) => _factory.LogSink.Events.Single(e =>
+            e.MessageTemplate.Text.StartsWith("Ticket holder lookup") && Equals(ReadScalar(e, "TicketId"), ticketId));
+
+        var expectations = new[] { (issued.TicketId, "Success"), (redeemed.TicketId, "Conflict"), (otherTicket.TicketId, "NotFound") };
+        foreach (var (ticketId, expectedResult) in expectations)
+        {
+            var auditLog = SingleAuditLog(ticketId);
+            auditLog.Level.Should().Be(LogEventLevel.Information);
+            ReadScalar(auditLog, "CallerMemberId").Should().Be(callerMemberId);
+            ReadScalar(auditLog, "OrganizerId").Should().Be(organizerId);
+            ReadScalar(auditLog, "Result").Should().Be(expectedResult);
+        }
+
+        ReadScalar(SingleAuditLog(issued.TicketId), "HolderMemberId").Should().Be(issued.Buyer.MemberId);
         AssertNoLogContains(realName, last4);
     }
 
@@ -83,4 +143,6 @@ public class RealNameLoggingTests : IClassFixture<LogCapturingWebApplicationFact
             .Should().NotContain(key => key.Contains("RealName", StringComparison.OrdinalIgnoreCase)
                 || key.Contains("NationalId", StringComparison.OrdinalIgnoreCase));
     }
+
+    private sealed record CallerProfile(Guid Id);
 }
