@@ -157,7 +157,7 @@
   - 已登入且未登記者，顯示提示與「前往登記」連結。
   - 下單或排隊仍可送出，以後端為準；收到 `RealNameRequired` 時顯示同樣的引導。
   - 前端不自行擋下送出：避免個人資料查詢失敗或過期時誤擋已登記者。
-- **登記後返回**：從活動頁進入實名頁時，帶 `redirect` 參數，登記成功後返回原活動頁。沿用既有登入頁 redirect 的做法：`LoginPage.vue` 直接把 query 字串交給 `router.push`，沒有白名單；vue-router 會把它當成站內路徑解析，不會導到外部網址。實名頁另外要求 redirect 必須以 `/` 開頭且不以 `//` 開頭，不符合時導回首頁（防 protocol-relative URL）。
+- **登記後返回**：從活動頁進入實名頁時，帶 `redirect` 參數，登記成功後返回原活動頁。沿用既有登入頁 redirect 的做法：`LoginPage.vue` 直接把 query 字串交給 `router.push`，沒有白名單；vue-router 會把它當成站內路徑解析，不會導到外部網址。實名頁另外要求 redirect 必須以 `/` 開頭且不以 `//` 開頭，不符合時不導向、留在實名頁顯示已登記狀態（防 protocol-relative URL；與 buyer-web-ui spec BW-RN-PAGE-008 一致）。
 - **後台建立活動表單**：新增「需實名」勾選，說明文字註明「建立後不可變更」。
 - **核銷頁**：
   - 收到 `HolderVerificationRequired` 時暫停掃描，顯示確認面板：姓名、末四碼以大字顯示，旁邊有「確認核銷」「放棄」兩個按鈕。
