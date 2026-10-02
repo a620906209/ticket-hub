@@ -313,7 +313,7 @@
   - 後台核銷頁手動輸入 Ticket ID，看到確認面板；先按放棄確認票券仍未核銷，再確認核銷
   - 以 DB 查詢核對每一步的狀態，不只依畫面判斷
 - [x] 8.4 依 CLAUDE.md 防禦性檢查規則，對 `RegisterRealNameHandler`、`GetTicketHolderHandler`、`RedeemTicketHandler`、`OrderService`、`JoinPurchaseQueueHandler` 的變更套用 hardener 檢查清單，再呼叫 strict-reviewer
-- [ ] 8.5 歸檔時同步主 spec；保留 design.md 決策 3 的 I1／I2 不變量與「未來需要重新評估的條件」；更新 `docs/project-scope.md`：第 2 節 Could「實名制驗證」標為已完成；第 8 節剩餘 Could 項目改寫（同時修正「Queue 排隊室 Redis 資料結構重寫」的過時描述，需先與使用者確認）；第 8 節新增一條待確認事項「共用／正式環境部署前須先限制 Seq 存取並訂定日誌保存期限（實名稽核日誌與持票人查詢相關）」
+- [x] 8.5 歸檔時同步主 spec；保留 design.md 決策 3 的 I1／I2 不變量與「未來需要重新評估的條件」；更新 `docs/project-scope.md`：第 2 節 Could「實名制驗證」標為已完成；第 8 節剩餘 Could 項目改寫（同時修正「Queue 排隊室 Redis 資料結構重寫」的過時描述，需先與使用者確認）；第 8 節新增一條待確認事項「共用／正式環境部署前須先限制 Seq 存取並訂定日誌保存期限（實名稽核日誌與持票人查詢相關）」
 
 ## 9. Scenario 追溯表
 
