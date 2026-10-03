@@ -20,17 +20,18 @@
 ---
 ## 執行環境（強制前提）
 
-> 本專案所有服務跑在 Docker Compose 容器內，本機不安裝 .NET SDK / PostgreSQL。
+> 本專案所有服務跑在 Docker Compose 容器內。本機雖裝有 .NET SDK / dotnet-ef（供其他工具使用），但本專案**一律不使用本機 SDK**；本機未安裝 PostgreSQL。
 
 ### 服務組成
 
 - `api`：ASP.NET Core 應用
 - `db`：PostgreSQL
 - 開發時以 bind mount 掛載原始碼；NuGet 快取、build 產出物用 named volume 隔離（Windows 檔案 I/O 效能考量）
+- 新增 .csproj 時，須同步在 `docker-compose.yml` 為其 `bin` / `obj` 加上 named volume，否則容器 build 產出物會寫回本機原始碼目錄
 
 ### 強制規則
 
-- **禁止假設本機已安裝** dotnet / dotnet-ef / psql
+- **禁止在本機執行** dotnet / dotnet-ef / psql：本機執行不會報錯，而是會靜默連到錯誤的 DB（`appsettings.Development.json` 為 `localhost`）或把 `bin/obj` 寫進 bind mount 的原始碼目錄。Claude Code 由 `.claude/hooks/block-host-dotnet.js`（PreToolUse）強制攔截；其他工具（如 Devin）不受此 hook 約束，須自行遵守
 - 所有指令以容器為執行點：
   `docker compose exec api dotnet ef database update`
   而非 `dotnet ef database update`

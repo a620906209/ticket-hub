@@ -117,6 +117,8 @@ services:
       - application_tests_obj:/src/tests/ProjectC.Application.Tests/obj
       - webapi_tests_bin:/src/tests/ProjectC.WebApi.Tests/bin
       - webapi_tests_obj:/src/tests/ProjectC.WebApi.Tests/obj
+      - infrastructure_tests_bin:/src/tests/ProjectC.Infrastructure.Tests/bin
+      - infrastructure_tests_obj:/src/tests/ProjectC.Infrastructure.Tests/obj
 
   web:
     build:
@@ -156,4 +158,6 @@ volumes:
   application_tests_obj:
   webapi_tests_bin:
   webapi_tests_obj:
+  infrastructure_tests_bin:
+  infrastructure_tests_obj:
   web_node_modules:
