@@ -4,10 +4,15 @@
 - `OrderService.PlaceOrderAsync` 與 `JoinPurchaseQueueHandler.HandleAsync` 都不檢查時間
 - 熱門搶購模式（`IsQueueModeEnabled`）由 Organizer 手動開關，與時間無關
 
-既有可參照的模式：
-- **欄位新增**：`real-name-verification` 為 `Event` 新增建立後不可變的 `IsRealNameRequired`。建構子用選填參數，所以 64 處 `new Event(...)` 不用改；API 欄位選填，未提供時沿用舊行為；`Down` migration 用 DO-block 防護
-- **交易外快速失敗、交易內權威重驗**：`JoinPurchaseQueueHandler` 對 `IsQueueModeEnabled` 的處理（`rate-limiting-queue` design.md 決策 4）
-- **時間來源**：Application 層一律注入 `IDateTimeProvider`（24 個檔案）；單元測試用 `FakeDateTimeProvider`，固定時間為 2026-01-01
+既有可參照的模式（皆為現有行為；販售期間檢查本身是本 change 新增的）：
+- **欄位新增**：`real-name-verification` 為 `Event` 新增建立後不可變的 `IsRealNameRequired`。建構子用選填參數，所以既有 `new Event(...)` 呼叫不用改；API 欄位選填，未提供時沿用舊行為；`Down` migration 用 DO-block 防護
+- **交易外讀取 + 交易內鎖定重讀的結構**（現有程式皆**沒有**販售時間判斷）：
+  - 加入排隊：`JoinPurchaseQueueHandler`（`rate-limiting-queue` design.md 決策 4），可作為決策 4 的參考。
+    - **既有流程（現況）**：交易外依序為 請求驗證 → 驗證碼 → 活動存在 → Queue Mode → 實名；交易內 `GetForUpdateAsync` 列鎖重讀後依序為 `lockedEvent` 存在 → 實名旗標一致性 → Queue Mode 重驗 → 排隊紀錄查詢／寫入。
+    - **本 change 完成後**：交易外為 請求驗證 → 驗證碼 → 活動存在 → **販售期間** → Queue Mode → 實名；交易內為 `lockedEvent` 存在 → **販售期間** → 實名旗標一致性 → Queue Mode 重驗 → 排隊紀錄查詢／寫入。
+  - 下單：`OrderService.PlaceOrderAsync` 的 Queue Mode **只**在交易內以鎖定重讀的 `lockedEvent` 判斷，交易外沒有 Queue Mode 檢查。交易外讀取的 `orderEvent` 參與既有實名與限購等前置判斷（既有跨活動驗證在讀取 `orderEvent` 之前完成，不使用它）；若交易外未取得活動，交易內則以 `lockedEvent` 補做必要的實名與其他權威判斷；兩次讀取的不可變設定（`IsRealNameRequired`）則依既有規則進行一致性處理（不一致即拋出例外）。本 change 不改變 `orderEvent` 的既有用途。本 change 的交易外販售期間檢查，插入既有跨活動驗證完成後、其他會影響下單結果的交易外檢查之前；交易內則以 `lockedEvent` 與重新取得的 `UtcNow` 作為販售期間最終判斷（`real-name-verification`）。決策 3 參考的是後者的「交易外 `orderEvent` + 交易內 `lockedEvent`」結構
+  - 本 change 對兩個流程新增販售期間判斷：交易外快速拒絕、交易內以重新取得的時間作為最終判斷
+- **時間來源**：Application 層一律注入 `IDateTimeProvider`；單元測試用 `FakeDateTimeProvider`，固定時間為 2026-01-01
 - **錯誤分流**：可區分的錯誤靠 `ErrorType` → `ResultExtensions` 對映 HTTP status，`ProblemDetails.Title = error.Type.ToString()`，前端依 `Title` 判斷
 
 ## Goals / Non-Goals
@@ -15,7 +20,7 @@
 **Goals:**
 - 主辦方建立活動時可指定開賣時間與停售時間，建立後不可變更
 - 建立訂單與加入排隊在販售期間外被拒，並回傳前端可區分的 `SalesNotOpen`／`SalesClosed`
-- 既有活動與既有客戶端（未帶新欄位）的行為不變，唯一例外是「已開始的活動停售」
+- 既有客戶端（未帶新欄位）的 API 相容；業務行為的唯一變更是「未設定 `SalesEndAtUtc` 的活動（不論新舊）自 `StartAtUtc` 起停售」
 - 公開與後台活動列表提供販售期間的原始值，供後續前端 change 使用
 
 **Non-Goals:**
@@ -30,7 +35,7 @@
 
 ### 決策 1：兩個欄位皆可為 null，null 有明確語意，不回填
 
-- `SalesStartAtUtc = null` 表示「無開賣限制」
+- `SalesStartAtUtc = null` 表示「不設開賣下界」（停售仍依 `SalesEndAtUtc ?? StartAtUtc`）
 - `SalesEndAtUtc = null` 表示「停售時間 = `StartAtUtc`」
 - 實際販售期間為 `[SalesStartAtUtc ?? -∞, SalesEndAtUtc ?? StartAtUtc)`，左閉右開：
   - `now < start` → `NotOpen`
@@ -39,12 +44,11 @@
 
 **理由**：
 - 既有活動遷移後不用回填任何時間（使用者原本選「以建立時間或極早值回填」，null 在行為上等價）
-- `Event` 建構子可以用選填參數，64 處既有呼叫與絕大多數既有測試完全不用改
-- 部署前的舊快取項目缺欄位時，反序列化為 null 剛好也是正確語意（見決策 6）
+- `Event` 建構子可以用選填參數，既有呼叫與絕大多數既有測試完全不用改
 
 **替代方案**：
 - **不可為 null，並以 `CreatedAtUtc` 或極早值回填**：需要挑一個 sentinel 值；`DateTime.MinValue` 寫入 timestamptz 時，Npgsql 會對應成 `-infinity`，語意隱晦。不採用。
-- **API 必填**：後端先 merge、前端還沒跟上之前，現有表單建立活動會全部回 400，另外有 43 處測試請求要改。使用者選擇「API 選填、前端必填」。
+- **API 必填**：後端先 merge、前端還沒跟上之前，現有表單建立活動會全部回 400，既有測試中建立活動的請求也都要改。使用者選擇「API 選填、前端必填」。
 
 ### 決策 2：販售狀態由 Domain 判斷，建構時驗證時間關係
 
@@ -53,7 +57,7 @@
   - `SalesEndAtUtc` 有值時 MUST `<= StartAtUtc`
   - `SalesStartAtUtc` 有值時 MUST `< (SalesEndAtUtc ?? StartAtUtc)`
 - `CreateEventRequestValidator` 做相同驗證，讓 API 回 400，不會走到 Domain 例外變成 500。
-- 新欄位有值時，Validator 要求 `DateTimeKind.Utc`，也就是請求的時間字串須帶 `Z`；否則回 400，避免寫入 timestamptz 時才失敗（見 R4）。apply 時須實測 Npgsql 10.0.3 對 Unspecified／Local 的實際行為，再定案這條驗證。
+- **已定案**：兩個新欄位各自獨立驗證，任一欄位有值時 MUST 為 `DateTimeKind.Utc`，也就是請求的時間字串須帶 `Z`；不帶時區（Unspecified）或帶偏移（如 `+08:00`，反序列化為 Local）一律回 400，避免寫入 timestamptz 時才失敗（見 R4）。此規則不依賴 Npgsql 實測結果；apply 時的實測（tasks 2.4、6.1）只用來驗證「讀回為 Utc」與 R4 的既定假設。
 - **不**驗證開賣時間須晚於現在：主辦方常需要「建立後立即開賣」，而時鐘差會讓「必須在未來」的規則誤擋。
 
 ### 決策 3：建立訂單的檢查位置——交易外快速失敗 + 交易內權威重驗
@@ -75,7 +79,7 @@
 
 ### 決策 4：加入排隊的檢查位置——同一套「交易外快速失敗 + 交易內權威重驗」
 
-- **交易外**：位置在驗證碼與活動存在檢查之後、熱門搶購模式檢查之前。「驗證碼先於任何查詢」的既有規則不變。
+- **交易外**：既有順序為 驗證碼 → 活動存在 → 熱門搶購模式 → 實名；販售期間檢查插入在活動存在之後、既有熱門搶購模式檢查之前，即 驗證碼 → 活動存在 → 販售期間 → 熱門搶購模式 → 實名。「驗證碼先於任何查詢」的既有規則不變。
 - **交易內**：以 `lockedEvent` 和交易內重新取得的 `now` 再檢查，位置在 `lockedEvent` null 檢查之後、實名不一致檢查與熱門搶購模式檢查之前，也在任何排隊紀錄查詢或寫入之前。
 - 已有進行中紀錄的會員也同樣受此檢查：停售後的重複呼叫回 `SalesClosed`，不回傳既有紀錄，也不把逾時的 `Admitted` 轉為 `Expired`。
 - **排隊狀態查詢**（`GET .../queue/entries/me`）不檢查販售期間，維持輪詢可用。
@@ -92,7 +96,24 @@
 - `EventDto`（公開，會被快取）與 `AdminEventSummaryDto`（後台）新增 `SalesStartAtUtc`、`SalesEndAtUtc`，回傳原始值，可為 null。
 - **不**回傳依當下時間推導的 `SalesStatus`：公開列表會被 `query-caching` 快取，推導出的狀態會隨時間過期，但原始時間不可變，快取不會跟資料庫不一致。
 - **不**把 `SalesEndAtUtc` 的 null 在 API 層展開成 `StartAtUtc`，維持「原始值」語意；由前端（後續 change）套用同一條規則。
-- **舊快取項目**：部署前寫入的快取缺這兩個欄位，反序列化後為 null，代表「無開賣限制、停售時間沿用活動開始時間」，對部署前建立的活動來說正是正確值。部署後新建的活動會讓列表快取失效（既有 `RemoveAsync`），但這**不是嚴格不變量**：滾動部署期間舊實例可能在快取失效後以舊 DTO 重新填入，僅回滾程式碼時舊程式碼也會寫入不含欄位的列表。影響上限為一個快取 TTL（30 秒）內該活動列表欄位顯示為 null；後端閘門一律讀資料庫，不會因此放行錯誤的下單。部署與回滾後以 `DEL` 清除列表快取鍵即可消除此窗口（見 tasks 6.5）。此例外僅限部署／回滾的過渡期，不改變 `query-caching` 主 spec「快取內容與資料庫查詢回應一致」的穩態保證，因此不修改 `query-caching` 能力（同時避免本 change 影響的能力超過 3 個）。
+- **快取 key 版本化（`query-caching` 能力修改）**：`EventDto` 多了兩個欄位，因此活動列表快取 key 需要版本化。
+  - **目前現況**：程式使用 `query-cache:events:list`（`GetEventsHandler.CacheKey` 常數）。活動列表的明確失效呼叫端皆引用此常數，目前為 `CreateEventHandler` 與 `SetEventQueueModeHandler`；票種列表的失效呼叫端（建立票種、訂單扣減庫存、取消／逾時釋放庫存）使用各自的 `query-cache:ticket-types:event:{eventId}` key（`GetTicketTypesHandler.BuildCacheKey`），不在本 change 的 key 變更範圍內。
+  - **本 change 完成後**：`GetEventsHandler.CacheKey` 改為 `query-cache:events:list:v2`，新版本只讀寫、只清除 v2 key；舊版本（本 change 之前的執行檔）只使用無後綴 key；不同版本不讀寫對方的 key。
+  - **理由**：新舊版本實例重疊（滾動部署）時，舊版本只讀寫無後綴 key，無法把缺欄位的 DTO 寫進新版本讀取的 key；新版本也永遠不會讀到舊形狀的內容，不需要「缺欄位解讀為 null」的相容推論，也不需要限制部署方式。
+  - **重疊期間的陳舊性**：舊版本實例建立活動時只清除無後綴 key，新版本 key 最長落後一個 TTL（30 秒），屬 `query-caching` 既有 TTL 安全網的陳舊上限。後端閘門一律讀資料庫，不受影響。
+  - **回滾**：部署回舊執行檔，資料庫保留新欄位（舊 EF model 不查詢未對映欄位），不執行 Down。
+    - 舊版本只讀寫、只清除無後綴 key，失效行為與本變更前相同；新版本 MUST NOT 寫入無後綴 key（QC-EVT-VER-003），所以回滾時該 key 只會有舊版本重疊期間寫入的舊形狀內容，最長一個 TTL 內過期。
+    - v2 key 讀取時不檢查形狀：唯一寫入者是新版本未命中路徑，寫入完整 `EventDto`，舊形狀不可達。兩欄位可合法為 null，反序列化後無法分辨「缺欄位」與「值為 null」，若要在讀取時檢查就得改通用的 `IQueryCache` 讀取原始 JSON，成本高且保護的是不可達狀態，不採用。改以 QC-EVT-VER-004 鎖定前提：`RedisQueryCache` 以預設 `JsonSerializer.Serialize` 寫出，null 屬性不省略；序列化設定若改變，該測試失敗
+    - 新版本 key 不主動清除，舊版本不讀，TTL 過期。
+    - 舊版本行為由其既有測試涵蓋；新舊兩份執行檔無法在同一個測試程序中執行，因此「回滾後由舊版本操作」不寫成自動化整合測試，改以 tasks 6.9 部署演練驗證。
+  - **QC-TTL-004 的驗證方法**（v2 需重新驗證 QC-TTL-004，且活動列表首次有競態測試）：spec 只規定語意（重新寫入自寫入時刻套用完整 TTL），量測方法屬測試設計，放在這裡而非 spec。
+    - 時間一律用 `Stopwatch`（單調時鐘），不用 `DateTime.UtcNow`（WSL2 時鐘會倒退）；剩餘存活時間以 Redis PTTL（`KeyTimeToLiveAsync`，毫秒精度）讀取。
+    - 寫入時刻無法從客戶端直接觀測（SET 在 Redis 伺服器端執行），只能夾住：測試用 `RecordingQueryCache` 包裝真正的 `RedisQueryCache`，記錄內層 `SetAsync` 的開始 `ws` 與完成 `we`，Redis 實際寫入時刻 `s ∈ [ws, we]`。PTTL 取樣 MUST 在 `SetCompleted` 之後才開始（`we ≤ rs`），讀取前後記錄 `rs`、`re`，Redis 計算 PTTL 的時刻 `p ∈ [rs, re]`。正確實作的 PTTL ≈ `T − (p − s)`，因此必落在 `[T − (re − ws) − 1ms, T − (rs − we) + 1ms]`；1ms 只對應 Redis 整數毫秒截斷，不是可調容差。不採用「替身回報實際寫入時刻 `w`」：客戶端能觀測的最精確點就是 `[ws, we]`，任何單點 `w` 都只是在這個區間內取值，不會更可靠。
+    - 競態的先後關係以同一份包裝器事件紀錄證明（交易已提交 → 失效完成 → 舊資料寫入開始 → 寫入完成），R 的釋放等待「失效完成」訊號，不以固定等待推測。
+    - 寫入成功不能以 `SetAsync` 返回判斷：`RedisQueryCache` 對 Redis 例外 fail-open（記 Warning 後正常返回）。包裝器在返回後確認 key 存在、讀回內容等於本次寫入值、PTTL > 0，才視為本次寫入已落在 Redis；否則測試明確失敗，PTTL 區間公式只在這個前提成立時才套用。
+    - 存在／過期檢查以 `ws`／`we` 為基準安排窗口：包裝器公開事件紀錄（含 `Stopwatch.GetTimestamp()` 時刻），測試以同一個時鐘來源記錄自己的檢查時刻，因此可直接比較。檢查若因負載落在窗口外，丟出測試專用的「結果不可判定」例外，與一般斷言失敗區分，不視為通過。具體等待值是測試控制值，見 tasks 5.5，不是業務契約。
+  - **替代方案**：(a) 禁止重疊部署並以「缺欄位解讀為 null」維持一致——無法以自動化測試驗證部署約束，不採用；(b) 在 `query-caching` 主 spec 定義過渡期例外——等於放寬一致性保證，不採用。
+  - **能力數**：因此本 change 修改 4 個能力，超過 CLAUDE.md 的 3 個門檻；不拆分的理由見 proposal。
 
 ### 決策 7：Migration 與回滾
 
@@ -103,11 +124,11 @@
 
 ## Risks / Trade-offs
 
-- **R1 已開始的既有活動遷移後變成已停售** → 這是本 change 想修正的行為；demo 資料若需要可售活動，須建立 `StartAtUtc` 在未來的活動。部署說明須寫明。
+- **R1 未設定停售時間的活動自 `StartAtUtc` 起停售（含遷移當下已開始的既有活動）** → 這是本 change 想修正的行為，適用所有新舊活動，不只遷移當下；demo 資料若需要可售活動，須建立 `StartAtUtc` 在未來的活動。部署說明須寫明。
 - **R2 停售後排隊者被放行，卻無法下單** → 屬於非目標。被放行者下單會得到 `SalesClosed`，排隊紀錄依既有入場逾時自然轉為 `Expired`。後續前端 change 會依停售時間顯示「已停售」，降低這種困惑。
 - **R3 伺服器時鐘決定開賣瞬間** → 判斷一律用伺服器的 `IDateTimeProvider`，不採信客戶端時間；多實例之間的時鐘差會讓各實例的開賣瞬間有毫秒級差異，可接受。WSL2 時鐘每 30 秒倒退的已知問題只影響開發環境的時間相關測試，所以單元測試一律用 `FakeDateTimeProvider`，整合測試用相對現在至少數小時的時間，不貼著邊界。
 - **R4 既有 `StartAtUtc` 對不帶 `Z` 的時間輸入可能回 500** → 這是既有缺口，不在本次修正範圍。新欄位由 Validator 擋下非 UTC，所以新欄位帶 `Z`、`StartAtUtc` 不帶 `Z` 的請求，仍可能因為 `StartAtUtc` 而失敗。apply 時先實測確認，如果確實如此，就記入 `docs/project-scope.md` 第 8 節待確認事項，不在本 change 修。
-- **R5 錯誤優先順序改變** → 販售期間外的請求，原本會回報實名、限購或排隊資格錯誤，現在改回報 `SalesNotOpen`／`SalesClosed`。既有測試的活動都沒有設定販售期間，且開始時間在未來，所以不受影響。
+- **R5 錯誤優先順序改變** → 販售期間外的請求，原本會回報實名、限購或排隊資格錯誤，現在改回報 `SalesNotOpen`／`SalesClosed`。既有測試的活動都沒有設定販售期間，有效停售時間即 `StartAtUtc`；開始時間在未來的不受影響。已知例外：`AdminTicketsControllerTests.GetHolder_WhenEventAlreadyStarted_Returns200WithHolderData`（RDM-HOLDER-009）以 `startsAtUtc: DateTime.UtcNow.AddHours(-1)` 建立活動後經 `RealNameTestData.SeedIssuedTicketAsync` 下單，本變更後會得到 `SalesClosed` 而失敗，須改寫（tasks 5.9）。此盤點以 grep 為主，可能不完整，以 6.2 全部測試結果為準。
 
 ## 安全確認（CLAUDE.md 安全強制規則）
 

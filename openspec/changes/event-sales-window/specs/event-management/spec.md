@@ -4,14 +4,14 @@
 建立活動的管理 API SHALL 接受兩個選填欄位：`SalesStartAtUtc`（開賣時間）與 `SalesEndAtUtc`（停售時間）。兩者隨活動建立一併儲存；系統 MUST NOT 提供任何在活動建立後變更它們的途徑。
 
 - **未提供時的語意**：
-  - `SalesStartAtUtc` 未提供（null）代表無開賣限制，建立後立即可售
+  - `SalesStartAtUtc` 未提供（null）代表不設開賣下界，建立後立即可售（仍受停售時間限制）
   - `SalesEndAtUtc` 未提供（null）代表停售時間沿用活動開始時間 `StartAtUtc`
-  - 兩者皆未提供時，建立行為與本次變更前完全一致
+  - 兩者皆未提供時，建立 API 的請求格式、驗證與資料儲存行為和本次變更前相容；但依下方實際販售期間規則，活動自 `StartAtUtc` 起即視為停售，這是本次變更引入的業務行為變更（本次變更前，活動開始後仍可購票）
 - **實際販售期間**為左閉右開區間 `[SalesStartAtUtc, SalesEndAtUtc ?? StartAtUtc)`，`SalesStartAtUtc` 為 null 時沒有下界
 - **驗證**：違反時 MUST 回 400 驗證錯誤，不建立活動與任何 `EventSeat`
   - `SalesEndAtUtc` 有值時 MUST 不晚於 `StartAtUtc`
   - `SalesStartAtUtc` 有值時 MUST 早於實際停售時間（`SalesEndAtUtc ?? StartAtUtc`）
-  - 兩者有值時 MUST 為 UTC 時間（請求時間字串帶 `Z`）
+  - `SalesStartAtUtc` 有值時 MUST 為 UTC 時間；`SalesEndAtUtc` 有值時 MUST 為 UTC 時間。兩欄位各自獨立判斷，不論另一欄位是否提供；請求時間字串須帶 `Z`，不帶時區或帶偏移（例如 `+08:00`）皆視為非 UTC
   - 系統 MUST NOT 要求開賣時間晚於現在：允許建立後立即開賣
 - **列表**：後台專用的活動列表查詢端點 SHALL 在每筆活動附帶 `SalesStartAtUtc`、`SalesEndAtUtc` 的原始值（可為 null，不把 null 展開成其他值）
 - **既有活動**：本次變更前已存在的活動，遷移後兩者皆為 null
@@ -46,7 +46,7 @@
 - **THEN** 系統成功建立活動
 
 #### Scenario: EVT-SALES-008 非 UTC 時間被拒
-- **WHEN** 使用者建立活動，`SalesStartAtUtc` 為不帶 `Z` 的時間字串（例如 `2026-11-01T12:00:00`）
+- **WHEN** 使用者建立活動，只提供 `SalesStartAtUtc`，且為不帶 `Z` 的時間字串（例如 `2026-11-01T12:00:00`）；`StartAtUtc` 帶 `Z`
 - **THEN** 系統回傳 400，不建立活動，不以 500 失敗
 
 #### Scenario: EVT-SALES-009 後台活動列表附帶販售期間原始值
@@ -58,9 +58,25 @@
 - **THEN** 該活動的 `SalesStartAtUtc` 與 `SalesEndAtUtc` 皆為 null
 
 #### Scenario: EVT-SALES-011 有活動設定販售期間時回滾遷移被中止
-- **WHEN** 資料庫中有活動的 `SalesStartAtUtc` 非 null，執行本次遷移的 Down
+- **WHEN** 資料庫中有活動的 `SalesStartAtUtc` 或 `SalesEndAtUtc` 任一非 null（包括只設定開賣時間、只設定停售時間兩種情況），執行本次遷移的 Down
 - **THEN** 遷移以錯誤中止，`Events` 的兩欄位與資料保持不變
 
 #### Scenario: EVT-SALES-012 沒有活動設定販售期間時可回滾遷移
 - **WHEN** 資料庫中所有活動的兩欄位皆為 null，執行本次遷移的 Down
 - **THEN** 遷移成功，兩欄位被移除
+
+#### Scenario: EVT-SALES-013 只提供停售時間且非 UTC 被拒
+- **WHEN** 使用者建立活動，只提供 `SalesEndAtUtc`，且為不帶 `Z` 的時間字串；`StartAtUtc` 帶 `Z`
+- **THEN** 系統回傳 400，不建立活動，不以 500 失敗
+
+#### Scenario: EVT-SALES-014 開賣時間帶時區偏移被拒
+- **WHEN** 使用者建立活動，`SalesStartAtUtc` 為帶偏移的時間字串（例如 `2026-11-01T12:00:00+08:00`），不提供 `SalesEndAtUtc`；`StartAtUtc` 帶 `Z`
+- **THEN** 系統回傳 400，不建立活動
+
+#### Scenario: EVT-SALES-016 停售時間帶時區偏移被拒
+- **WHEN** 使用者建立活動，`SalesEndAtUtc` 為帶偏移的時間字串（例如 `2026-11-01T12:00:00+08:00`），不提供 `SalesStartAtUtc`；`StartAtUtc` 帶 `Z`
+- **THEN** 系統回傳 400，不建立活動
+
+#### Scenario: EVT-SALES-015 一欄 UTC、另一欄非 UTC 被拒
+- **WHEN** 使用者建立活動，`SalesStartAtUtc` 帶 `Z`，`SalesEndAtUtc` 不帶 `Z`
+- **THEN** 系統回傳 400，不建立活動

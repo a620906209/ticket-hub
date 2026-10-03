@@ -2,30 +2,55 @@
 
 - [ ] 0.1 確認在分支 `feature/event-sales-window`（自 master `f016de5` 建立），所有指令透過 `docker compose exec api`；既有測試全數通過作為基準（記錄 pass 數）
 
+> 測試任務格式：每一條以「情境 ID｜Given → When → Then（可觀察斷言）」描述，並列出測試方法名稱（`MethodName_Scenario_ExpectedResult`；標「既有」者為改寫既有方法）；所屬區塊標題標明測試類型（單元／整合）與測試 class。每個測試方法上方以註解標注其 Scenario ID（例如 `// QC-EVT-VER-003`；同一 ID 有多個方法時加覆蓋面），由方法可反查 AC。
+
 ## 1. Domain
 
-- [ ] 1.1（design.md 決策 1、2）`Event` 新增 `SalesStartAtUtc`、`SalesEndAtUtc`（`DateTime?`，`private set`），建構子新增兩個選填參數（置於參數列尾端，既有 64 處 `new Event(` 呼叫不需修改）；建構子驗證 `SalesEndAtUtc <= StartAtUtc`、`SalesStartAtUtc < (SalesEndAtUtc ?? StartAtUtc)`、有值時 `Kind == Utc`，違反時丟 `ArgumentException`（與既有建構子驗證一致）
+- [ ] 1.1（design.md 決策 1、2）`Event` 新增 `SalesStartAtUtc`、`SalesEndAtUtc`（`DateTime?`，`private set`），建構子新增兩個選填參數（置於參數列尾端，既有 `new Event(` 呼叫不需修改）；建構子驗證 `SalesEndAtUtc <= StartAtUtc`、`SalesStartAtUtc < (SalesEndAtUtc ?? StartAtUtc)`、每個欄位有值時各自須 `Kind == Utc`，違反時丟 `ArgumentException`（與既有建構子驗證一致）
 - [ ] 1.2（決策 2）新增 `EventSalesStatus { NotOpen, Open, Closed }` 與 `Event.GetSalesStatus(DateTime nowUtc)`，左閉右開 `[SalesStart ?? -∞, SalesEnd ?? StartAt)`
-- [ ] 1.3 `EventTests` 單元測試：
-  - 建構子：合法組合（EVT-SALES-001／002／003／007 的 Domain 面）、`SalesEnd > StartAt`（004）、`SalesStart >= SalesEnd`（005，含相等）、`SalesEnd` 為 null 時 `SalesStart >= StartAt`（006，含相等）、非 Utc Kind 被拒
-  - `GetSalesStatus`：開賣前一 tick → NotOpen；開賣當下 → Open（左閉）；停售當下 → Closed（右開）；`SalesEnd` null 時以 `StartAt` 為停售；兩者皆 null 且 now < StartAt → Open
+- [ ] 1.3 **單元測試** `tests/ProjectC.Domain.Tests/Events/EventTests.cs`（建構子）：
+  - EVT-SALES-001｜`Constructor_WithValidSalesWindow_SetsBothProperties`｜StartAt=T+10d、SalesStart=T+1d、SalesEnd=T+9d → 建構 → 屬性值與輸入相同
+  - EVT-SALES-002｜`Constructor_WithoutSalesWindow_LeavesBothPropertiesNull`｜不傳兩參數 → 建構 → 兩屬性皆 null
+  - EVT-SALES-003｜`Constructor_WithOnlySalesStart_LeavesSalesEndNull`｜只傳 SalesStart < StartAt → 建構 → `SalesEndAtUtc` 為 null
+  - EVT-SALES-004｜`Constructor_WhenSalesEndIsAfterStartAt_ThrowsArgumentException`、`Constructor_WhenSalesEndEqualsStartAt_Succeeds`（邊界）｜SalesEnd = StartAt + 1 tick → 建構 → 丟 `ArgumentException`；SalesEnd = StartAt → 成功（邊界）
+  - EVT-SALES-005｜`Constructor_WhenSalesStartIsNotBeforeSalesEnd_ThrowsArgumentException`｜SalesStart = SalesEnd、SalesStart > SalesEnd 兩案 → 丟 `ArgumentException`
+  - EVT-SALES-006｜`Constructor_WhenSalesEndIsNullAndSalesStartIsNotBeforeStartAt_ThrowsArgumentException`｜SalesEnd null、SalesStart = StartAt、SalesStart > StartAt 兩案 → 丟 `ArgumentException`
+  - EVT-SALES-007｜`Constructor_WhenSalesStartIsInPast_Succeeds`｜SalesStart 早於 2026-01-01（過去）且早於 StartAt → 建構成功（Domain 不依當下時間驗證）
+  - EVT-SALES-008｜`Constructor_WhenSalesStartKindIsUnspecified_ThrowsArgumentException`｜只傳 SalesStart，Kind = Unspecified → 丟 `ArgumentException`
+  - EVT-SALES-013｜`Constructor_WhenSalesEndKindIsUnspecified_ThrowsArgumentException`｜只傳 SalesEnd，Kind = Unspecified → 丟 `ArgumentException`
+  - EVT-SALES-014｜`Constructor_WhenSalesStartKindIsLocal_ThrowsArgumentException`｜只傳 SalesStart，Kind = Local → 丟 `ArgumentException`
+  - EVT-SALES-016｜`Constructor_WhenSalesEndKindIsLocal_ThrowsArgumentException`｜只傳 SalesEnd，Kind = Local → 丟 `ArgumentException`
+  - EVT-SALES-015｜`Constructor_WhenOnlySalesEndKindIsNotUtc_ThrowsArgumentException`｜SalesStart Kind = Utc、SalesEnd Kind = Unspecified（時間關係合法）→ 丟 `ArgumentException`
+- [ ] 1.4 **單元測試** `EventTests.cs`（`GetSalesStatus`，`[Theory]` 方法 `GetSalesStatus_AtEachBoundary_ReturnsExpectedStatus`，design.md 決策 1 的區間語意，支撐 TP-SALES-ORDER-001…005、PQ-SALES-JOIN-010／011 的 Domain 面）：開賣前 1 tick → NotOpen；開賣當下 → Open（左閉）；停售前 1 tick → Open；停售當下 → Closed（右開）；SalesEnd null 時 now = StartAt → Closed、now = StartAt − 1 tick → Open；兩者皆 null 且 now < StartAt → Open
 
 ## 2. Infrastructure
 
 - [ ] 2.1（決策 7）`EventConfiguration` 明確 `Property()` 對映兩欄位（nullable timestamptz，不設預設值）；建構子參數名與屬性名一致以利 EF ctor binding
 - [ ] 2.2（決策 7）新增 migration `AddEventSalesWindow`：`Up` 加兩個 nullable 欄位不回填；`Down` 比照 `AddRealNameVerification` 以 DO-block 在任一活動兩欄位之一非 null 時 `RAISE EXCEPTION`，再 drop 欄位
-- [ ] 2.3 新增 `EventSalesWindowMigrationTests`（Testcontainers，比照 `RealNameVerificationMigrationTests`）：
-  - EVT-SALES-010：遷移到前一版建立活動 → 套用本 migration → 兩欄位為 null
-  - EVT-SALES-011：有活動 `SalesStartAtUtc` 非 null → Down 拋錯，欄位與資料不變
-  - EVT-SALES-012：全部為 null → Down 成功，欄位已移除
-- [ ] 2.4 `RepositoryCrudRoundTripTests`（或同等既有測試）補一筆兩欄位有值的 round-trip，確認 EF 讀回值與 Kind 為 Utc（必做，不可略過：Domain 建構子的 Kind 檢查在 EF 具現化時也會執行，依賴 Npgsql 讀回為 Utc）
+- [ ] 2.3 **整合測試**（Testcontainers PostgreSQL，以 `IMigrator.MigrateAsync(targetMigration)` 切換版本）新增 `tests/ProjectC.Infrastructure.Tests/Events/EventSalesWindowMigrationTests.cs`，結構比照 `Members/RealNameVerificationMigrationTests.cs`：
+  - EVT-SALES-010｜**整合測試** `tests/ProjectC.Infrastructure.Tests/Events/EventSalesWindowMigrationTests.cs` `Up_WhenLegacyEventExists_LeavesSalesWindowNull`｜Given 資料庫遷移到 `AddRealNameVerification`，以 SQL 插入一筆活動並記下所有欄位值 → When 遷移到 `AddEventSalesWindow` → Then 以 SQL 查詢該列：`SalesStartAtUtc`、`SalesEndAtUtc` 皆為 NULL，其他欄位值與插入時相同
+  - EVT-SALES-011（只設定開賣時間）｜**整合測試** `tests/ProjectC.Infrastructure.Tests/Events/EventSalesWindowMigrationTests.cs` `Down_WhenSalesStartIsSet_ThrowsAndKeepsColumnsAndData`｜Given 資料庫在最新版，插入一筆 `SalesStartAtUtc` 非 null、`SalesEndAtUtc` 為 null 的活動 → When 遷移到 `AddRealNameVerification` → Then 拋出 `PostgresException`；`information_schema.columns` 兩欄位仍存在；該列 `SalesStartAtUtc`、`SalesEndAtUtc` 值皆不變；`__EFMigrationsHistory` 仍含 `AddEventSalesWindow`
+  - EVT-SALES-011（只設定停售時間）｜**整合測試** `tests/ProjectC.Infrastructure.Tests/Events/EventSalesWindowMigrationTests.cs` `Down_WhenSalesEndIsSet_ThrowsAndKeepsColumnsAndData`｜Given 資料庫在最新版，插入一筆 `SalesStartAtUtc` 為 null、`SalesEndAtUtc` 非 null 的活動（spec 允許只設定停售時間）→ When 遷移到 `AddRealNameVerification` → Then 拋出 `PostgresException`；`information_schema.columns` 兩欄位仍存在；該列 `SalesStartAtUtc`、`SalesEndAtUtc` 值皆不變；`__EFMigrationsHistory` 仍含 `AddEventSalesWindow`。兩個案例分開：Down 的防護條件若只檢查 `SalesStartAtUtc IS NOT NULL`，只有本案例會失敗
+  - EVT-SALES-012｜**整合測試** `tests/ProjectC.Infrastructure.Tests/Events/EventSalesWindowMigrationTests.cs` `Down_WhenNoSalesWindowData_RemovesColumns`｜Given 資料庫在最新版，插入一筆兩欄位皆 null 的活動 → When 遷移到 `AddRealNameVerification` → Then 不拋例外；`information_schema.columns` 不再有兩欄位；該活動列仍存在；`__EFMigrationsHistory` 不含 `AddEventSalesWindow`
+- [ ] 2.4 **整合測試** `RepositoryCrudRoundTripTests`（或同等既有測試）新增 `Event_WithSalesWindow_RoundTripsValuesWithUtcKind`，補一筆兩欄位有值的 round-trip，斷言 EF 讀回值相同且 `Kind == Utc`（必做，不可略過：Domain 建構子的 Kind 檢查在 EF 具現化時也會執行，依賴 Npgsql 讀回為 Utc）
 
 ## 3. Application — 建立活動與列表
 
-- [ ] 3.1（決策 1）`CreateEventRequest` 尾端新增 `DateTime? SalesStartAtUtc = null, DateTime? SalesEndAtUtc = null`；Validator 加上與 Domain 一致的時間關係規則及 `Kind == Utc` 規則；Handler 傳入 `Event` 建構子
+- [ ] 3.1（決策 1）`CreateEventRequest` 尾端新增 `DateTime? SalesStartAtUtc = null, DateTime? SalesEndAtUtc = null`；Validator 加上與 Domain 一致的時間關係規則及每個欄位各自的 `Kind == Utc` 規則；Handler 傳入 `Event` 建構子
 - [ ] 3.2（決策 6）`EventDto`、`AdminEventSummaryDto` 新增兩欄位（`DateTime?`，置於尾端），`GetEventsHandler`、`GetAdminEventsHandler` 帶出原始值，不加任何推導狀態欄位
-- [ ] 3.3 `CreateEventValidator`／`CreateEventHandlerTests` 單元測試：EVT-SALES-001／002／003／007 成功並傳入正確值；004／005／006 回 Validation 且未呼叫 repository 新增；非 Utc Kind 回 Validation（EVT-SALES-008 的 Application 面）
-- [ ] 3.4 `GetEventsHandlerTests`、`GetAdminEventsHandlerTests`：有設定與未設定的活動各一筆，DTO 值與 Entity 一致、未設定者為 null（TP-BROWSE-SALES-001、EVT-SALES-009 的 Application 面）
+- [ ] 3.3 **單元測試** `CreateEventRequestValidator` 經由 Handler 驗證（沿用既有慣例，無獨立 Validator 測試檔；Kind 案例另直接呼叫 Validator 斷言錯誤欄位），全部方法置於 `tests/ProjectC.Application.Tests/Events/CreateEvent/CreateEventHandlerTests.cs`（`FakeDateTimeProvider`，固定 now = 2026-01-01）：
+  - EVT-SALES-001／003｜`HandleAsync_WithValidSalesWindow_PassesBothValuesToEvent`（001）、`HandleAsync_WithOnlySalesStart_PassesNullSalesEndToEvent`（003）｜合法請求 → Handler → 成功，repository 收到的 `Event` 兩欄位與請求相同（003 的 SalesEnd 為 null）
+  - EVT-SALES-002｜`HandleAsync_WithoutSalesWindow_CreatesEventWithNullSalesWindow`｜不帶新欄位的請求 → 成功，`Event` 兩欄位為 null
+  - EVT-SALES-007｜`HandleAsync_WithPastSalesStart_CreatesEvent`｜SalesStart = now − 1 天、StartAt = now + 10 天 → Validator 無錯誤、Handler 成功
+  - EVT-SALES-004／005／006｜`HandleAsync_WhenSalesEndIsAfterStartAt_ReturnsValidationWithoutAddingEvent`（004）、`HandleAsync_WhenSalesStartIsNotBeforeSalesEnd_ReturnsValidationWithoutAddingEvent`（005）、`HandleAsync_WhenSalesStartIsNotBeforeStartAtWithoutSalesEnd_ReturnsValidationWithoutAddingEvent`（006）｜各違反條件 → `Validation`，未呼叫 repository 新增
+  - Kind 案例以 `DateTime.SpecifyKind` 建構，時間關係皆合法，只違反 Kind；每案斷言 `CreateEventRequestValidator` 驗證失敗、錯誤指向違反的欄位，且 Handler 回 `Validation`、未呼叫 repository 新增：
+    - EVT-SALES-008｜`HandleAsync_WhenSalesStartKindIsUnspecified_ReturnsValidationOnSalesStartAtUtc`｜只有 `SalesStartAtUtc`，Kind = Unspecified → 錯誤指向 `SalesStartAtUtc`
+    - EVT-SALES-013｜`HandleAsync_WhenSalesEndKindIsUnspecified_ReturnsValidationOnSalesEndAtUtc`｜只有 `SalesEndAtUtc`，Kind = Unspecified → 錯誤指向 `SalesEndAtUtc`
+    - EVT-SALES-014｜`HandleAsync_WhenSalesStartKindIsLocal_ReturnsValidationOnSalesStartAtUtc`｜只有 `SalesStartAtUtc`，Kind = Local → 錯誤指向 `SalesStartAtUtc`
+    - EVT-SALES-016｜`HandleAsync_WhenSalesEndKindIsLocal_ReturnsValidationOnSalesEndAtUtc`｜只有 `SalesEndAtUtc`，Kind = Local → 錯誤指向 `SalesEndAtUtc`
+    - EVT-SALES-015｜`HandleAsync_WhenOnlySalesEndKindIsNotUtc_ReturnsValidationOnlyOnSalesEndAtUtc`｜`SalesStartAtUtc` Kind = Utc、`SalesEndAtUtc` Kind = Unspecified → 錯誤只指向 `SalesEndAtUtc`
+- [ ] 3.4（design.md 決策 6，`query-caching` QC-EVT-VER）`GetEventsHandler.CacheKey` 改為 `"query-cache:events:list:v2"`；確認 `CreateEventHandler`、`SetEventQueueModeHandler` 的 `RemoveAsync` 皆引用此常數、src 與 tests 無寫死舊字串
+- [ ] 3.5 **單元測試** `GetEventsHandlerTests.HandleAsync_WithAndWithoutSalesWindow_MapsRawSalesWindowToDto`（TP-BROWSE-SALES-001）、`GetAdminEventsHandlerTests.HandleAsync_WithAndWithoutSalesWindow_MapsRawSalesWindowToDto`（EVT-SALES-009）｜有設定與未設定的活動各一筆 → 查詢 → DTO 兩欄位與 Entity 相同、未設定者為 null（TP-BROWSE-SALES-001、EVT-SALES-009 的 Application 面）
 
 ## 4. Application — 錯誤型別與閘門
 
@@ -37,40 +62,261 @@
 - [ ] 4.3（決策 4）`JoinPurchaseQueueHandler`：
   - 交易外：驗證碼、活動存在之後，熱門搶購模式與實名之前
   - 交易內：`lockedEvent` null 檢查之後、RN-mismatch 與熱門搶購模式重驗之前，在任何排隊紀錄查詢／寫入（含 Admitted→Expired 轉換）之前檢查；把既有 `var now = _dateTimeProvider.UtcNow` 上移到 `lockedEvent` null 檢查之後，販售期間檢查與 Admitted 逾時判斷共用同一個 `now`，不產生兩個 `now`
-- [ ] 4.4 `OrderServiceTests` 單元測試（`FakeDateTimeProvider`）：
-  - TP-SALES-ORDER-001／002（含停售當下相等）／003（含開賣當下相等）／004／005：回傳結果正確，失敗時未呼叫任何座位／票種鎖定與 `Add`
-  - TP-SALES-ORDER-006：未實名 + 尚未開賣 + 超過限購 → `SalesNotOpen`
-  - TP-SALES-ORDER-007：跨活動 + 尚未開賣 → 既有跨活動 Validation
-  - TP-SALES-ORDER-008：`FakeDateTimeProvider` 在交易外讀取後推進到停售（以 `GetForUpdateAsync` 測試替身的回呼或依序回傳值的時間替身模擬）→ `SalesClosed`，交易回滾、未鎖定
-  - TP-SALES-ORDER-009：`GetByIdAsync` 回 null、`GetForUpdateAsync` 回已停售活動 → `SalesClosed`，未查詢排隊資格、未鎖定
-  - TP-SALES-ORDER-011／012：活動已停售時 `ConfirmOrderAsync`／`CancelOrderAsync` 照常成功
-- [ ] 4.5 `JoinPurchaseQueueHandlerTests` 單元測試（`FakeDateTimeProvider`）：
-  - PQ-SALES-JOIN-001／002／003
-  - PQ-SALES-JOIN-004：驗證碼錯誤 + 尚未開賣 → `CaptchaInvalid`
-  - PQ-SALES-JOIN-005：未開啟熱門搶購模式 + 尚未開賣 → `SalesNotOpen`
-  - PQ-SALES-JOIN-006：未實名 + 需實名 + 尚未開賣 → `SalesNotOpen`
-  - PQ-SALES-JOIN-007：已逾時 `Admitted` 紀錄 + 已停售 → `SalesClosed`，紀錄仍為 `Admitted`、未呼叫更新
-  - PQ-SALES-JOIN-008：交易外可售、交易內時間推進到停售 → `SalesClosed`，未建立紀錄；另一案例為交易內同時已停售且 `IsQueueModeEnabled = false` → `SalesClosed`（驗證交易內販售期間檢查先於熱門搶購模式重驗）
+- [ ] 4.4 **單元測試** `tests/ProjectC.Application.Tests/Orders/OrderServiceTests.cs`（`FakeDateTimeProvider`）：
+  - TP-SALES-ORDER-001｜`PlaceOrderAsync_WhenSalesNotOpen_ReturnsSalesNotOpenWithoutLockingOrAddingOrder`｜SalesStart = now + 1h → 下單 → `SalesNotOpen`，未呼叫任何座位／票種鎖定、未 `Add` 訂單
+  - TP-SALES-ORDER-002｜`PlaceOrderAsync_WhenSalesEndReachedOrPassed_ReturnsSalesClosedWithoutLockingOrAddingOrder`｜SalesEnd = now − 1h、SalesEnd = now（相等）兩案 → `SalesClosed`，同上未鎖定、未新增
+  - TP-SALES-ORDER-003｜`PlaceOrderAsync_WhenNowEqualsSalesStart_CreatesOrder`｜SalesStart = now（相等）、SalesEnd = now + 1h → 成功建立訂單
+  - TP-SALES-ORDER-004｜`PlaceOrderAsync_WhenSalesEndIsNullAndEventStarted_ReturnsSalesClosed`｜SalesEnd null、StartAt = now − 1h → `SalesClosed`，未新增
+  - TP-SALES-ORDER-005｜`PlaceOrderAsync_WhenSalesWindowNotSetAndEventNotStarted_CreatesOrder`｜兩者皆 null、StartAt = now + 1 天 → 成功建立訂單
+  - TP-SALES-ORDER-006｜`PlaceOrderAsync_WhenSalesNotOpenAndRealNameAndLimitAlsoFail_ReturnsSalesNotOpen`｜未實名 + 需實名 + 限購 2 + 請求 3 張 + 尚未開賣 → `SalesNotOpen`
+  - TP-SALES-ORDER-007｜`PlaceOrderAsync_WhenItemsSpanEventsAndOneIsNotOpen_ReturnsCrossEventValidation`｜項目跨活動 A（尚未開賣）與 B → 既有跨活動 `Validation`
+  - TP-SALES-ORDER-008｜`PlaceOrderAsync_WhenSalesClosesWhileWaitingForEventLock_ReturnsSalesClosedAndRollsBack`｜交易外可售，`GetForUpdateAsync` 測試替身回呼中把 `FakeDateTimeProvider.UtcNow` 推進到停售 → `SalesClosed`，交易回滾（未 commit）、未鎖定座位／票種
+  - TP-SALES-ORDER-009｜`PlaceOrderAsync_WhenEventMissingOutsideTransactionButClosedInside_ReturnsSalesClosed`｜`GetByIdAsync` 回 null、`GetForUpdateAsync` 回已停售活動 → `SalesClosed`，未查詢排隊資格、未鎖定
+  - TP-SALES-ORDER-010｜`PlaceOrderAsync_WhenAdmittedButSalesClosed_ReturnsSalesClosedWithoutTouchingQueueEntry`｜Queue Mode 開、已停售、會員有未逾時 `Admitted` 紀錄 → `SalesClosed`，未呼叫排隊紀錄查詢或更新、未新增訂單
+  - TP-SALES-ORDER-011｜`ConfirmOrderAsync_WhenEventSalesClosed_ConfirmsOrderAsPaid`｜已停售活動上的 Pending 訂單 → `ConfirmOrderAsync` → 成功、狀態 `Paid`
+  - TP-SALES-ORDER-012｜`CancelOrderAsync_WhenEventSalesClosed_CancelsOrder`｜已停售活動上的 Pending 訂單 → `CancelOrderAsync` → 成功、狀態 `Cancelled`
+- [ ] 4.5 **單元測試** `tests/ProjectC.Application.Tests/PurchaseQueue/JoinPurchaseQueue/JoinPurchaseQueueHandlerTests.cs`（`FakeDateTimeProvider`）：
+  - PQ-SALES-JOIN-001｜`HandleAsync_WhenSalesNotOpen_ReturnsSalesNotOpenWithoutAddingEntry`｜Queue Mode 開、驗證碼正確、SalesStart = now + 1h → `SalesNotOpen`，未呼叫排隊紀錄新增
+  - PQ-SALES-JOIN-002｜`HandleAsync_WhenSalesClosed_ReturnsSalesClosedWithoutAddingEntry`｜Queue Mode 開、驗證碼正確、SalesEnd = now − 1h → `SalesClosed`，未呼叫排隊紀錄新增
+  - PQ-SALES-JOIN-003｜`HandleAsync_WithinSalesWindow_AddsWaitingEntry`｜Queue Mode 開、驗證碼正確、SalesStart = now − 1h、SalesEnd = now + 1h、無既有紀錄 → 成功，新增一筆 `Status = Waiting` 的紀錄
+  - PQ-SALES-JOIN-004｜`HandleAsync_WhenCaptchaInvalidAndSalesNotOpen_ReturnsCaptchaInvalid`｜驗證碼錯誤 + 尚未開賣 → `CaptchaInvalid`
+  - PQ-SALES-JOIN-005｜`HandleAsync_WhenQueueModeDisabledAndSalesNotOpen_ReturnsSalesNotOpen`｜`IsQueueModeEnabled = false` + 尚未開賣 → `SalesNotOpen`（非 Conflict）
+  - PQ-SALES-JOIN-006｜`HandleAsync_WhenRealNameMissingAndSalesNotOpen_ReturnsSalesNotOpen`｜未實名 + 需實名 + Queue Mode 開 + 尚未開賣 → `SalesNotOpen`
+  - PQ-SALES-JOIN-007｜`HandleAsync_WhenExpiredAdmittedEntryAndSalesClosed_ReturnsSalesClosedWithoutExpiringEntry`｜已逾時 `Admitted` 紀錄 + 已停售 → `SalesClosed`，紀錄仍為 `Admitted`、未呼叫更新、未新增
+  - PQ-SALES-JOIN-008｜`HandleAsync_WhenSalesClosesWhileWaitingForEventLock_ReturnsSalesClosedWithoutAddingEntry`（交易內推進到停售）、`HandleAsync_WhenClosedInsideTransactionAndQueueModeDisabled_ReturnsSalesClosed`（另一案）｜交易外可售、`GetForUpdateAsync` 回呼中把時間推進到停售 → `SalesClosed`，未新增；另一案：交易內已停售且 `IsQueueModeEnabled = false` → `SalesClosed`（交易內販售期間檢查先於 Queue Mode 重驗）
+  - PQ-SALES-JOIN-010｜`HandleAsync_WhenSalesWindowNotSetAndEventNotStarted_AddsWaitingEntry`｜兩者皆 null、StartAt = now + 1 天、Queue Mode 開、驗證碼正確 → 成功，新增一筆 `Waiting`
+  - PQ-SALES-JOIN-011｜`HandleAsync_WhenSalesEndIsNullAndEventStartedWithExpiredAdmittedEntry_ReturnsSalesClosed`｜SalesEnd null、StartAt = now 與 now − 1h 兩案、Queue Mode 開、驗證碼正確、已逾時 `Admitted` 紀錄 → `SalesClosed`，紀錄仍為 `Admitted`、未呼叫更新、未新增
 
 ## 5. WebApi
 
 - [ ] 5.1（決策 5）`ResultExtensions` 將 `SalesNotOpen`、`SalesClosed` 對映為 409，附「為什麼是 409 而非 403」的註解（與其他對映的註解風格一致）
-- [ ] 5.2 `EventsControllerTests`／`AdminEventsControllerTests`（WebApplicationFactory + Testcontainers）：
-  - EVT-SALES-001／002：建立後經後台列表讀回，值一致或為 null；EVT-SALES-009：後台列表混合兩種活動
-  - EVT-SALES-004／005／006：回 400 且資料庫無新 `Event`、無 `EventSeat`
-  - EVT-SALES-008：`SalesStartAtUtc` 不帶 `Z` → 400，不是 500（請求的 `StartAtUtc` 必須帶 `Z`，避免被 design.md R4 的既有缺口干擾）；帶偏移（例如 `+08:00`，反序列化為 `Kind=Local`）同樣 → 400
-  - TP-BROWSE-SALES-001：公開列表（匿名）附帶原始值、回應 JSON 不含任何販售狀態欄位
-- [ ] 5.3 TP-BROWSE-SALES-002：於 `QueryCachingComponentTests`（或 `RealNameEventListCacheTests` 同一模式）以 `JsonSerializer.Serialize` 序列化一個舊 shape（不含兩欄位）的匿名物件寫入快取（不手寫 JSON 字串，以符合 `RedisQueryCache` 預設的 PascalCase），公開列表命中快取時兩欄位為 null、回 200
-- [ ] 5.4 `OrdersControllerTests`：TP-SALES-ORDER-001（409 + `Title = "SalesNotOpen"`、座位仍 Available、票種庫存不變、無訂單）、TP-SALES-ORDER-002（409 + `SalesClosed`）；TP-SALES-ORDER-011／012：以資料庫建立「販售期間內建立的 Pending 訂單」後活動已停售的狀態（Event 不可變更，故直接 seed 已停售活動與 Pending 訂單），確認付款成功出票、取消成功並釋放
-- [ ] 5.5 TP-SALES-ORDER-010：開啟熱門搶購模式、已停售活動，seed 一筆未逾時 `Admitted` 紀錄，建立訂單 → 409 `SalesClosed`，排隊紀錄狀態不變（`OrdersControllerTests` 或 `OrderServiceQueueModeLinearizationTests` 所在專案）
-- [ ] 5.6 `EventQueueControllerTests`／`PurchaseQueueCaptchaTests`：PQ-SALES-JOIN-001／002 的 HTTP 409 + Title；PQ-SALES-JOIN-009：seed 已停售活動上的既有排隊紀錄，`GET .../queue/entries/me` 照常回傳
-- [ ] 5.7 整合測試時間一律相對 `DateTime.UtcNow` 至少數小時，不貼邊界（design.md R3，WSL2 時鐘倒退）；核對 WebApi 測試中所有以 POST 建立活動的請求 `StartAtUtc` 皆在未來（design.md R5）
+- [ ] 5.2 **整合測試** `tests/ProjectC.WebApi.Tests/Admin/AdminEventsControllerTests.cs`（WebApplicationFactory + Testcontainers；`POST /api/admin/events` 以 Approved Organizer 身分；請求以原始 JSON 字串送出，Kind 由反序列化決定；`StartAtUtc` 一律帶 `Z`，避免 design.md R4 干擾）。「`Events`／`EventSeats` 無新增列」一律以 `AppDbContext` 在請求前後各計數一次 `Events`、`EventSeats` 並斷言相等；每個情境各自為一個測試方法：
+  - EVT-SALES-001｜`CreateEvent_WithSalesWindow_Returns201AndAdminListReturnsSameValues`｜帶兩欄位 → 201；`GET /api/admin/events` 讀回兩欄位與請求相同
+  - EVT-SALES-002｜`CreateEvent_WithoutSalesWindow_Returns201AndAdminListReturnsNulls`｜既有格式不帶新欄位 → 201；後台列表兩欄位為 null
+  - EVT-SALES-007｜`CreateEvent_WithPastSalesStart_Returns201AndAdminListReturnsIt`｜`SalesStartAtUtc` = `DateTime.UtcNow` − 1 天、`StartAtUtc` = + 10 天 → 201，後台列表讀回該 `SalesStartAtUtc`
+  - EVT-SALES-004｜`CreateEvent_WhenSalesEndIsAfterStartAt_Returns400AndCreatesNoRows`｜Given `SalesEndAtUtc` 晚於 `StartAtUtc` → When `POST /api/admin/events` → Then 400；`Events` 無新增列；`EventSeats` 無新增列
+  - EVT-SALES-005｜`CreateEvent_WhenSalesStartEqualsSalesEnd_Returns400AndCreatesNoRows`｜Given `SalesStartAtUtc` 等於 `SalesEndAtUtc` → When `POST` → Then 400；`Events` 無新增列；`EventSeats` 無新增列
+  - EVT-SALES-006｜`CreateEvent_WhenSalesStartEqualsStartAtWithoutSalesEnd_Returns400AndCreatesNoRows`｜Given 不帶 `SalesEndAtUtc`、`SalesStartAtUtc` 等於 `StartAtUtc` → When `POST` → Then 400；`Events` 無新增列；`EventSeats` 無新增列
+  - EVT-SALES-008｜`CreateEvent_WhenSalesStartHasNoUtcDesignator_Returns400AndCreatesNoRows`｜Given 只帶 `SalesStartAtUtc`，值不帶 `Z`（`"2026-11-01T12:00:00"` 形式，時間關係合法）→ When `POST` → Then 400（不是 500）；`Events` 無新增列；`EventSeats` 無新增列
+  - EVT-SALES-013｜`CreateEvent_WhenSalesEndHasNoUtcDesignator_Returns400AndCreatesNoRows`｜Given 只帶 `SalesEndAtUtc`，值不帶 `Z`（時間關係合法）→ When `POST` → Then 400（不是 500）；`Events` 無新增列；`EventSeats` 無新增列
+  - EVT-SALES-014｜`CreateEvent_WhenSalesStartHasOffset_Returns400AndCreatesNoRows`｜Given 只帶 `SalesStartAtUtc`，值帶 `+08:00`（時間關係合法）→ When `POST` → Then 400（不是 500）；`Events` 無新增列；`EventSeats` 無新增列
+  - EVT-SALES-016｜`CreateEvent_WhenSalesEndHasOffset_Returns400AndCreatesNoRows`｜Given 只帶 `SalesEndAtUtc`，值帶 `+08:00`（時間關係合法）→ When `POST` → Then 400（不是 500）；`Events` 無新增列；`EventSeats` 無新增列
+  - EVT-SALES-015｜`CreateEvent_WhenOnlySalesEndHasNoUtcDesignator_Returns400AndCreatesNoRows`｜Given `SalesStartAtUtc` 帶 `Z`、`SalesEndAtUtc` 不帶 `Z`（時間關係合法）→ When `POST` → Then 400（不是 500）；`Events` 無新增列；`EventSeats` 無新增列
+  - EVT-SALES-009｜`GetAdminEvents_WithAndWithoutSalesWindow_ReturnsEachEventsOwnValues`｜Organizer A 名下一筆有設定、一筆未設定 → 後台列表兩筆值各自正確
+- [ ] 5.3 **整合測試** `tests/ProjectC.WebApi.Tests/Events/EventsControllerTests.cs`：TP-BROWSE-SALES-001｜`GetEvents_WithAndWithoutSalesWindow_ReturnsRawValuesWithoutSalesStatusField`｜資料庫有設定與未設定販售期間的活動 → 匿名 `GET /api/events` → 每筆兩欄位與資料庫相同、未設定者為 null；回應 JSON 物件的屬性名集合不含任何販售狀態欄位
+- [ ] 5.4 **整合測試**（Testcontainers Redis + PostgreSQL，`tests/ProjectC.WebApi.Tests/Events/QueryCachingComponentTests.cs`；key 一律以字串字面值斷言，不引用 `GetEventsHandler.CacheKey`，鎖定契約）：
+  - QC-EVT-VER-001｜`GetEvents_WhenOnlyLegacyKeyExists_IgnoresItAndWritesV2`｜Given 以 `JsonSerializer.Serialize` 序列化不含兩欄位的舊形狀匿名物件寫入 `"query-cache:events:list"`，`"query-cache:events:list:v2"` 不存在，資料庫有一筆設定販售期間的活動 → When 匿名 `GET /api/events` → Then 200，該活動兩欄位與資料庫相同（證明未讀舊 key）；`"query-cache:events:list:v2"` 已存在；`"query-cache:events:list"` 內容與寫入時相同
+  - QC-EVT-VER-004｜新增 `GetEvents_OnCacheMiss_WritesV2WithBothSalesWindowPropertiesEvenWhenNull`｜Given `"query-cache:events:list:v2"` 不存在；資料庫有活動 X（兩欄位皆有值）與活動 Y（以 SQL 將兩欄位設為 NULL，模擬遷移前的舊活動）→ When 匿名 `GET /api/events` → Then 200；以 `StringGetAsync("query-cache:events:list:v2")` 取原始字串並以 `JsonDocument.Parse` 解析，X、Y 對應的元素皆 `TryGetProperty("SalesStartAtUtc")`、`TryGetProperty("SalesEndAtUtc")` 為 true（屬性名稱依 `RedisQueryCache` 的預設序列化，為 PascalCase）；X 的兩值與資料庫相同，Y 的兩值 `ValueKind == JsonValueKind.Null`；`"query-cache:events:list"` 不存在。目的：v2 不在讀取時檢查形狀，正確性依賴「寫入一定是完整形狀」，此測試在序列化設定被改成省略 null 屬性時失敗
+  - QC-EVT-VER-002｜`CreateEvent_WhenBothV1AndV2KeysExist_RemovesOnlyV2Key`｜Given 兩個 key 皆存在 → When Approved Organizer `POST /api/admin/events` 成功 → Then `"query-cache:events:list:v2"` 不存在、`"query-cache:events:list"` 內容不變
+  - QC-EVT-VER-002｜`SetEventQueueMode_WhenBothV1AndV2KeysExist_RemovesOnlyV2Key`｜Given 以 `AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync` 建立活動（屬於該 Organizer），再以測試的 `IConnectionMultiplexer` 寫入 `"query-cache:events:list"`（內容為含唯一標記 `Guid.NewGuid():N` 的字串）與 `"query-cache:events:list:v2"`，先斷言兩個 key 皆存在 → When 同一 Organizer `PATCH /api/admin/events/{id}/queue-mode` 切換成功（2xx）→ Then `"query-cache:events:list:v2"` 不存在；`"query-cache:events:list"` 仍存在，`StringGetAsync` 讀回值與寫入值逐字元相同
+  - QC-EVT-VER-003｜`NewVersion_SequenceNeverReadsOrWritesLegacyEventListKey`｜Given `"query-cache:events:list"` 不存在 → When 依序匿名 `GET /api/events`（未命中）、再 `GET`（命中）、Approved Organizer `POST /api/admin/events`、開關該活動熱門搶購模式、再 `GET` → Then 每一步之後 `KeyExistsAsync("query-cache:events:list")` 皆為 false
+- [ ] 5.5 **以 v2 key 重新驗證既有 query-caching 契約**（delta MODIFIED 的情境。既有測試以 `GetEventsHandler.CacheKey` 常數斷言，常數改值後無法證明契約是 v2；因此下列每項在對應測試類別中新增或改寫為以字面值斷言，測試內宣告 `const string EventListCacheKeyV2 = "query-cache:events:list:v2"`，不引用正式程式的常數）：
+  - QC-EVT-001｜既有 `HandleAsync_WhenCacheMisses_QueriesDatabaseAndWritesResultToCacheWithConfiguredTtl`（改寫）｜**單元** `tests/ProjectC.Application.Tests/Events/GetEvents/GetEventsHandlerTests.cs`｜Given `FakeQueryCache` 為空、repository 有一筆活動 → When `HandleAsync` → Then repository `GetAllAsync` 被呼叫一次；Set 呼叫的 key == `"query-cache:events:list:v2"`、TTL == `EventListTtlSeconds`；沒有任何以 `"query-cache:events:list"` 為 key 的 Get／Set
+  - QC-EVT-002｜既有 `HandleAsync_WhenCacheHits_ReturnsCachedResultWithoutQueryingDatabase`（改寫）｜**單元** 同上｜Given `FakeQueryCache` 以 `"query-cache:events:list:v2"` 預置一筆 DTO → When `HandleAsync` → Then 回傳預置 DTO；repository 未被呼叫
+  - QC-EVT-003｜既有 `HandleAsync_WhenNoEventsExist_ReturnsEmptyListAndStillWritesEmptyListToCache`（改寫）｜**單元** 同上｜Given 快取為空、repository 回空列表 → When 連續 `HandleAsync` 兩次 → Then 兩次皆回空列表；第一次後 `"query-cache:events:list:v2"` 存有空列表；repository 只被呼叫一次
+  - QC-EVT-001／002｜既有 `GetEvents_CalledTwice_SecondCallHitsCacheAndDoesNotQueryDatabaseAgain`（改寫，同一方法涵蓋兩者）｜**整合** `QueryCachingComponentTests`（真 Redis）｜Given Redis 無 `"query-cache:events:list:v2"` → When 匿名 `GET /api/events` 兩次 → Then 第一次後 `KeyExistsAsync("query-cache:events:list:v2")` 為 true；`EventRepositoryCallCounter.GetAllAsyncCallCount == 1`
+  - QC-EVT-INV-001｜既有 `CreateEventHandler_AfterCommit_InvalidatesEventListCache_AndCommitPrecedesInvalidation`（改寫）｜**整合** `tests/ProjectC.Infrastructure.Tests/Events/QueryCacheEventInvalidationOrderingTests.cs`（Testcontainers PostgreSQL + `FakeQueryCache`）｜Given `"query-cache:events:list:v2"` 已存在 → When `CreateEventHandler` 成功 → Then 交易 commit 先於 Remove；Remove 的 key == `"query-cache:events:list:v2"`；該 key 不再存在；之後 `GetEventsHandler` 回傳含新活動
+  - QC-EVT-INV-002｜既有 `SetEventQueueModeHandler_AfterCommit_InvalidatesEventListCache_AndCommitPrecedesInvalidation`（改寫）｜**整合** 同上｜Given `"query-cache:events:list:v2"` 已存在 → When `SetEventQueueModeHandler` 成功切換 → Then commit 先於 Remove；Remove 的 key == `"query-cache:events:list:v2"`；之後 `GetEventsHandler` 回傳更新後的 `IsQueueModeEnabled`
+  - QC-EVT-INV-002｜**整合** `QueryCachingComponentTests`（真 Redis；既有 `SetQueueMode_ByOwningOrganizer_InvalidatesEventListCache`、`SetQueueMode_ByOtherOrganizer_ReturnsNotFoundAndDoesNotInvalidateCache`）｜改以 `KeyExistsAsync("query-cache:events:list:v2")` 斷言：擁有者切換後為 false；他人切換回 404 後仍為 true
+  - QC-TTL-001｜**單元** `GetEventsHandlerTests`（由 QC-EVT-001 的 `HandleAsync_WhenCacheMisses_QueriesDatabaseAndWritesResultToCacheWithConfiguredTtl` 斷言 Set 的 TTL）＋**整合** `tests/ProjectC.Infrastructure.Tests/Caching/QueryCacheTtlSafetyNetTests.cs` 新增 `Handlers_OnCacheMiss_WriteKeysWithConfiguredPositiveTtl`｜Given 真 Redis、`EventListTtlSeconds = 30`、`TicketTypesTtlSeconds = 20`（兩值不同，避免互相誤認）、資料庫有一場活動與一個票種 → When 分別呼叫 `GetEventsHandler`、`GetTicketTypesHandler` 各一次（皆未命中）→ Then `KeyTimeToLiveAsync("query-cache:events:list:v2")` 為正且不大於 30 秒；`KeyTimeToLiveAsync($"query-cache:ticket-types:event:{eventId}")` 為正且不大於 20 秒
+  - QC-TTL-002（活動列表）｜**整合** `QueryCacheTtlSafetyNetTests.GetEventsHandler_AfterTtlExpires_RequeriesDatabaseAndRefillsCache`｜改以 `WaitUntilKeyExpiredAsync(connection, "query-cache:events:list:v2", …)` 等待 → Then 到期後再查詢回傳資料庫最新內容，`"query-cache:events:list:v2"` 重新存在
+  - QC-TTL-002（票種）｜**整合** `QueryCacheTtlSafetyNetTests.GetTicketTypesHandler_AfterTtlExpires_RequeriesDatabaseAndRefillsCache`｜Given `TicketTypesTtlSeconds = 3`，`GetTicketTypesHandler` 已寫入 `"query-cache:ticket-types:event:{eventId}"` 後，直接於資料庫新增一個票種（不經失效）→ When 以字面值 `"query-cache:ticket-types:event:{eventId}"` 等到 key 過期後再查詢 → Then 回傳包含新票種（重新查詢資料庫），`"query-cache:ticket-types:event:{eventId}"` 重新存在且 TTL 為正
+  - QC-TTL-003（活動列表）｜**整合** `QueryCacheTtlSafetyNetTests.GetEventsHandler_BeforeTtlExpires_StaysHitAndReturnsStaleContent`、`GetEventsHandler_WithinToleranceAroundTtl_HitsBeforeAndMissesAfter`｜改以 `"query-cache:events:list:v2"` 斷言 key 存在／過期
+  - QC-TTL-003（票種）｜**整合測試** `tests/ProjectC.Infrastructure.Tests/Caching/QueryCacheTtlSafetyNetTests.cs` 新增 `GetTicketTypesHandler_BeforeTtlExpires_StaysHitAndReturnsStaleContent`（既有測試只涵蓋活動列表）｜Given 測試內 `new RedisFixture()` 專屬容器與 `CreateConnection()` 單一連線、`TicketTypesTtlSeconds = 10`；以既有 `SeedVenueAndSeatMapAsync`／`SeedEventAsync` 建立活動與一個既有票種；DbContext R 組裝 `GetTicketTypesHandler`，`ITicketTypeRepository` 為包裝 `new TicketTypeRepository(R)` 的計數替身；第一次查詢寫入 `"query-cache:ticket-types:event:{eventId}"` 後，以獨立 DbContext 直接新增一個票種（不經 `CreateTicketTypeHandler`，因此不失效）→ When TTL 內以同一個 Handler 再查詢兩次 → Then 兩次回應皆含既有票種、不含新票種；計數替身的 `GetByEventIdAsync` 呼叫次數維持 1（只有第一次未命中）；`"query-cache:ticket-types:event:{eventId}"` 仍存在
+  - QC-TTL-004 測試替身（兩項測試共用）：新增 `tests/ProjectC.Infrastructure.Tests/Caching/RecordingQueryCache.cs`，實作 `IQueryCache`、包裝真正的 `RedisQueryCache`，寫入一份依發生順序排列、測試可讀取的事件紀錄：
+    - 公開 `public IReadOnlyList<QueryCacheEvent> Events { get; }`（內部以 lock 保護的 List 寫入，讀取時回傳快照）；`QueryCacheEvent` 為 record，欄位至少有 `EventType`（enum：`CommitObserved`、`CommitNotObserved`、`RemoveCompleted`、`SetStarted`、`SetCompleted`、`SetSucceeded`、`SetNotCommittedToRedis`）、`Sequence`（`Interlocked.Increment` 遞增）、`OperationId`（Set 系列事件使用，其餘可為 null）、`Timestamp`（`Stopwatch.GetTimestamp()`）、`Key`、`Detail`（失敗原因，可為 null）
+    - **時間基準**：包裝器與測試一律使用 `Stopwatch.GetTimestamp()`（行程內共用的單調時鐘，不使用各自的 `Stopwatch` 實例，也不用 `DateTime.UtcNow`）；兩個時刻差一律以 `Stopwatch.GetElapsedTime(a, b)` 換算，因此包裝器記錄的時刻與測試記錄的時刻可直接比較
+    - 建構參數：內層 `RedisQueryCache`、受測 key `targetKey`、以及測試提供的提交探針 `Func<CancellationToken, Task<bool>> isWriteCommittedAsync`（每次呼叫在探針內 `_postgresFixture.CreateDbContext()` 建立全新的獨立 DbContext，以 `AsNoTracking()` 依寫入方新增項目的唯一名稱查詢是否已可見；寫入方的 Id 在呼叫前未知，故以名稱識別）
+    - `RemoveAsync`：key 等於 `targetKey` 時，呼叫內層前先執行探針，可見記錄 `CommitObserved`、不可見記錄 `CommitNotObserved`（測試以此失敗）；內層完成後記錄 `RemoveCompleted` 並設定 `RemoveCompletedSignal`（`TaskCompletionSource`）。key 不等於 `targetKey` 時只記錄 `RemoveCompleted`（帶實際 key），不觸發訊號，因此訊號只可能來自對受測 key 的失效；測試另斷言 `targetKey` 的 `RemoveCompleted` 在 R 的 `SetStarted` 之前恰好一筆
+    - `SetAsync`：呼叫內層前記錄 `SetStarted`（時刻 `ws`），內層返回後記錄 `SetCompleted`（時刻 `we`）；只包裝、不改動傳入的 key、值與 TTL
+    - `SetAsync` 寫入確認：`RedisQueryCache.SetAsync` 遇 `RedisException`／`RedisTimeoutException` 會記 Warning 後正常返回（fail-open），所以內層返回 MUST NOT 被當成 Redis 已寫入。每次 `SetAsync` 呼叫在 `SetStarted` 時配發唯一的 `OperationId`（`Guid`），同一次呼叫的 `SetCompleted`、`SetSucceeded`／`SetNotCommittedToRedis` 都帶相同 `OperationId`。`SetCompleted` 之後、返回呼叫端之前，包裝器以同一個 Redis 連線對該 key 依序確認：`KeyExistsAsync` 為 true、`StringGetAsync` 讀回的字串等於以 `JsonSerializer.Serialize(value)` 對**本次呼叫傳入值**序列化的結果（與 `RedisQueryCache` 相同的序列化方式）、PTTL > 0；三者皆成立才記錄 `SetSucceeded`，任一不成立記錄 `SetNotCommittedToRedis`（`Detail` 附上不成立的項目），測試以此明確失敗。這些確認讀取發生在 `we` 之後、(5) 的 `rs` 之前，不影響 (5) 的前提
+    - 寫入與 R 一對一對應（避免把其他寫入或殘留內容當成 R 的寫入）：
+      - 唯一 payload：Given 的舊資料包含本測試專屬的唯一標記（活動列表測試的既有活動名稱、票種測試的既有票種名稱含 `Guid.NewGuid():N`），R 寫入的序列化內容因此包含該標記且不含寫入方新增的資料；`SetSucceeded` 讀回值必須等於 R 這次呼叫的序列化內容
+      - 無外部 writer：每個測試以 `new RedisFixture()` 啟動專屬 Redis 容器（既有 `QueryCacheTtlSafetyNetTests` 慣例），連線只交給本測試的 `RecordingQueryCache` 與斷言用讀取，測試行程外沒有其他元件連得到這個 Redis
+      - 無其他行程內 writer：該 key 所有讀寫都經由同一個 `RecordingQueryCache`；斷言事件紀錄中，從 `RemoveCompleted` 到 (6) 的 `c6e` 為止，該 key 只有一組 `SetStarted`／`SetCompleted`／`SetSucceeded`，且三者 `OperationId` 相同（即 R 的那一次）；出現第二個 `OperationId` 即失敗
+    - 其餘方法直接轉呼叫內層
+  - QC-TTL-004 時序與斷言（兩項測試相同；方法見 design.md 決策 6「QC-TTL-004 的驗證方法」）：
+    (1) 查詢 R 讀完資料庫舊資料後停在同步點、尚未寫入快取 →
+    (2) 執行寫入方；測試 `await RemoveCompletedSignal.Task`，以可觀測的同步點確認交易已提交且失效呼叫已完成，不以固定等待推測 →
+    (3) 等待間隔 G 後釋放 R，等 R 完成 →
+    (4) 斷言事件紀錄順序為 `CommitObserved` < `RemoveCompleted` < R 的 `SetStarted` < R 的 `SetCompleted` < R 的 `SetSucceeded`（序號比較，三個 Set 事件以同一個 `OperationId` 關聯；且 R 的 `SetStarted` 是該 key 在 `RemoveCompleted` 之後的第一筆寫入；紀錄中出現 `SetNotCommittedToRedis` 即失敗，不進入 (5)）→
+    (5) 讀 PTTL：測試從 `Events` 取出 R 的 `SetStarted`、`SetCompleted` 的 `Timestamp` 作為 `ws`、`we`；MUST 依序執行「R 的 `SetCompleted`（`we`）→ `SetSucceeded` 寫入確認 → 測試以 `Stopwatch.GetTimestamp()` 記錄 `rs` → `KeyTimeToLiveAsync` → 記錄 `re`」，並先斷言前提 `ws ≤ we ≤ rs ≤ re`（前提不成立以明確訊息失敗）。推導：Redis 實際執行 SET 的時刻 `s ∈ [ws, we]`、實際計算 PTTL 的時刻 `p ∈ [rs, re]`，且 `p ≥ s`；Redis 以整數毫秒時鐘計算 `PTTL = (s_ms + T) − p_ms`，毫秒截斷使它與 `T − (p − s)` 相差嚴格小於 1ms。`p − s` 最小為 `rs − we`、最大為 `re − ws`，故斷言閉區間 `T − (re − ws) − 1ms ≤ PTTL ≤ T − (rs − we) + 1ms`；因 `rs ≥ we`，上界不超過 `T + 1ms`，不再需要 `min(T, …)`。若 TTL 少算或不是從這次寫入起算，會低於下限；若重複延長或套用更長的 TTL，會高於上界 →
+    (6) 存在性檢查：測試等到 `Stopwatch.GetTimestamp()` 達到 `ws + T − M1 − B`（B 為檢查預算）才開始，記錄開始 `c6s`；執行「`KeyExistsAsync` 為 true 且查詢回舊資料」，完成時記錄 `c6e`；斷言窗口 `c6e ≤ ws + T − M1`，再斷言內容。通過即證明 key 在寫入後至少存活到 `ws + T − M1`。「完整 TTL」的證據鏈：(5) 的 PTTL 閉區間證明 Redis 對這次寫入設定的到期時刻就是 `s + T`（少算、未從寫入起算或被延長都會落在區間外），Redis 在到期時刻前不會刪除未被明確失效的 key；(6) 與 (7) 是在到期時刻兩側 M1／M2 處的行為取樣，確認到期前可讀到舊資料、到期後自然過期。M1／M2 是測試環境量測邊界（排程與往返延遲），不是業務容差 →
+    (7) 過期檢查：測試等到 `Stopwatch.GetTimestamp()` 達到 `we + T + M2` 才開始，記錄開始 `c7s`；先斷言窗口 `c7s ≥ we + T + M2`，再執行「`KeyExistsAsync` 為 false 且查詢回新資料」，證明之後自然過期 →
+    窗口斷言與內容斷言分開：窗口不成立時（例如 (6) 因機器過載在 `ws + T − M1` 之後才完成），丟出測試專用的 `QueryCacheTimingInconclusiveException`，訊息以「結果不可判定：檢查落在窗口外」開頭並附上 `ws`、`we`、`rs`、`re`、`c6s`、`c6e`、`c7s` 與窗口邊界；這與「key 狀態或內容錯誤」的一般斷言失敗區分，不得當成通過、不得跳過，改依下方失敗處理政策。`ws ≤ we ≤ rs ≤ re` 前提不成立時同樣丟出此例外
+    刻意讓 R 的寫入晚於失效：若寫入早於失效，會被該次失效清除，觀察不到 Scenario 要保證的有界陳舊
+  - QC-TTL-004 測試控制值（**非業務契約**，只決定測試如何安排時間，不代表系統保證任何數值；spec 只保證「自寫入起套用完整 TTL」）：`T` = 5000ms（測試設定的 `EventListTtlSeconds`／`TicketTypesTtlSeconds` = 5）、間隔 G = 2000ms（讓「未從寫入時刻重新起算」的錯誤與量測窗口明顯分開）、存在性邊際 M1 = 500ms、存在性檢查預算 B = 300ms、過期邊際 M2 = 200ms
+  - QC-TTL-004（活動列表）｜**整合** `QueryCacheTtlSafetyNetTests` 新增 `GetEventsHandler_WhenInvalidationHappensWhileQueryInFlight_CacheTemporarilyResurrectsStaleValue_ButExpiresWithinTtl`（既有競態測試只涵蓋票種）｜`EventListTtlSeconds = 5`；`targetKey` = 字面值 `"query-cache:events:list:v2"`
+    - Redis：測試內 `new RedisFixture()` 專屬容器，`CreateConnection()` 取得單一連線；`RedisQueryCache` 與斷言用讀取（PTTL、`KeyExistsAsync`）共用此連線
+    - QueryCache：同一個 `RecordingQueryCache` 實例交給讀取方、寫入方與 (6)(7) 的查詢
+    - Given：以獨立 seed DbContext 建立一場既有活動，名稱含唯一標記 `Guid.NewGuid():N`（R 的唯一 payload）
+    - 讀取方 R：DbContext R 組裝 `GetEventsHandler`，`IEventRepository` 為包裝 `new EventRepository(R)` 的慢速替身（比照 `SlowTicketTypeRepository`，`GetAllAsync` 讀完後停在 `TaskCompletionSource` 同步點）
+    - 寫入方 W：獨立 DbContext W 組裝 `CreateEventHandler`（依存與既有 `QueryCacheEventInvalidationOrderingTests` 相同，只把快取換成 `RecordingQueryCache`），新活動名稱含另一個唯一標記；`CreateEventHandler` 先 `CommitAsync` 再 `RemoveAsync`（`CreateEventHandler.cs:79`／`81`），探針以此名稱查詢
+    - Then 依上述 (4)～(7) 斷言；(6) 回應含舊活動、不含新活動，(7) 回應含新活動
+  - QC-TTL-004（票種）｜**整合** 改寫既有 `QueryCacheTtlSafetyNetTests.GetTicketTypesHandler_WhenInvalidationHappensWhileQueryInFlight_CacheTemporarilyResurrectsStaleValue_ButExpiresWithinTtl`｜`TicketTypesTtlSeconds = 5`；`targetKey` = 字面值 `"query-cache:ticket-types:event:{eventId}"`
+    - Redis：沿用該測試既有的 `new RedisFixture()` 專屬容器與 `CreateConnection()` 單一連線；`RedisQueryCache` 與斷言用讀取共用此連線
+    - QueryCache：既有的 `RedisQueryCache` 實例改以同一個 `RecordingQueryCache` 包裝，交給讀取方 R、寫入方 W、(6) 的 S 查詢與 (7) 的驗證查詢
+    - Given：沿用既有 `SeedVenueAndSeatMapAsync`／`SeedEventAsync`，另以獨立 seed DbContext 新增一個既有票種，名稱含唯一標記 `Guid.NewGuid():N`（R 的唯一 payload；既有測試的活動沒有票種，R 讀到空清單無法與其他寫入區分）
+    - 讀取方 R：DbContext R（既有 `rDbContext`）組裝 `GetTicketTypesHandler`，`ITicketTypeRepository` 為既有 `SlowTicketTypeRepository(new TicketTypeRepository(R), …)` 同步點
+    - 寫入方 W：獨立 DbContext W（既有 `writeDbContext`）組裝 `CreateTicketTypeHandler(new EventRepository(W), new SeatMapRepository(W), new TicketTypeRepository(W), new UnitOfWork(W), new CreateTicketTypeRequestValidator(), recordingQueryCache)`；新票種名稱改為含另一個唯一標記；`CreateTicketTypeHandler` 先 `transaction.CommitAsync` 再 `RemoveAsync`（`CreateTicketTypeHandler.cs:100`／`102`），探針以此名稱查詢，故 `CommitObserved` 只會在 W 的交易提交後成立
+    - 既有步驟 3 的 `await createHandler.HandleAsync` 之後改為 `await RemoveCompletedSignal.Task`，再進行間隔 G 與釋放 R；既有步驟 6 的 `WaitUntilKeyExpiredAsync` 改為上述 (7) 的窗口等待
+    - 本測試不建立 `WebApplicationFactory`、不啟動任何背景服務，除 R、W、S 與驗證查詢外沒有其他會寫入該 key 的元件
+    - Then 依上述 (2)～(7) 斷言；(6) 回應含既有票種、不含新票種，(7) 回應含新票種
+  - QC-TTL-004 失敗處理政策（兩項測試皆適用；若完整測試套件平行執行時失敗，含 (6) 檢查落在窗口外）：
+    - MUST 記錄活動列表與票種列表各自的：完整事件紀錄（序號與時刻）、`ws`、`we`、`rs`、`re`、讀到的 PTTL 與計算出的上下限、(6)／(7) 的 `c6s`、`c6e`、`c7s` 與結果、是否為 `QueryCacheTimingInconclusiveException`、失敗的步驟與斷言訊息、測試平行度（xUnit 平行設定與同時執行的測試數）、執行環境（容器、WSL2、Redis 版本）、失敗發生時間
+    - MUST NOT 私自修改下列任何一項：(4) 的順序斷言、(5) 的區間公式、(6)／(7) 的窗口定義、上述測試控制值；也不得改為 skip、重試或刪除斷言
+    - 回報實測數據後，由維護者（使用者）決定：(a) 調整測試控制值，或 (b) 將這兩項測試移入不平行執行的 xUnit collection；實作者不得自行選擇
+    - 任一斷言或測試控制值變更後，MUST 同步更新本任務文字並重新執行 spec-reviewer，通過後才能繼續
+  - QC-FAIL-003（活動列表）｜**整合測試**｜`tests/ProjectC.WebApi.Tests/Events/QueryCachingFailOpenTests.cs`（既有 QC-FAIL-003a 所在類別，已有 `LogCapturingWebApplicationFactory` 與 Serilog `LogSink`；不搬到 `QueryCachingComponentTests`）｜改寫既有 `GetEvents_WhenCachedValueIsCorrupted_FallsBackToDatabaseAndLogsWarning`，並新增 `GetEvents_WhenV2CachePayloadHasIncompatibleType_FallsBackToDatabaseAndLogsWarning`。既有測試以 `GetEventsHandler.CacheKey` 寫入損壞內容，常數改值後無法證明針對的是 v2，Warning 也只斷言等級
+    - Given：`SeedEventAsync` 建立一場設定販售期間的活動；以字面值 `"query-cache:events:list:v2"` 寫入損壞內容：既有方法寫 `"{not valid json"`（不合法 JSON），新方法寫 `{"Id":1}`（合法 JSON，但目標是 `List<EventDto>`，物件對陣列型別不相容，`System.Text.Json` 拋 `JsonException`）；`factory.LogSink.Clear()`
+    - When：匿名 `GET /api/events`
+    - Then：200（不是 500）；回應含該活動且兩欄位與資料庫相同（證明走資料庫）；`LogSink.Events` 恰有一筆 `Level == Warning`、`MessageTemplate.Text == "Failed to deserialize query cache key {QueryCacheKey}."`、`Properties["QueryCacheKey"]` 為 `"query-cache:events:list:v2"`、`Exception` 為 `JsonException`；請求後 `"query-cache:events:list:v2"` 被未命中路徑覆寫為可解析成 `List<EventDto>` 且含該活動的 JSON（快取已修復）；`"query-cache:events:list"` 不存在
+  - QC-FAIL-003（票種）｜**整合測試**｜`tests/ProjectC.WebApi.Tests/Events/QueryCachingFailOpenTests.cs`｜改寫既有 `GetTicketTypes_WhenCachedValueIsCorrupted_FallsBackToDatabaseAndLogsWarning`，並新增 `GetTicketTypes_WhenCachePayloadHasIncompatibleType_FallsBackToDatabaseAndLogsWarning`。票種 key 與 `TicketTypeDto` 本 change 未改；這是既有測試的缺口（只斷言 Warning 等級、未涵蓋型別不相容），因 QC-FAIL-003 同時規範兩個端點，一併補齊
+    - Given：`SeedEventAsync` 建立活動，Admin 建立票種 A；以字面值 `$"query-cache:ticket-types:event:{eventId}"` 寫入損壞內容：既有方法寫 `"{not valid json"`，新方法寫 `{"Id":1}`（合法 JSON，但目標是 `List<TicketTypeDto>`，物件對陣列型別不相容）；`factory.LogSink.Clear()`
+    - When：匿名 `GET /api/events/{eventId}/ticket-types`
+    - Then：200（不是 500）；回應恰含票種 A（證明走資料庫）；`LogSink.Events` 恰有一筆 `Level == Warning`、`MessageTemplate.Text == "Failed to deserialize query cache key {QueryCacheKey}."`、`Properties["QueryCacheKey"]` 為該票種 key、`Exception` 為 `JsonException`；請求後該 key 被覆寫為可解析成 `List<TicketTypeDto>` 且含票種 A 的 JSON（快取已修復）
+  - QC-ACCESS-001（活動列表）｜既有 `GetEvents_WithoutAuthentication_Returns200WithCreatedEvent`（改寫）｜**整合** `tests/ProjectC.WebApi.Tests/Events/QueryCachingAccessScopeTests.cs`｜Given 已建立一場活動 → When 匿名 `GET /api/events` → Then 200 且含該活動；`KeyExistsAsync("query-cache:events:list:v2")` 為 true（匿名請求同樣寫入 v2）
+  - QC-ACCESS-001（票種）｜**整合** 既有 `QueryCachingAccessScopeTests.GetTicketTypes_WithoutAuthentication_Returns200WithCreatedTicketType`｜Given 已建立活動與一個票種、client 不帶 `Authorization` header → When `GET /api/events/{eventId}/ticket-types` → Then 200 且含該票種（未回 401）；追加斷言 `"query-cache:ticket-types:event:{eventId}"` 已寫入（匿名請求同樣寫入票種快取）
+  - QC-ACCESS-002（活動列表）｜**整合** `QueryCachingAccessScopeTests.GetEvents_AcrossAnonymousBuyerAndAdminCallers_ShareTheSameCacheContent`｜追加斷言：三者回應相同、`GetAllAsyncCallCount == 1`，且活動列表只有 `"query-cache:events:list:v2"` 一個 key（`"query-cache:events:list"` 不存在，無依呼叫者區分的變體）
+  - QC-ACCESS-002（票種）｜**整合** 既有 `QueryCachingAccessScopeTests.GetTicketTypes_AcrossAnonymousBuyerAndAdminCallers_ShareTheSameCacheContent`｜Given 同一活動有一個票種，未登入、一般會員、Admin 三個 client → When 依序 `GET /api/events/{eventId}/ticket-types` → Then 三者回應內容相同（嚴格順序）；`TicketTypeRepositoryCallCounter.GetByEventIdAsyncCallCount == 1`；追加斷言 Redis 中以 `query-cache:ticket-types:event:*` 掃描只有 `"query-cache:ticket-types:event:{eventId}"` 一個 key（無依呼叫者區分的變體）
+  - QC-ACCESS-003｜**整合測試** `tests/ProjectC.WebApi.Tests/Events/QueryCachingAccessScopeTests.cs` 既有 `GetTicketTypes_WithNonGuidIdInRoute_Returns404`（改寫）｜Given 既有的每測試獨立 `CustomWebApplicationFactory`；先匿名 `GET /api/events` 讓 `"query-cache:events:list:v2"` 存在並記下其內容 → When 匿名 `GET /api/events/abc/ticket-types` → Then 404；Redis 中以 `query-cache:ticket-types:event:*` 掃描沒有任何 key（請求未進入 `GetTicketTypesHandler`，未寫入票種快取）；`"query-cache:events:list:v2"` 內容與請求前相同（此情境本身不涉及活動列表 key，只因所屬 Requirement 文字含 key 而被 MODIFIED，追加此斷言確認路由拒絕不影響 v2）
+- [ ] 5.6 **整合測試** `tests/ProjectC.WebApi.Tests/Orders/OrdersControllerTests.cs`：
+  - TP-SALES-ORDER-001｜`PlaceOrder_BeforeSalesStart_Returns409SalesNotOpenAndChangesNothing`｜`SalesStartAtUtc` = now + 數小時 → `POST /api/orders` → 409、`Title = "SalesNotOpen"`；座位仍 Available、票種庫存不變、資料庫無訂單
+  - TP-SALES-ORDER-002｜`PlaceOrder_AfterSalesEnd_Returns409SalesClosedAndChangesNothing`｜`SalesEndAtUtc` = now − 數小時 → 409、`Title = "SalesClosed"`，同上不變
+  - TP-SALES-ORDER-011｜`ConfirmOrder_OnSalesClosedEvent_ReturnsPaidAndIssuesTickets`｜直接 seed 已停售活動與其 Pending 訂單（Event 不可變更，無法以時間推進模擬）→ 確認付款 → 成功，訂單 `Paid` 並出票
+  - TP-SALES-ORDER-012｜`CancelOrder_OnSalesClosedEvent_ReturnsCancelledAndReleasesInventory`｜同上 seed → 取消 → 成功，訂單 `Cancelled`，座位／庫存依既有規則釋放
+- [ ] 5.7 **整合測試** `tests/ProjectC.WebApi.Tests/Orders/OrdersControllerTests.cs`：
+  - TP-SALES-ORDER-010｜`PlaceOrder_WhenAdmittedButSalesClosed_Returns409SalesClosedAndKeepsQueueEntry`｜Given 活動 `IsQueueModeEnabled = true`、`SalesEndAtUtc` = now − 數小時（已停售），該會員持有一筆 `Status = Admitted` 且 `AdmissionExpiresAtUtc` = now + 數小時（未逾時）的排隊紀錄 → When 該會員以合法項目 `POST /api/orders` → Then 回 409、`Title = "SalesClosed"`；資料庫無該會員的訂單；座位仍 Available、票種庫存不變；該排隊紀錄仍為 `Admitted`、`AdmissionExpiresAtUtc` 不變
+- [ ] 5.8 **整合測試** `tests/ProjectC.WebApi.Tests/Events/EventQueueControllerTests.cs`（驗證碼以既有測試替身通過）：
+  - PQ-SALES-JOIN-001／002｜`JoinQueue_BeforeSalesStart_Returns409SalesNotOpenWithoutEntry`（001）、`JoinQueue_AfterSalesEnd_Returns409SalesClosedWithoutEntry`（002）｜開賣前／停售後 → `POST .../queue/entries` → 409、`Title` 分別為 `SalesNotOpen`／`SalesClosed`，資料庫無排隊紀錄
+  - PQ-SALES-JOIN-003｜`JoinQueue_WithinSalesWindow_CreatesWaitingEntry`｜販售期間內、Queue Mode 開 → 成功回應，資料庫有該會員一筆 `Waiting` 紀錄
+  - PQ-SALES-JOIN-010｜`JoinQueue_WhenSalesWindowNotSetAndEventNotStarted_CreatesWaitingEntry`｜兩者皆 null、StartAt 在未來數小時、Queue Mode 開 → 成功回應，資料庫有一筆 `Waiting`
+  - PQ-SALES-JOIN-011｜`JoinQueue_WhenSalesEndIsNullAndEventStartedWithExpiredAdmittedEntry_Returns409SalesClosed`｜SalesEnd null、StartAt 在過去數小時、Queue Mode 開，seed 已逾時 `Admitted` 紀錄 → 409 `SalesClosed`，資料庫該紀錄仍為 `Admitted`、無新紀錄
+  - PQ-SALES-JOIN-009｜HTTP 端點面｜**整合測試**｜`tests/ProjectC.WebApi.Tests/Events/EventQueueControllerTests.cs`｜新增 `GetMyQueueStatus_AfterSalesClosed_ReturnsExistingEntryWithoutChangingIt`｜驗證「停售後端點回 200、不改寫紀錄與鏡像」；「加入後跨越停售時間」由下一項（跨停售流程面）驗證，兩項同屬 PQ-SALES-JOIN-009，缺一不可
+    - **環境（2026-10-03 查證）**：
+      - `Program.cs` 在 `Testing` 環境不註冊 `PurchaseQueueAdmissionService` 與 `ExpiredOrderCleanupService`（`if (!builder.Environment.IsEnvironment("Testing"))`）；`CustomWebApplicationFactory` 經 `TestHostConfiguration.ApplyCommonTestConfiguration` 使用 `Testing` 環境，因此測試期間沒有背景入場推進或鏡像校正，紀錄與鏡像的任何變化只可能來自本測試的請求
+      - factory 有每類別獨立的 Testcontainers Redis；`IConnectionMultiplexer` 與 `RedisPurchaseQueueAdmissionMirror` 皆為真實實作
+      - 既有 `EventQueueControllerTests.FillAdmissionSlotsAsync` 的註解稱 factory 內背景服務會定期推進，與 `Program.cs` 不符；本測試不使用該方法，該註解屬既有程式碼，不在本 change 修改，記入 PR 說明待清理
+    - **Given**（依序執行；所有 Id 存入區域變數，供後續 fixture 與斷言使用）：
+      - (a) 活動：Approved Organizer 以 `POST /api/admin/events` 建立活動，`SalesStartAtUtc` = now − 10 小時、`SalesEndAtUtc` = now − 2 小時、`StartAtUtc` = now + 30 天（過去的販售時間可以建立，見 EVT-SALES-007）；再以 `PATCH .../queue-mode` 開啟，Id 存為 `eventId`
+      - (b) 查詢會員：以既有 `CreateAuthenticatedMemberClientAsync()` 經 HTTP 註冊並登入，得到 `memberClient`；以既有 `ReadOwnMemberIdAsync(memberClient)`（`GET /api/members/me`）取得 `memberId`。紀錄的擁有者因此就是之後發出查詢的 JWT 身分
+      - (c) M2：同法建立第二位會員，取得 `m2MemberId`
+      - (d) 排隊紀錄：以 `_factory.Services.CreateScope()` 取得獨立 `ApplicationDbContext`
+        - 查詢會員：`entryId = Guid.NewGuid()`、`joinedAtUtc` = now − 5 小時，`new PurchaseQueueEntry(entryId, eventId, memberId, joinedAtUtc)`（狀態 `Waiting`）
+        - M2：`m2EntryId = Guid.NewGuid()`，`new PurchaseQueueEntry(m2EntryId, eventId, m2MemberId, now − 6 小時)` 後 `Admit(now − 1 小時, now + 3 小時)`（查詢當下未逾時）
+        - 兩筆 `Add` 後 `SaveChangesAsync`；再以另一個獨立 context 重讀，確認兩筆存在且欄位等於上述值（前置條件，不成立即失敗）
+      - (e) 鏡像 fixture：以 `_factory.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase()` 取得 Redis（比照 `QueryCachingComponentTests` 的既有做法）
+        - waiting：`SortedSetAddAsync(PurchaseQueueAdmissionRedisKeys.Waiting(eventId), entryId.ToString(), PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(joinedAtUtc))`
+        - admitted：`SortedSetAddAsync(PurchaseQueueAdmissionRedisKeys.Admitted(eventId), m2EntryId.ToString(), ToUnixMilliseconds(M2 的 AdmissionExpiresAtUtc))`
+        - 格式（2026-10-03 已查證）：成員為 `Guid.ToString()`（預設 "D" 格式），score 為 `ToUnixMilliseconds`。waiting 依 `RedisPurchaseQueueAdmissionMirror.cs:34-35`（`SyncJoinAsync`）與 `PurchaseQueueAdmissionService.cs:450`；admitted 依 `PurchaseQueueAdmissionService.cs:463`（背景校正補寫，score 為 `AdmissionExpiresAtUtc`）
+        - 紀錄直接寫入資料庫、未經加入流程，所以鏡像由測試建立
+      - (f) Before snapshot：請求前以 `SortedSetRangeByRankWithScoresAsync` 讀取兩個 zset。waiting 必須恰為 `entryId` 一個成員、admitted 必須恰為 `m2EntryId` 一個成員，score 等於寫入值；否則前置條件不成立，測試失敗
+    - **When**：以 `memberClient`（帶該會員 JWT）呼叫 `GET /api/events/{eventId}/queue/entries/me`，經 Controller、路由與授權完整流程
+    - **Then — 回應**：200（不是 409 `SalesClosed`）；`Status = "Waiting"`、`WaitingCount = 0`（前面沒有其他 Waiting，M2 為 Admitted 不計入）、`QueueModeEnabled = true`。`QueueStatusDto` 不含紀錄 Id，「查到的是該會員自己那筆」由下方資料庫斷言證明
+    - **Then — 資料庫**（以新的獨立 `ApplicationDbContext`、`AsNoTracking()` 重讀；對應 Then「排隊紀錄未因查詢而改變」）：
+      - `memberId` 在 `eventId` 的排隊紀錄仍只有一筆，Id == `entryId`，`Status` 仍為 `Waiting`，`JoinedAtUtc`、`AdmittedAtUtc`、`AdmissionExpiresAtUtc` 與 (d) 寫入值相同
+      - `m2EntryId` 紀錄仍為 `Admitted`，`JoinedAtUtc`、`AdmittedAtUtc`、`AdmissionExpiresAtUtc` 與 (d) 寫入值相同
+    - **Then — Redis 鏡像**（對應 Then「鏡像未因查詢改變」）：請求後再讀兩個 zset 作為 After snapshot；`Waiting(eventId)` 與 `Admitted(eventId)` 各自轉成「成員 → score」字典，與 Before 逐一比較，成員集合與每個 score 完全相同
+  - PQ-SALES-JOIN-009｜跨停售流程面｜**整合測試**（不屬於本任務標題的 WebApi 測試類別）｜`tests/ProjectC.Infrastructure.Tests/PurchaseQueue/JoinPurchaseQueueHandlerIntegrationTests.cs`｜新增 `JoinThenGetMyQueueStatus_WhenTimeCrossesSalesEnd_ReturnsOriginalWaitingEntryUnchanged`｜Given／When 1／When 2／Then 見下方子項｜不放在 WebApi：此測試需要在加入與查詢之間推進時間，factory 使用全域 Singleton 的 `IDateTimeProvider`，要換成可變時間替身須另建 factory 子類別並影響該類別所有請求；以 `new` 直接組裝兩個 Handler 可只讓這兩者共用同一個時間替身（WebApi `Testing` 環境本來就不註冊背景服務，非排除理由）。加入流程的 commit 後鏡像同步使用真實實作，完整走過既有加入流程；HTTP 端點層的鏡像不變由上一項（HTTP 端點面）驗證。
+    - **組裝**：沿用該類別既有的 `PostgresFixture`（Testcontainers PostgreSQL）；不使用既有的不可變 `FixedDateTimeProvider`，改用該測試專案既有的可變 `tests/ProjectC.Infrastructure.Tests/TestSupport/FakeDateTimeProvider.cs`（`public DateTime UtcNow { get; set; }`，`DevelopmentDataSeederTests` 已在使用；不新增另一個時間替身），同一個實例交給兩個 Handler
+      - 不建立 `WebApplicationFactory`、不建立 `IHost`／DI 容器、不註冊也不建立 `PurchaseQueueAdmissionService` 或任何 `IHostedService`；所有物件以 `new` 直接組裝，`fakeDateTimeProvider` 只被這兩個 Handler 持有，沒有其他元件會讀取或推進它
+      - Redis：比照 `QueryCacheTtlSafetyNetTests` 的既有做法，測試內 `new RedisFixture()` 並 `await InitializeAsync()` 啟動專屬 Redis 容器、`try/finally` 中 `DisposeAsync()`（避免與其他測試共用 key），以 `CreateConnection()` 取得的連線建立真實的 `new RedisPurchaseQueueAdmissionMirror(connection, NullLogger<RedisPurchaseQueueAdmissionMirror>.Instance)`；不使用 `FakePurchaseQueueAdmissionMirror`（它不更新任何鏡像狀態）
+      - DbContext A（`_fixture.CreateDbContext()`）：`new JoinPurchaseQueueHandler(new EventRepository(A), new PurchaseQueueRepository(A), new UnitOfWork(A), fakeDateTimeProvider, new JoinPurchaseQueueRequestValidator(), new FakeCaptchaService(), realMirror, new MemberRealNameRepository(A))`（與既有測試相同的組裝，只換時間來源與鏡像實作）
+      - DbContext B（另一個 `_fixture.CreateDbContext()`，在 Join 完成後才建立）：`new GetMyQueueStatusHandler(new EventRepository(B), new PurchaseQueueRepository(B), fakeDateTimeProvider)`
+      - DbContext C（另一個獨立實例）：只用於 `AsNoTracking()` 重讀斷言
+      - 三個 DbContext 互不共用 ChangeTracker，B 與 C 只能看到已提交的資料，避免同一 ChangeTracker 讓測試假性通過
+    - **Given**：以獨立的 seed DbContext 建立會員與活動（`IsQueueModeEnabled = true`、`IsRealNameRequired = false`、`SalesStartAtUtc` = T0 − 1 小時、`SalesEndAtUtc` = T0 + 1 小時、`StartAtUtc` = T0 + 2 小時）並 `SaveChangesAsync`；`fakeDateTimeProvider.UtcNow` = T0（販售期間內；T0 取測試開始時的 `DateTime.UtcNow`，與 5.9 一致）；`FakeCaptchaService` 使用 `ValidToken`／`ValidAnswer`
+      - **admitted 鏡像基準（fixture）**：同一 seed DbContext 另建會員 M2 與其排隊紀錄 `new PurchaseQueueEntry(admittedEntryId, eventId, m2Id, T0 − 20 分鐘)` 並 `Admit(T0 − 10 分鐘, T0 + 3 小時)`（比照同類別既有 `HandleAsync_WhenExistingAdmittedEntryIsExpired_…` 的建立方式；`AdmissionExpiresAtUtc` 晚於 When 2 的查詢時間，查詢當下未逾時）後 `SaveChangesAsync`；再以 `CreateConnection()` 的 `IDatabase` 執行 `SortedSetAddAsync(PurchaseQueueAdmissionRedisKeys.Admitted(eventId), admittedEntryId.ToString(), PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(T0 + 3 小時))`（與背景服務校正步驟 4 寫入 admitted 的成員／score 格式相同）。真實鏡像 API 只提供從 admitted 移除（`SyncCompletionAsync`），正式寫入 admitted 的路徑是入場推進服務的 Lua Script，本測試刻意不啟動該服務，因此由測試直接寫入 Redis 建立可觀察的 admitted 成員；M2 的紀錄是 `Admitted`，不計入該會員的 `WaitingCount`
+    - **When 1**：以 DbContext A 的 Handler 呼叫 `HandleAsync` → `await` 完成時交易已提交（Handler 內 `CommitAsync` 先於返回）；斷言成功，記下回傳的 Id；以 DbContext C 確認該 Id 的紀錄已存在且為 `Waiting`，記下其 `JoinedAtUtc`；`HandleAsync` 在 commit 後 `await SyncJoinAsync` 才返回，因此返回時鏡像同步已執行完畢。真實鏡像對 Redis 例外 fail-open（只記 Warning，不拋出），所以不能以「未拋例外」判斷同步成功，MUST 直接讀 Redis 斷言（**前置條件**：確認加入流程已完成鏡像同步，作為 Then 比對「鏡像未因查詢改變」的基準）：`SortedSetScoreAsync(PurchaseQueueAdmissionRedisKeys.Waiting(eventId), entryId.ToString())` 不為 null 且等於 `PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(JoinedAtUtc)`，且該 waiting zset 只有這一個成員；接著以 `SortedSetRangeByRankWithScoresAsync` 讀取 `Waiting(eventId)` 與 `Admitted(eventId)` 兩個 zset 的完整成員與 score，存為 Before snapshot（admitted 必須恰為 fixture 的 `admittedEntryId` 一個成員、score 等於寫入值，否則前置條件不成立、測試失敗）
+    - **When 2**：將 `fakeDateTimeProvider.UtcNow` 設為 T0 + 90 分鐘（已過 `SalesEndAtUtc`，仍早於 `StartAtUtc`）→ 建立 DbContext B 與 `GetMyQueueStatusHandler`，查詢該會員
+    - **Then**：結果成功（非 `SalesClosed` 或其他錯誤）、`Status = "Waiting"`、`WaitingCount = 0`、`QueueModeEnabled = true`；以新的 DbContext C 重讀：該會員在此活動仍只有這一筆紀錄、Id 等於 When 1 回傳值、`JoinedAtUtc` 不變、`Status` 仍為 `Waiting`、`AdmittedAtUtc` 與 `AdmissionExpiresAtUtc` 為 null（未被刪除或改寫）（以上資料庫斷言對應 PQ-SALES-JOIN-009 的 Then「排隊紀錄未因查詢而改變」）；查詢後再以 `SortedSetRangeByRankWithScoresAsync` 讀取兩個 zset 為 After snapshot：`Waiting(eventId)` 與 `Admitted(eventId)` 各自的成員集合與每個成員的 score 皆與 Before 完全相同（不新增、不移除、不改 score；以成員→score 字典逐一比較，不只比數量）（對應 PQ-SALES-JOIN-009 的 Then「鏡像未因查詢改變」；本測試不啟動入場推進服務，因此鏡像任何變化都只可能來自查詢路徑）
+- [ ] 5.9 整合測試時間一律相對 `DateTime.UtcNow` 至少數小時，不貼邊界（design.md R3，WSL2 時鐘倒退）；核對範圍（design.md R5）：所有會接著下單或加入排隊的活動建立路徑，包括 WebApi 以 `POST /api/admin/events` 建立、各 `TestData`／`SeedEventAsync` 輔助方法，以及 Infrastructure／Application 測試直接 `new Event(...)`／`Event.Create(...)` 後 seed 的活動，`StartAtUtc` 皆在未來；以 `grep -rnE "UtcNow\.Add(Hours|Days|Minutes)\(-" tests` 及各 seed 輔助方法的 `startsAtUtc` 參數逐一核對，結果記入 PR 說明
+  - 已知須改寫：`tests/ProjectC.WebApi.Tests/Admin/AdminTicketsControllerTests.cs` 的 `GetHolder_WhenEventAlreadyStarted_Returns200WithHolderData`（RDM-HOLDER-009）。現在以 `startsAtUtc: DateTime.UtcNow.AddHours(-1)` 建立活動後經 `SeedIssuedTicketAsync` 下單，本變更後下單回 `SalesClosed`。改為以預設未來的 `StartAtUtc` 建立活動並完成下單、確認付款出票，再以獨立 DbContext 的 EF Core `ExecuteUpdateAsync` 將該活動 `StartAtUtc` 改為 `DateTime.UtcNow.AddHours(-1)`（模擬「出票後活動已開演」；`Event` 無修改開始時間的 Domain 方法，測試資料準備直接改欄位），之後 GET holder → 200 且含實名。測試意圖（開演後仍可查持票人）不變
 
 ## 6. 驗證與文件
 
 - [ ] 6.1（design.md R4）實測 `StartAtUtc` 不帶 `Z`、新欄位帶 `Z` 的建立活動請求；若回 500，記入 `docs/project-scope.md` 第 8 節待確認事項，不在本 change 修正
 - [ ] 6.2 全部測試在容器內通過（`docker compose exec api dotnet test`），與 0.1 基準比對，回報新增數與任何 skip
-- [ ] 6.3 核對情境對應表：EVT-SALES-001…012、TP-BROWSE-SALES-001／002、TP-SALES-ORDER-001…012、PQ-SALES-JOIN-001…009 每條至少一個測試，列出對應測試名稱
+- [ ] 6.3 最終核對（補充前述明確測試任務，不取代）：EVT-SALES-001…016、TP-BROWSE-SALES-001、QC-EVT-VER-001～004、QC-EVT-001～003、QC-EVT-INV-001～002、QC-TTL-001～004、QC-ACCESS-001～003、QC-FAIL-003、TP-SALES-ORDER-001…012、PQ-SALES-JOIN-001…011 每條核對：實作的測試方法名稱與本 tasks 各任務列出的方法名一致（測試方法名稱、Scenario ID、測試類型或 AC 覆蓋面任一項需要變更時，MUST 先修改本檔並重新執行 spec-reviewer，審查通過前不得繼續實作；不得只在程式碼中改名），且每個方法上方註解標注對應 Scenario ID；缺方法或缺註解即該 AC 未通過
+  - `QC-FAIL-003` 是主 `query-caching` spec 的既有 Scenario（不在本 change delta：其 Requirement 不含活動列表 key 字面值、行為未變），列入核對是因為 v2 key 改變了它實際作用的 key；本 change 只以 v2 字面值強化並補齊既有測試，不修改該契約。design.md 與 `purchase-queue` delta 引用的 `PQ-JOIN-002` 同屬主 spec 既有 ID，僅作參照
+  - 由多個測試共同涵蓋的 AC 一律以 spec 中正式存在的 Scenario ID 對應，列出全部方法，缺一即該 AC 未通過（不自創子 ID）。目前固定映射：
+    - `QC-FAIL-003` →
+      - 活動列表 v2，不合法 JSON：`QueryCachingFailOpenTests.GetEvents_WhenCachedValueIsCorrupted_FallsBackToDatabaseAndLogsWarning`
+      - 活動列表 v2，型別不相容：`QueryCachingFailOpenTests.GetEvents_WhenV2CachePayloadHasIncompatibleType_FallsBackToDatabaseAndLogsWarning`
+      - 票種，不合法 JSON：`QueryCachingFailOpenTests.GetTicketTypes_WhenCachedValueIsCorrupted_FallsBackToDatabaseAndLogsWarning`
+      - 票種，型別不相容：`QueryCachingFailOpenTests.GetTicketTypes_WhenCachePayloadHasIncompatibleType_FallsBackToDatabaseAndLogsWarning`
+    - `EVT-SALES-011` →
+      - 只設定開賣時間：`EventSalesWindowMigrationTests.Down_WhenSalesStartIsSet_ThrowsAndKeepsColumnsAndData`
+      - 只設定停售時間：`EventSalesWindowMigrationTests.Down_WhenSalesEndIsSet_ThrowsAndKeepsColumnsAndData`
+    - `PQ-SALES-JOIN-009` →
+      - HTTP 端點面：`EventQueueControllerTests.GetMyQueueStatus_AfterSalesClosed_ReturnsExistingEntryWithoutChangingIt`（停售後查詢端點仍回 200，經完整 HTTP 流程不改寫紀錄、waiting／admitted 鏡像成員與 score 不變）
+      - 跨停售流程面：`JoinPurchaseQueueHandlerIntegrationTests.JoinThenGetMyQueueStatus_WhenTimeCrossesSalesEnd_ReturnsOriginalWaitingEntryUnchanged`（販售期間內加入、時間跨越停售後查詢，紀錄與鏡像不變）
+    - `QC-EVT-VER-002` →
+      - 建立活動面：`QueryCachingComponentTests.CreateEvent_WhenBothV1AndV2KeysExist_RemovesOnlyV2Key`
+      - 熱門搶購模式切換面：`QueryCachingComponentTests.SetEventQueueMode_WhenBothV1AndV2KeysExist_RemovesOnlyV2Key`
+    - `QC-EVT-001` →
+      - 單元面：`GetEventsHandlerTests.HandleAsync_WhenCacheMisses_QueriesDatabaseAndWritesResultToCacheWithConfiguredTtl`
+      - 真 Redis 整合面（與 QC-EVT-002 共用）：`QueryCachingComponentTests.GetEvents_CalledTwice_SecondCallHitsCacheAndDoesNotQueryDatabaseAgain`
+    - `QC-EVT-002` →
+      - 單元面：`GetEventsHandlerTests.HandleAsync_WhenCacheHits_ReturnsCachedResultWithoutQueryingDatabase`
+      - 真 Redis 整合面（與 QC-EVT-001 共用）：`QueryCachingComponentTests.GetEvents_CalledTwice_SecondCallHitsCacheAndDoesNotQueryDatabaseAgain`
+    - `QC-EVT-INV-002` →
+      - commit／Remove 順序面：`QueryCacheEventInvalidationOrderingTests.SetEventQueueModeHandler_AfterCommit_InvalidatesEventListCache_AndCommitPrecedesInvalidation`
+      - 真 Redis 擁有者切換面：`QueryCachingComponentTests.SetQueueMode_ByOwningOrganizer_InvalidatesEventListCache`
+      - 真 Redis 他人切換不失效面：`QueryCachingComponentTests.SetQueueMode_ByOtherOrganizer_ReturnsNotFoundAndDoesNotInvalidateCache`
+    - `QC-TTL-001` →
+      - 單元面（與 QC-EVT-001 共用）：`GetEventsHandlerTests.HandleAsync_WhenCacheMisses_QueriesDatabaseAndWritesResultToCacheWithConfiguredTtl`
+      - 真 Redis 整合面（活動列表 v2 key 與票種 key）：`QueryCacheTtlSafetyNetTests.Handlers_OnCacheMiss_WriteKeysWithConfiguredPositiveTtl`
+    - `QC-TTL-002` →
+      - 活動列表 v2 key：`QueryCacheTtlSafetyNetTests.GetEventsHandler_AfterTtlExpires_RequeriesDatabaseAndRefillsCache`
+      - 票種 key：`QueryCacheTtlSafetyNetTests.GetTicketTypesHandler_AfterTtlExpires_RequeriesDatabaseAndRefillsCache`
+    - `QC-TTL-003` →
+      - 活動列表 v2 key，TTL 內命中：`QueryCacheTtlSafetyNetTests.GetEventsHandler_BeforeTtlExpires_StaysHitAndReturnsStaleContent`
+      - 活動列表 v2 key，TTL 前後：`QueryCacheTtlSafetyNetTests.GetEventsHandler_WithinToleranceAroundTtl_HitsBeforeAndMissesAfter`
+      - 票種 key，TTL 內命中：`QueryCacheTtlSafetyNetTests.GetTicketTypesHandler_BeforeTtlExpires_StaysHitAndReturnsStaleContent`
+    - `QC-TTL-004` →
+      - 活動列表 v2 key（驗證重新寫入套用完整 TTL、失效後舊值短暫復活、最終自然過期）：`QueryCacheTtlSafetyNetTests.GetEventsHandler_WhenInvalidationHappensWhileQueryInFlight_CacheTemporarilyResurrectsStaleValue_ButExpiresWithinTtl`
+      - 票種 key（同上三項）：`QueryCacheTtlSafetyNetTests.GetTicketTypesHandler_WhenInvalidationHappensWhileQueryInFlight_CacheTemporarilyResurrectsStaleValue_ButExpiresWithinTtl`
+    - `QC-ACCESS-001` →
+      - 活動列表 v2 key：`QueryCachingAccessScopeTests.GetEvents_WithoutAuthentication_Returns200WithCreatedEvent`
+      - 票種 key：`QueryCachingAccessScopeTests.GetTicketTypes_WithoutAuthentication_Returns200WithCreatedTicketType`
+    - `QC-ACCESS-002` →
+      - 活動列表 v2 key：`QueryCachingAccessScopeTests.GetEvents_AcrossAnonymousBuyerAndAdminCallers_ShareTheSameCacheContent`
+      - 票種 key：`QueryCachingAccessScopeTests.GetTicketTypes_AcrossAnonymousBuyerAndAdminCallers_ShareTheSameCacheContent`
+    - EVT-SALES、TP-SALES-ORDER、PQ-SALES-JOIN 的分層測試（Domain／Application 單元與 WebApi／Infrastructure 整合）：同一 ID 在 1.3、1.4、2.3、3.3、3.5、4.4、4.5、5.2、5.3、5.6～5.8 各任務列出的方法全部屬於該 ID，以 `grep -n "<ID>" tasks.md` 反查任務、逐一核對方法存在，缺一即該 AC 未通過
+    - 上列每個測試方法上方的註解標注 AC ID 與覆蓋面（例如 `// PQ-SALES-JOIN-009：HTTP 端點面`、`// QC-TTL-004：活動列表 v2 key`、`// QC-TTL-004：票種 key`），由方法可反查 AC
 - [ ] 6.4 套用 `.claude/skills/hardener/SKILL.md` 檢查 `OrderService`、`JoinPurchaseQueueHandler`、`CreateEventHandler` 本次變更，之後呼叫 strict-reviewer
-- [ ] 6.5 `docs/project-scope.md` 第 8 節補強項目 ① 標註後端完成、前端待 `event-sales-window-web-ui`；部署說明寫明 R1（已開始的既有活動遷移後為已停售），以及部署與回滾後執行 `DEL query-cache:events:list` 清除列表快取
-- [ ] 6.6 歸檔時同步三個 delta spec 至主 spec，`openspec validate --specs` 通過
+- [ ] 6.5 `docs/project-scope.md` 第 8 節補強項目 ① 標註後端完成、前端待 `event-sales-window-web-ui`；部署說明寫明 R1（未設定停售時間的活動自 `StartAtUtc` 起停售，含遷移當下已開始的既有活動）
+- [ ] 6.6 部署說明（**部署操作，非自動化測試範圍**）：本變更可滾動部署，不需清除快取。舊版本 key `query-cache:events:list` 在舊版本實例全部停止後最多一個 TTL（`EventListTtlSeconds`，預設 30 秒）自然過期；回滾契約見 `query-caching` delta「活動列表快取 key 隨回應形狀版本化」與 6.9。鍵已查證：活動列表只有單一固定 key（無 Organizer／查詢參數變體、無 key prefix），後台活動列表不經快取，票種快取不含販售欄位
+- [ ] 6.7 歸檔時同步四個 delta spec（`event-management`、`ticket-purchase`、`purchase-queue`、`query-caching`）至主 spec
+  - **目前狀態（歸檔前）**：四份主 spec 皆保留既有版本，僅作為歸檔前基準：`event-management` 尚無 `SalesStartAtUtc`／`SalesEndAtUtc`，`ticket-purchase` 尚無販售期間下單規則，`purchase-queue` 尚無販售期間加入排隊規則，`query-caching` 仍為 v1 key `query-cache:events:list`。本 change 的四份 delta 是實作前唯一的新增契約來源；歸檔前任何文件、commit 說明或審查回報都不得宣稱主 spec 已同步或與 delta 一致
+  - **主 spec 已有的唯一修改**：`query-caching` 主 spec 的 QC-TTL-004 段落與 Scenario 已直接訂正（時序措辭為主 spec 既有錯誤；「重新寫入 MUST 套用完整 TTL」統一主 spec 內段落與 Scenario 原本不一致的契約強度）。這是既有錯誤訂正，與 key 版本無關，不代表同步；commit 說明須標注「主 spec 既有措辭錯誤訂正」
+  - **歸檔時**：MUST 將四份 delta 完整同步至主 spec（`query-caching` 的讀取 key、失效 key、TTL key、匿名共享 key 與其 Scenario 全部換為 v2，並新增版本化 Requirement；其餘三份新增／修改對應 Requirement），再依 6.8 核對，重新執行 `openspec validate --specs` 與下一輪 spec-reviewer，通過後才能 commit 歸檔
+- [ ] 6.8 歸檔同步後核對主 spec，未全部通過不得 commit 歸檔：
+  - `grep -rn "query-cache:events:list" openspec/specs` 的結果中，除了 `query-caching`「活動列表快取 key 隨回應形狀版本化」描述舊版本 key 的文字與 QC-EVT-VER-001～004 之外，其餘每一處皆為 `query-cache:events:list:v2`
+  - `query-caching` 主 spec 的 cache-aside、明確失效、TTL 安全網、匿名存取四個 Requirement 及其 Scenario（QC-EVT-001～003、QC-EVT-INV-001～002、QC-TTL-001～004、QC-ACCESS-001～003）皆為 delta 的 v2 版本，且版本化 Requirement 已新增
+  - `ticket-purchase` 主 spec 不含「舊快取項目解讀為 null」或「禁止滾動部署」文字，不含 TP-BROWSE-SALES-002
+  - 其他能力（`event-management`、`purchase-queue`、`real-name-verification` 等）引用活動列表快取時無殘留 v1 契約
+  - `openspec validate --specs` 通過
+- [ ] 6.9 回滾演練（**部署操作，非自動化測試範圍**；理由見 design.md 決策 6：新舊兩份執行檔無法在同一測試程序中執行）
+  - **固定版本**：舊版 = 本 change 分支基底 commit `f016de5`（`feature/event-sales-window` 建立時的 master）；MUST NOT 以演練當下的浮動 `master` 作為回滾版本。新版 = 演練當下本分支的 `git rev-parse HEAD`，演練前 `git status --porcelain` MUST 為空（工作目錄等於該 commit，未提交的修改不得混入）
+  - **執行環境事實（決定隔離方式）**：`Dockerfile` 只提供 .NET SDK，不複製原始碼；`api` 以 bind mount `.:/src` 執行 `dotnet watch`，bin／obj 放在 named volume（`domain_bin` 等）。因此 (a) api image ID 無法區分新舊版本，不作為版本證據；(b) 在 api 執行中 `git checkout` 會讓 `dotnet watch` 在切換途中重建，混用新舊原始碼——MUST NOT 在主工作目錄 checkout 舊版。程式啟動時不自動執行 migration（src 無 `Migrate`／`MigrateAsync` 呼叫），migration 只在下列明確步驟執行；`redis` 不掛 volume，容器重建會清空所有 key
+  - **隔離方式**：舊版以獨立 worktree 提供原始碼：`git worktree add --detach C:/AIArea/ProjectC-rollback-f016de5 f016de5`（父目錄固定為 `C:/AIArea`，與主工作目錄同層）。新舊兩版皆用同一個 compose project，只切換 compose 檔來源目錄（bind mount `.` 隨之指向該目錄）：
+    - project 名稱固定為 `projectc`（2026-10-03 已查證：主工作目錄 `docker compose config` 首行為 `name: projectc`；`docker compose ls -a` 列出 `projectc`；資料庫 volume 為 `projectc_postgres_data`）。演練前在主工作目錄重新執行 `docker compose config` 確認首行仍為 `name: projectc`（不用不帶 `-a` 的 `docker compose ls`：服務停止時不會列出 project）。以下指令一律帶 `-p projectc`，確保共用既有 `projectc_postgres_data` volume 與 `projectc_default` 網路，而不是建立新 project 的空資料庫
+    - 演練用 TTL 覆寫檔（不進版控，置於 `C:/AIArea/rollback-drill.override.yml`）：只含 `services.api.environment.QueryCache__EventListTtlSeconds: "600"`。理由：預設 30 秒短於切換版本與首次建置的時間，v2 會在步驟 (2) 前自然過期，「舊版未讀寫 v2」將無法觀察；兩版皆讀 `QueryCache:EventListTtlSeconds`（`f016de5` 的 appsettings 已有此設定）
+    - `NEW` = `docker compose -p projectc --env-file C:/AIArea/ProjectC/.env -f C:/AIArea/ProjectC/docker-compose.yml -f C:/AIArea/rollback-drill.override.yml`
+    - `OLD` = `docker compose -p projectc --env-file C:/AIArea/ProjectC/.env -f C:/AIArea/ProjectC-rollback-f016de5/docker-compose.yml -f C:/AIArea/rollback-drill.override.yml`（worktree 沒有不進版控的 `.env`，一律指向主工作目錄那份）。2026-10-03 已以 `git show f016de5:docker-compose.yml` 加上述覆寫檔、`OLD` 形式的參數執行 `config --format json` 查證：project 為 `projectc`、api 的 `/src` bind mount 來源為該目錄、bin／obj named volume 解析為 `projectc_*`、`projectc_postgres_data`、網路 `projectc_default`、`QueryCache__EventListTtlSeconds` = 600、連線字串為 `Host=db` 且 JWT／票券簽章金鑰皆由 `.env` 解析出非空值；`f016de5` 與目前 HEAD 的 `docker-compose.yml`、`Dockerfile` 無差異
+    - **切換 api 的固定程序**（每次切換都執行）：`<目前版本> rm -sf api` 停止並移除 api 容器 → `docker volume rm` 刪除 `projectc_domain_bin`、`projectc_domain_obj`、`projectc_application_bin`、`projectc_application_obj`、`projectc_infrastructure_bin`、`projectc_infrastructure_obj`、`projectc_webapi_bin`、`projectc_webapi_obj`（只含建置產物，避免另一版本的產物被增量建置沿用）→ `<目標版本> up -d --no-deps api` → 等 `GET /api/events` 回 200
+    - MUST NOT 執行 `docker compose down`、`down -v`、`rm db`、`rm redis` 或重啟 `db`／`redis`：資料庫 volume 與 Redis key 必須跨版本保留
+    - MUST NOT 帶 `--remove-orphans`：`NEW`／`OLD` 都以 `-f` 明確指定檔案，不載入主工作目錄的 `docker-compose.override.yml`，compose 會把其中的 `pgadmin` 視為 orphan 並提示警告；警告可忽略，加上該旗標會刪除 pgadmin 容器
+    - `docker volume rm` 前先確認 api 容器已移除（`docker ps -a --filter volume=projectc_webapi_bin` 無結果），否則刪除會失敗
+  - **版本身分確認**（每次切換後、執行該版本步驟前）：`docker inspect <api 容器>` 的 `/src` 掛載來源等於該版本目錄；`git -C <該目錄> rev-parse HEAD` 等於該版本 commit 且 `git -C <該目錄> status --porcelain` 為空；新版 `GET /api/events` 的活動物件含 `salesStartAtUtc`／`salesEndAtUtc` 屬性，舊版不含
+  - **步驟與預期**：
+    - (0) 新版：api 依上述程序以 `NEW` 啟動；`NEW exec api dotnet ef database update --project src/ProjectC.Infrastructure --startup-project src/ProjectC.WebApi` 套用到最新；以 `psql` 確認 `__EFMigrationsHistory` 含 `AddEventSalesWindow`、`Events` 有兩欄位
+    - (1) 新版：建立一場設定販售期間的活動、匿名 `GET /api/events`，`redis-cli` 確認 `"query-cache:events:list:v2"` 存在且含兩欄位，記下 PTTL
+    - (2) 切到舊版（固定程序，`OLD` 啟動；舊版 MUST NOT 執行任何 `dotnet ef` 指令）：匿名 `GET /api/events` 回 200、內容無兩欄位；`"query-cache:events:list"` 被寫入；`"query-cache:events:list:v2"` 內容不變（舊版未讀寫）
+    - (3) 舊版建立一場活動：`"query-cache:events:list"` 被清除、`"query-cache:events:list:v2"` 不變；`psql` 確認 `__EFMigrationsHistory` 仍含 `AddEventSalesWindow`、兩欄位仍存在、步驟 (1) 活動的兩欄位值不變、舊版建立的活動兩欄位為 NULL（資料庫未被 Down）
+    - (4) `redis-cli PTTL` 確認 `"query-cache:events:list:v2"` 未被延長（不大於步驟 (1) 記錄值扣除經過時間），等到過期後不存在（僅 TTL 收斂）
+    - (5) 切回新版（固定程序，`NEW` 啟動，不再執行 migration）：匿名 `GET /api/events` 回 200，含兩欄位，步驟 (3) 舊版建立的活動兩欄位為 null；`"query-cache:events:list:v2"` 重新寫入；`"query-cache:events:list"` 未被新版讀寫（若仍存在則內容不變，直到 TTL 過期）
+  - **恢復**：(5) 完成後 `NEW rm -sf api` → `git worktree remove C:/AIArea/ProjectC-rollback-f016de5` → `git worktree prune`，`git worktree list` 只剩主工作目錄；刪除 `C:/AIArea/rollback-drill.override.yml`；以平常的 `docker compose up -d api`（不帶覆寫檔，TTL 回預設 30 秒）啟動，確認主工作目錄仍在 `feature/event-sales-window`、`git status --porcelain` 為空。演練建立的活動保留於開發資料庫，記錄其 Id
+  - **記錄**：`docker compose config` 首行（project 名稱）、新舊版 commit 與各自掛載來源、各步驟的 v1／v2 key 存在狀態、內容摘要與 PTTL、`__EFMigrationsHistory` 與兩欄位查詢結果、實際結果與預期是否一致；結果記入 PR 說明

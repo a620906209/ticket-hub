@@ -3,15 +3,11 @@
 ### Requirement: 公開活動列表附帶販售期間
 不需登入的公開活動列表查詢端點 SHALL 在每筆活動附帶 `SalesStartAtUtc`、`SalesEndAtUtc` 的原始值（可為 null，語意見 `event-management` 能力「建立活動時可指定販售期間」）。回應 MUST NOT 包含依當下時間推導的販售狀態：此列表可能來自 `query-caching` 能力的快取內容，推導狀態會隨時間過期，原始時間則建立後不可變。
 
-部署前寫入、不含這兩個欄位的舊快取項目 MUST 被解讀為 null。這類項目通常屬於部署前建立的活動（兩欄位一律為 null）；滾動部署或回滾期間，舊程式碼也可能在最多一個快取 TTL 內寫入此格式，此時列表欄位暫時為 null，但建立訂單與加入排隊的檢查一律讀資料庫，不受影響。
+此列表的快取 key 依 `query-caching` 能力「活動列表快取 key 隨回應形狀版本化」改用新版本，不會讀到不含這兩個欄位的舊版本快取內容。
 
 #### Scenario: TP-BROWSE-SALES-001 公開活動列表附帶販售期間原始值
 - **WHEN** 使用者（不論是否登入）查詢公開活動列表，資料庫中有設定販售期間與未設定的活動
 - **THEN** 每筆活動附帶與建立時一致的 `SalesStartAtUtc`、`SalesEndAtUtc`，未設定者為 null，且回應不含販售狀態欄位
-
-#### Scenario: TP-BROWSE-SALES-002 不含新欄位的舊快取項目解讀為 null
-- **WHEN** 活動列表快取中存在本次變更前格式（不含兩個販售期間欄位）的項目，使用者查詢公開活動列表命中該快取
-- **THEN** 回應中這些活動的兩欄位為 null，查詢不因欄位缺少而失敗
 
 ### Requirement: 建立訂單須在活動販售期間內
 建立訂單時，若當下時間不在訂單所屬活動的實際販售期間 `[SalesStartAtUtc, SalesEndAtUtc ?? StartAtUtc)` 內，系統 MUST 拒絕建立訂單，不鎖定任何座位、不扣減任何庫存、不建立訂單：
