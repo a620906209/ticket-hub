@@ -47,40 +47,16 @@ public class RealNameEventListCacheTests
         }
     }
 
-    // [TP-BROWSE-RN-002] 功能上線前寫入、不含此欄位的快取內容不得造成 500，缺漏時視為 false。
-    [Fact]
-    public async Task GetEvents_WhenCachedEntriesLackIsRealNameRequired_Returns200WithFalse()
-    {
-        await RunWithIsolatedFactoryAsync(async factory =>
-        {
-            var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(factory);
-            var seededEvent = await RealNameTestData.SeedEventAsync(factory, organizerClient, isRealNameRequired: false);
-            await RewriteCachedEventListAsync(factory, eventNode => eventNode.Remove(IsRealNameRequiredProperty));
-
-            var response = await factory.CreateClient().GetAsync("/api/events");
-
-            response.StatusCode.Should().Be(HttpStatusCode.OK);
-            var events = await response.Content.ReadFromJsonAsync<List<EventDto>>();
-            events!.Single(e => e.Id == seededEvent.EventId).IsRealNameRequired.Should().BeFalse();
-        });
-    }
-
     // [RNV-CACHE-001] 列表快取只用於顯示；閘門一律讀 DB，過期快取說「不需實名」也不得放行未登記會員。
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Gates_WhenCachedEventListSaysRealNameNotRequired_StillRejectUnregisteredMember(bool isLegacyFormat)
+    [Fact]
+    public async Task Gates_WhenCachedEventListSaysRealNameNotRequired_StillRejectUnregisteredMember()
     {
         await RunWithIsolatedFactoryAsync(async factory =>
         {
             var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(factory);
             var seededEvent = await RealNameTestData.SeedEventAsync(factory, organizerClient, isRealNameRequired: true, isQueueModeEnabled: true);
             var unregisteredMember = await RealNameTestData.CreateMemberAsync(factory);
-            await RewriteCachedEventListAsync(factory, eventNode =>
-            {
-                if (isLegacyFormat) eventNode.Remove(IsRealNameRequiredProperty);
-                else eventNode[IsRealNameRequiredProperty] = false;
-            });
+            await RewriteCachedEventListAsync(factory, eventNode => eventNode[IsRealNameRequiredProperty] = false);
 
             var events = await factory.CreateClient().GetFromJsonAsync<List<EventDto>>("/api/events");
             events!.Single(e => e.Id == seededEvent.EventId).IsRealNameRequired.Should().BeFalse("確認列表確實命中了被改寫的快取");

@@ -120,6 +120,7 @@
 ### 決策 7：Migration 與回滾
 
 - **Up**：`Events` 新增兩個可為 null 的 `timestamp with time zone` 欄位，不回填。
+- **部署順序**：MUST 先套用 migration 再啟動新版實例。新版在未遷移的資料庫上查詢活動會失敗（tasks 6.9 演練實測 `GET /api/events` 回 500）；舊版在已遷移的資料庫上不受影響，所以「先遷移、後滾動切換」是安全的。
 - **Down**：比照 `AddRealNameVerification`，用 DO-block 檢查。只要有任何活動的 `SalesStartAtUtc` 或 `SalesEndAtUtc` 非 null，就 `RAISE EXCEPTION` 中止，避免靜默丟掉主辦方設定的販售期間（丟掉後這些活動會變成立即可售）。
 - **建議的回滾方式**：只回滾程式碼。舊程式碼會忽略新欄位，所有活動退回「不檢查時間」；資料保留，重新部署即恢復。
 - `EventConfiguration` 必須明確 `Property()` 兩個屬性：getter-only 的建構子綁定屬性，EF 不會自動對映。

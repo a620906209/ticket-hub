@@ -302,18 +302,20 @@
     - 上列每個測試方法上方的註解標注 AC ID 與覆蓋面（例如 `// PQ-SALES-JOIN-009：HTTP 端點面`、`// QC-TTL-004：活動列表 v2 key`、`// QC-TTL-004：票種 key`），由方法可反查 AC
 - [x] 6.4 套用 `.claude/skills/hardener/SKILL.md` 檢查 `OrderService`、`JoinPurchaseQueueHandler`、`CreateEventHandler` 本次變更，之後呼叫 strict-reviewer
 - [x] 6.5 `docs/project-scope.md` 第 8 節補強項目 ① 標註後端完成、前端待 `event-sales-window-web-ui`；部署說明寫明 R1（未設定停售時間的活動自 `StartAtUtc` 起停售，含遷移當下已開始的既有活動）
-- [ ] 6.6 部署說明（**部署操作，非自動化測試範圍**）：本變更可滾動部署，不需清除快取。舊版本 key `query-cache:events:list` 在舊版本實例全部停止後最多一個 TTL（`EventListTtlSeconds`，預設 30 秒）自然過期；回滾契約見 `query-caching` delta「活動列表快取 key 隨回應形狀版本化」與 6.9。鍵已查證：活動列表只有單一固定 key（無 Organizer／查詢參數變體、無 key prefix），後台活動列表不經快取，票種快取不含販售欄位
-- [ ] 6.7 歸檔時同步四個 delta spec（`event-management`、`ticket-purchase`、`purchase-queue`、`query-caching`）至主 spec
+- [x] 6.6 部署說明（**部署操作，非自動化測試範圍**）：本變更可滾動部署，不需清除快取。舊版本 key `query-cache:events:list` 在舊版本實例全部停止後最多一個 TTL（`EventListTtlSeconds`，預設 30 秒）自然過期；回滾契約見 `query-caching` delta「活動列表快取 key 隨回應形狀版本化」與 6.9。鍵已查證：活動列表只有單一固定 key（無 Organizer／查詢參數變體、無 key prefix），後台活動列表不經快取，票種快取不含販售欄位
+  - **部署順序（6.9 演練證實）**：MUST 先套用 `AddEventSalesWindow` migration，再啟動新版實例；新版在未遷移的資料庫上 `GET /api/events` 回 500（`column e.SalesEndAtUtc does not exist`）。舊版在已遷移的資料庫上運作正常（舊 EF model 不查詢新欄位），因此「先遷移、後滾動切換」期間舊實例不受影響
+- [x] 6.7 歸檔時同步四個 delta spec（`event-management`、`ticket-purchase`、`purchase-queue`、`query-caching`）至主 spec
+  - **歸檔後修正（2026-10-04，spec-reviewer 發現）**：`ticket-purchase` 刪除 TP-BROWSE-RN-002 與「部署前寫入的舊快取項目 MUST 解讀為 false」、`real-name-verification` 刪除同一前提與 RNV-CACHE-001 的「舊格式」變體——v2 key 不可能存有不含 `isRealNameRequired` 的項目，比照本 change 刪除 TP-BROWSE-SALES-002 的處理；對應測試 `GetEvents_WhenCachedEntriesLackIsRealNameRequired_Returns200WithFalse` 刪除、`Gates_WhenCachedEventListSaysRealNameNotRequired_StillRejectUnregisteredMember` 由 Theory 改為只保留 `false` 情境的 Fact；正式程式碼未變更
   - **目前狀態（歸檔前）**：四份主 spec 皆保留既有版本，僅作為歸檔前基準：`event-management` 尚無 `SalesStartAtUtc`／`SalesEndAtUtc`，`ticket-purchase` 尚無販售期間下單規則，`purchase-queue` 尚無販售期間加入排隊規則，`query-caching` 仍為 v1 key `query-cache:events:list`。本 change 的四份 delta 是實作前唯一的新增契約來源；歸檔前任何文件、commit 說明或審查回報都不得宣稱主 spec 已同步或與 delta 一致
   - **主 spec 已有的唯一修改**：`query-caching` 主 spec 的 QC-TTL-004 段落與 Scenario 已直接訂正（時序措辭為主 spec 既有錯誤；「重新寫入 MUST 套用完整 TTL」統一主 spec 內段落與 Scenario 原本不一致的契約強度）。這是既有錯誤訂正，與 key 版本無關，不代表同步；commit 說明須標注「主 spec 既有措辭錯誤訂正」
   - **歸檔時**：MUST 將四份 delta 完整同步至主 spec（`query-caching` 的讀取 key、失效 key、TTL key、匿名共享 key 與其 Scenario 全部換為 v2，並新增版本化 Requirement；其餘三份新增／修改對應 Requirement），再依 6.8 核對，重新執行 `openspec validate --specs` 與下一輪 spec-reviewer，通過後才能 commit 歸檔
-- [ ] 6.8 歸檔同步後核對主 spec，未全部通過不得 commit 歸檔：
+- [x] 6.8 歸檔同步後核對主 spec，未全部通過不得 commit 歸檔：
   - `grep -rn "query-cache:events:list" openspec/specs` 的結果中，除了 `query-caching`「活動列表快取 key 隨回應形狀版本化」描述舊版本 key 的文字與 QC-EVT-VER-001～004 之外，其餘每一處皆為 `query-cache:events:list:v2`
   - `query-caching` 主 spec 的 cache-aside、明確失效、TTL 安全網、匿名存取四個 Requirement 及其 Scenario（QC-EVT-001～003、QC-EVT-INV-001～002、QC-TTL-001～004、QC-ACCESS-001～003）皆為 delta 的 v2 版本，且版本化 Requirement 已新增
   - `ticket-purchase` 主 spec 不含「舊快取項目解讀為 null」或「禁止滾動部署」文字，不含 TP-BROWSE-SALES-002
   - 其他能力（`event-management`、`purchase-queue`、`real-name-verification` 等）引用活動列表快取時無殘留 v1 契約
   - `openspec validate --specs` 通過
-- [ ] 6.9 回滾演練（**部署操作，非自動化測試範圍**；理由見 design.md 決策 6：新舊兩份執行檔無法在同一測試程序中執行）
+- [x] 6.9 回滾演練（**部署操作，非自動化測試範圍**；理由見 design.md 決策 6：新舊兩份執行檔無法在同一測試程序中執行）
   - **固定版本**：舊版 = 本 change 分支基底 commit `f016de5`（`feature/event-sales-window` 建立時的 master）；MUST NOT 以演練當下的浮動 `master` 作為回滾版本。新版 = 演練當下本分支的 `git rev-parse HEAD`，演練前 `git status --porcelain` MUST 為空（工作目錄等於該 commit，未提交的修改不得混入）
   - **執行環境事實（決定隔離方式）**：`Dockerfile` 只提供 .NET SDK，不複製原始碼；`api` 以 bind mount `.:/src` 執行 `dotnet watch`，bin／obj 放在 named volume（`domain_bin` 等）。因此 (a) api image ID 無法區分新舊版本，不作為版本證據；(b) 在 api 執行中 `git checkout` 會讓 `dotnet watch` 在切換途中重建，混用新舊原始碼——MUST NOT 在主工作目錄 checkout 舊版。程式啟動時不自動執行 migration（src 無 `Migrate`／`MigrateAsync` 呼叫），migration 只在下列明確步驟執行；`redis` 不掛 volume，容器重建會清空所有 key
   - **隔離方式**：舊版以獨立 worktree 提供原始碼：`git worktree add --detach C:/AIArea/ProjectC-rollback-f016de5 f016de5`（父目錄固定為 `C:/AIArea`，與主工作目錄同層）。新舊兩版皆用同一個 compose project，只切換 compose 檔來源目錄（bind mount `.` 隨之指向該目錄）：
@@ -327,7 +329,7 @@
     - `docker volume rm` 前先確認 api 容器已移除（`docker ps -a --filter volume=projectc_webapi_bin` 無結果），否則刪除會失敗
   - **版本身分確認**（每次切換後、執行該版本步驟前）：`docker inspect <api 容器>` 的 `/src` 掛載來源等於該版本目錄；`git -C <該目錄> rev-parse HEAD` 等於該版本 commit 且 `git -C <該目錄> status --porcelain` 為空；新版 `GET /api/events` 的活動物件含 `salesStartAtUtc`／`salesEndAtUtc` 屬性，舊版不含
   - **步驟與預期**：
-    - (0) 新版：api 依上述程序以 `NEW` 啟動；`NEW exec api dotnet ef database update --project src/ProjectC.Infrastructure --startup-project src/ProjectC.WebApi` 套用到最新；以 `psql` 確認 `__EFMigrationsHistory` 含 `AddEventSalesWindow`、`Events` 有兩欄位
+    - (0) 新版：api 依上述程序以 `NEW` 啟動（此步驟例外：資料庫尚未遷移時新版列表回 500，不等 200，容器啟動後直接套 migration；見下方演練結果的程序偏差）；`NEW exec api dotnet ef database update --project src/ProjectC.Infrastructure --startup-project src/ProjectC.WebApi` 套用到最新；以 `psql` 確認 `__EFMigrationsHistory` 含 `AddEventSalesWindow`、`Events` 有兩欄位
     - (1) 新版：建立一場設定販售期間的活動、匿名 `GET /api/events`，`redis-cli` 確認 `"query-cache:events:list:v2"` 存在且含兩欄位，記下 PTTL
     - (2) 切到舊版（固定程序，`OLD` 啟動；舊版 MUST NOT 執行任何 `dotnet ef` 指令）：匿名 `GET /api/events` 回 200、內容無兩欄位；`"query-cache:events:list"` 被寫入；`"query-cache:events:list:v2"` 內容不變（舊版未讀寫）
     - (3) 舊版建立一場活動：`"query-cache:events:list"` 被清除、`"query-cache:events:list:v2"` 不變；`psql` 確認 `__EFMigrationsHistory` 仍含 `AddEventSalesWindow`、兩欄位仍存在、步驟 (1) 活動的兩欄位值不變、舊版建立的活動兩欄位為 NULL（資料庫未被 Down）
@@ -335,3 +337,14 @@
     - (5) 切回新版（固定程序，`NEW` 啟動，不再執行 migration）：匿名 `GET /api/events` 回 200，含兩欄位，步驟 (3) 舊版建立的活動兩欄位為 null；`"query-cache:events:list:v2"` 重新寫入；`"query-cache:events:list"` 未被新版讀寫（若仍存在則內容不變，直到 TTL 過期）
   - **恢復**：(5) 完成後 `NEW rm -sf api` → `git worktree remove C:/AIArea/ProjectC-rollback-f016de5` → `git worktree prune`，`git worktree list` 只剩主工作目錄；刪除 `C:/AIArea/rollback-drill.override.yml`；以平常的 `docker compose up -d api`（不帶覆寫檔，TTL 回預設 30 秒）啟動，確認主工作目錄仍在 `feature/event-sales-window`、`git status --porcelain` 為空。演練建立的活動保留於開發資料庫，記錄其 Id
   - **記錄**：`docker compose config` 首行（project 名稱）、新舊版 commit 與各自掛載來源、各步驟的 v1／v2 key 存在狀態、內容摘要與 PTTL、`__EFMigrationsHistory` 與兩欄位查詢結果、實際結果與預期是否一致；結果記入 PR 說明
+  - **演練結果（2026-10-04，本專案無遠端 PR，記於此處與 merge commit 說明）**：
+    - 環境：`docker compose config` 首行 `name: projectc`；新版 `11f1b34`（掛載 `C:/AIArea/ProjectC`，`git status --porcelain` 為空），舊版 `f016de5`（掛載 `C:/AIArea/ProjectC-rollback-f016de5`，為空）；api 容器 `QueryCache__EventListTtlSeconds=600`
+    - **程序偏差**：(0) 「依固定程序啟動後等 `GET /api/events` 回 200，再套 migration」順序不成立——開發 DB 尚未套用 `AddEventSalesWindow` 時新版查詢 `e.SalesEndAtUtc` 回 500（42703）。實際改為容器啟動後先執行 `dotnet ef database update`，之後 `GET /api/events` 回 200。屬演練文件的步驟順序錯誤，不影響本變更行為；正式部署須先套 migration 再切新版流量
+    - (0) `__EFMigrationsHistory` 最新為 `20261003115627_AddEventSalesWindow`；`Events.SalesStartAtUtc`／`SalesEndAtUtc` 皆為 `timestamp with time zone`
+    - (1) 新版建立活動 `d74eea35-88fb-475c-bc2d-ebc0fcb907b3`（販售 2026-11-01～2026-11-30）→ 201；匿名列表含兩欄位；v2 存在且含 `SalesStartAtUtc`／`SalesEndAtUtc`，PTTL 599212；v1 不存在
+    - (2) 舊版 `GET /api/events` 20 秒內回 200、無兩欄位；v1 被寫入且不含 `SalesStart`；v2 內容 md5 不變（`4ebd7325…`）
+    - (3) 舊版建立活動 `f7014edc-7a83-4772-bc8d-59da41c54b0b` → 201；v1 被清除、v2 md5 不變；migration 與兩欄位仍在，(1) 活動值不變，舊版活動兩欄位 NULL
+    - (4) v2 PTTL 每 90 秒取樣：523760 → 433154 → 342501 → 253525 → 162877 → 72232 → -2，單調遞減、未延長，到期後不存在。取樣與 `date +%s` 對照有約 1 秒的偏差，屬已知 WSL2 時鐘倒退（見 project-scope 第 8 節），非 TTL 延長
+    - (5) 切回新版：200，(1) 活動含兩欄位，(3) 舊版活動兩欄位 null；v2 重新寫入（PTTL 600788，略高於 600000 同屬 WSL2 時鐘倒退）；v1 不存在、新版未寫入
+    - 恢復：worktree 已移除（`git worktree list` 只剩主工作目錄），覆寫檔已刪除，api 以一般 `docker compose up -d api` 啟動（環境變數無 TTL 覆寫），分支 `feature/event-sales-window`、工作目錄乾淨。兩場演練活動保留於開發 DB（Id 如上）
+    - 結論：與預期一致（除上述 (0) 步驟順序偏差）
