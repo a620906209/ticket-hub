@@ -35,10 +35,12 @@ public class JoinPurchaseQueueHandlerTests
             AdmissionMirror,
             MemberRealNameRepository);
 
-        public Event SeedEvent(bool isQueueModeEnabled = true, bool isRealNameRequired = false)
+        public Event SeedEvent(bool isQueueModeEnabled = true, bool isRealNameRequired = false,
+            DateTime? startAtUtc = null, DateTime? salesStartAtUtc = null, DateTime? salesEndAtUtc = null)
         {
             var @event = new Event(
-                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), isRealNameRequired: isRealNameRequired);
+                Guid.NewGuid(), "Concert", startAtUtc ?? Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), isRealNameRequired: isRealNameRequired,
+                salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
             if (isQueueModeEnabled) @event.EnableQueueMode();
             EventRepository.Data.Add(@event);
             return @event;
@@ -376,5 +378,184 @@ public class JoinPurchaseQueueHandlerTests
         (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain(@event.Id.ToString());
         fixture.PurchaseQueueRepository.Data.Should().BeEmpty();
         fixture.UnitOfWork.LastTransaction!.Committed.Should().BeFalse();
+    }
+
+    // ---- 販售期間（event-sales-window PQ-SALES-JOIN-*）----
+
+    // 已逾時的 Admitted 紀錄：販售期間檢查若放在排隊紀錄查詢之後，這筆會先被轉為 Expired。
+    private static PurchaseQueueEntry SeedExpiredAdmittedEntry(Fixture fixture, Guid eventId, Guid memberId)
+    {
+        var entry = new PurchaseQueueEntry(Guid.NewGuid(), eventId, memberId, Now.AddMinutes(-30));
+        entry.Admit(Now.AddMinutes(-20), Now.AddMinutes(-10));
+        fixture.PurchaseQueueRepository.Data.Add(entry);
+        return entry;
+    }
+
+    // PQ-SALES-JOIN-001
+    [Fact]
+    public async Task HandleAsync_WhenSalesNotOpen_ReturnsSalesNotOpenWithoutAddingEntry()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(salesStartAtUtc: Now.AddHours(1));
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesNotOpen);
+        result.Error.Message.Should().Contain(@event.Id.ToString());
+        fixture.PurchaseQueueRepository.AddOrGetExistingCallCount.Should().Be(0);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    // PQ-SALES-JOIN-002
+    [Fact]
+    public async Task HandleAsync_WhenSalesClosed_ReturnsSalesClosedWithoutAddingEntry()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(salesEndAtUtc: Now.AddHours(-1));
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        result.Error.Message.Should().Contain(@event.Id.ToString());
+        fixture.PurchaseQueueRepository.AddOrGetExistingCallCount.Should().Be(0);
+    }
+
+    // PQ-SALES-JOIN-003
+    [Fact]
+    public async Task HandleAsync_WithinSalesWindow_AddsWaitingEntry()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(salesStartAtUtc: Now.AddHours(-1), salesEndAtUtc: Now.AddHours(1));
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.PurchaseQueueRepository.Data.Should().ContainSingle(e => e.Id == result.Value && e.Status == PurchaseQueueEntryStatus.Waiting);
+    }
+
+    // PQ-SALES-JOIN-004：驗證碼仍是第一道檢查，避免未過驗證碼即可探測活動販售狀態。
+    [Fact]
+    public async Task HandleAsync_WhenCaptchaInvalidAndSalesNotOpen_ReturnsCaptchaInvalid()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(salesStartAtUtc: Now.AddHours(1));
+        var invalidRequest = new JoinPurchaseQueueRequest(FakeCaptchaService.ValidToken, "WRONG");
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), invalidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.CaptchaInvalid);
+    }
+
+    // PQ-SALES-JOIN-005：未開賣時是否開啟熱門搶購模式無從得知也無關，先告知未開賣。
+    [Fact]
+    public async Task HandleAsync_WhenQueueModeDisabledAndSalesNotOpen_ReturnsSalesNotOpen()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(isQueueModeEnabled: false, salesStartAtUtc: Now.AddHours(1));
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesNotOpen);
+    }
+
+    // PQ-SALES-JOIN-006
+    [Fact]
+    public async Task HandleAsync_WhenRealNameMissingAndSalesNotOpen_ReturnsSalesNotOpen()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(isRealNameRequired: true, salesStartAtUtc: Now.AddHours(1));
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesNotOpen);
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+    }
+
+    // PQ-SALES-JOIN-007：停售後不得再改動排隊紀錄（含 Admitted→Expired 自我修復）。
+    [Fact]
+    public async Task HandleAsync_WhenExpiredAdmittedEntryAndSalesClosed_ReturnsSalesClosedWithoutExpiringEntry()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(salesEndAtUtc: Now.AddHours(-1));
+        var memberId = Guid.NewGuid();
+        var entry = SeedExpiredAdmittedEntry(fixture, @event.Id, memberId);
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, memberId, ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        entry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+        fixture.PurchaseQueueRepository.AddOrGetExistingCallCount.Should().Be(0);
+    }
+
+    // PQ-SALES-JOIN-008：等待活動鎖期間跨過停售時點，交易內必須以鎖定後重新取得的 now 判斷。
+    [Fact]
+    public async Task HandleAsync_WhenSalesClosesWhileWaitingForEventLock_ReturnsSalesClosedWithoutAddingEntry()
+    {
+        var fixture = new Fixture();
+        var salesEndAtUtc = Now.AddMinutes(1);
+        var @event = fixture.SeedEvent(salesEndAtUtc: salesEndAtUtc);
+        fixture.EventRepository.GetForUpdateOverride = _ =>
+        {
+            fixture.DateTimeProvider.UtcNow = salesEndAtUtc;
+            return @event;
+        };
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1, "交易外檢查時仍可售，必須進入交易才會被權威檢查擋下");
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeFalse();
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+        fixture.PurchaseQueueRepository.AddOrGetExistingCallCount.Should().Be(0);
+    }
+
+    // PQ-SALES-JOIN-008：交易內販售期間檢查先於熱門搶購模式重驗，否則已停售活動會回 Conflict。
+    [Fact]
+    public async Task HandleAsync_WhenClosedInsideTransactionAndQueueModeDisabled_ReturnsSalesClosed()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent();
+        var lockedEvent = new Event(@event.Id, @event.Title, @event.StartAtUtc, @event.VenueId, @event.SeatMapId, @event.OrganizerId,
+            salesEndAtUtc: Now.AddHours(-1));
+        fixture.EventRepository.GetForUpdateOverride = _ => lockedEvent;
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        lockedEvent.IsQueueModeEnabled.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        fixture.PurchaseQueueRepository.AddOrGetExistingCallCount.Should().Be(0);
+    }
+
+    // PQ-SALES-JOIN-010：既有活動（兩欄位皆 null）在開始前維持可加入排隊。
+    [Fact]
+    public async Task HandleAsync_WhenSalesWindowNotSetAndEventNotStarted_AddsWaitingEntry()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(startAtUtc: Now.AddDays(1));
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), ValidRequest, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.PurchaseQueueRepository.Data.Should().ContainSingle(e => e.Id == result.Value && e.Status == PurchaseQueueEntryStatus.Waiting);
+    }
+
+    // PQ-SALES-JOIN-011：未設定停售時間時以活動開始時間為停售點；開始時間等於 now 也已停售。
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-60)]
+    public async Task HandleAsync_WhenSalesEndIsNullAndEventStartedWithExpiredAdmittedEntry_ReturnsSalesClosed(int startAtOffsetMinutes)
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent(startAtUtc: Now.AddMinutes(startAtOffsetMinutes));
+        var memberId = Guid.NewGuid();
+        var entry = SeedExpiredAdmittedEntry(fixture, @event.Id, memberId);
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, memberId, ValidRequest, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        entry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+        fixture.PurchaseQueueRepository.AddOrGetExistingCallCount.Should().Be(0);
     }
 }

@@ -15,4 +15,6 @@ public sealed record AdminEventSummaryDto(
     int AvailableSeatCount,
     int HeldSeatCount,
     int SoldSeatCount,
-    bool IsRealNameRequired);
+    bool IsRealNameRequired,
+    DateTime? SalesStartAtUtc,
+    DateTime? SalesEndAtUtc);

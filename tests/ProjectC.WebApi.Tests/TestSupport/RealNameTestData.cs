@@ -35,12 +35,19 @@ public static class RealNameTestData
         return created!.Id;
     }
 
+    // 呼叫端多以 DateTime.UtcNow 加減產生時間（含次微秒）；設定開賣時間時 API 會拒絕次微秒（EVT-SALES-017），
+    // 而資料庫本來就只存到微秒，截斷不改變任何測試所依賴的時間關係。
+    private static DateTime TruncateToMicroseconds(DateTime value)
+        => new(value.Ticks - value.Ticks % TimeSpan.TicksPerMicrosecond, value.Kind);
+
     public static async Task<SeededEvent> SeedEventAsync(
         WebApplicationFactory<Program> factory,
         HttpClient organizerClient,
         bool isRealNameRequired,
         bool isQueueModeEnabled = false,
-        DateTime? startsAtUtc = null)
+        DateTime? startsAtUtc = null,
+        DateTime? salesStartAtUtc = null,
+        DateTime? salesEndAtUtc = null)
     {
         var venueResponse = await organizerClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Real Name Test Venue"));
         var venueId = await ReadCreatedIdAsync(venueResponse);
@@ -50,8 +57,10 @@ public static class RealNameTestData
         var eventResponse = await organizerClient.PostAsJsonAsync(
             "/api/admin/events",
             new CreateEventRequest(
-                "Real Name Test Event", startsAtUtc ?? DateTime.UtcNow.AddDays(30), venueId, seatMapId,
-                IsRealNameRequired: isRealNameRequired));
+                "Real Name Test Event", TruncateToMicroseconds(startsAtUtc ?? DateTime.UtcNow.AddDays(30)), venueId, seatMapId,
+                IsRealNameRequired: isRealNameRequired,
+                SalesStartAtUtc: salesStartAtUtc is { } salesStart ? TruncateToMicroseconds(salesStart) : null,
+                SalesEndAtUtc: salesEndAtUtc is { } salesEnd ? TruncateToMicroseconds(salesEnd) : null));
         var eventId = await ReadCreatedIdAsync(eventResponse);
         var ticketTypeResponse = await organizerClient.PostAsJsonAsync(
             $"/api/admin/events/{eventId}/ticket-types", new CreateTicketTypeRequest("A", 500m));

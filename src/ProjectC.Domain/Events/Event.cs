@@ -22,6 +22,12 @@ public sealed class Event
     /// 若未來新增變更方法，須改以交易內鎖定讀取為權威（real-name-verification design.md 決策 3）。</summary>
     public bool IsRealNameRequired { get; }
 
+    /// <summary>開賣時間；null 表示不設開賣下界。建構時指定、之後不可變（event-sales-window design.md 決策 1）。</summary>
+    public DateTime? SalesStartAtUtc { get; }
+
+    /// <summary>停售時間；null 表示停售時間沿用 <see cref="StartAtUtc"/>。建構時指定、之後不可變。</summary>
+    public DateTime? SalesEndAtUtc { get; }
+
     public Event(
         Guid id,
         string title,
@@ -34,7 +40,9 @@ public sealed class Event
         int? maxTicketsPerOrder = null,
         Guid? createdByMemberId = null,
         DateTime? createdAtUtc = null,
-        bool isRealNameRequired = false)
+        bool isRealNameRequired = false,
+        DateTime? salesStartAtUtc = null,
+        DateTime? salesEndAtUtc = null)
     {
         if (string.IsNullOrWhiteSpace(title))
             throw new ArgumentException("Event title is required.", nameof(title));
@@ -48,6 +56,14 @@ public sealed class Event
             throw new ArgumentException("Organizer is required.", nameof(organizerId));
         if (maxTicketsPerOrder is <= 0)
             throw new ArgumentException("Max tickets per order must be positive when set.", nameof(maxTicketsPerOrder));
+        if (salesStartAtUtc is { Kind: not DateTimeKind.Utc })
+            throw new ArgumentException("Sales start time must be UTC.", nameof(salesStartAtUtc));
+        if (salesEndAtUtc is { Kind: not DateTimeKind.Utc })
+            throw new ArgumentException("Sales end time must be UTC.", nameof(salesEndAtUtc));
+        if (salesEndAtUtc > startAtUtc)
+            throw new ArgumentException("Sales end time must not be after event start time.", nameof(salesEndAtUtc));
+        if (salesStartAtUtc >= (salesEndAtUtc ?? startAtUtc))
+            throw new ArgumentException("Sales start time must be before the effective sales end time.", nameof(salesStartAtUtc));
 
         Id = id;
         Title = title;
@@ -61,6 +77,18 @@ public sealed class Event
         CreatedByMemberId = createdByMemberId;
         CreatedAtUtc = createdAtUtc;
         IsRealNameRequired = isRealNameRequired;
+        SalesStartAtUtc = salesStartAtUtc;
+        SalesEndAtUtc = salesEndAtUtc;
+    }
+
+    /// <summary>依左閉右開區間 [SalesStartAtUtc ?? -∞, SalesEndAtUtc ?? StartAtUtc) 判斷 nowUtc 的販售狀態。</summary>
+    public EventSalesStatus GetSalesStatus(DateTime nowUtc)
+    {
+        if (nowUtc < SalesStartAtUtc)
+            return EventSalesStatus.NotOpen;
+        if (nowUtc >= (SalesEndAtUtc ?? StartAtUtc))
+            return EventSalesStatus.Closed;
+        return EventSalesStatus.Open;
     }
 
     /// <summary>為此活動的座位圖建立專屬 EventSeat 庫存；不會被儲存在 Event 上，呼叫端自行保存回傳結果。</summary>

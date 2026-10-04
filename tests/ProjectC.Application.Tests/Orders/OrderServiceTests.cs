@@ -58,11 +58,13 @@ public class OrderServiceTests
             MemberRealNameRepository);
 
         public (Event Event, SeatMap SeatMap, EventSeat EventSeat, TicketType TicketType) SeedEventWithSeatAndTicketType(
-            string seatZoneCode = "A", string ticketTypeZoneCode = "A", bool isRealNameRequired = false)
+            string seatZoneCode = "A", string ticketTypeZoneCode = "A", bool isRealNameRequired = false,
+            DateTime? startAtUtc = null, DateTime? salesStartAtUtc = null, DateTime? salesEndAtUtc = null)
         {
             var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
             var seat = seatMap.AddSeat(seatZoneCode, "1");
-            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), isRealNameRequired: isRealNameRequired);
+            var @event = new Event(Guid.NewGuid(), "Concert", startAtUtc ?? Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), isRealNameRequired: isRealNameRequired,
+                salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
             var eventSeat = @event.CreateEventSeats(seatMap).Single(s => s.SeatId == seat.Id);
 
             if (ticketTypeZoneCode != seatZoneCode)
@@ -78,12 +80,13 @@ public class OrderServiceTests
         }
 
         public (Event Event, TicketType TicketType, List<EventSeat> EventSeats) SeedEventWithMultipleSeats(
-            int seatCount, int? maxTicketsPerOrder, string zoneCode = "A", bool isRealNameRequired = false)
+            int seatCount, int? maxTicketsPerOrder, string zoneCode = "A", bool isRealNameRequired = false, DateTime? salesStartAtUtc = null)
         {
             var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
             var seatTemplates = Enumerable.Range(1, seatCount).Select(n => seatMap.AddSeat(zoneCode, n.ToString())).ToList();
             var @event = new Event(
-                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), maxTicketsPerOrder: maxTicketsPerOrder, isRealNameRequired: isRealNameRequired);
+                Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), maxTicketsPerOrder: maxTicketsPerOrder, isRealNameRequired: isRealNameRequired,
+                salesStartAtUtc: salesStartAtUtc);
             var eventSeats = @event.CreateEventSeats(seatMap).ToList();
             var ticketType = @event.CreateTicketType(zoneCode, 500m, seatMap);
 
@@ -1036,5 +1039,224 @@ public class OrderServiceTests
 
         (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain(@event.Id.ToString());
         AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, availableQuantityBefore);
+    }
+
+    // ---- PlaceOrderAsync：販售期間（event-sales-window TP-SALES-ORDER-*）----
+
+    private static PlaceOrderRequest CreateSingleSeatRequest(EventSeat eventSeat, TicketType ticketType)
+        => new([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+    // TP-SALES-ORDER-001
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSalesNotOpen_ReturnsSalesNotOpenWithoutLockingOrAddingOrder()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(salesStartAtUtc: Now.AddHours(1));
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesNotOpen);
+        result.Error.Message.Should().Contain(@event.Id.ToString());
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, ticketType.AvailableQuantity);
+    }
+
+    // TP-SALES-ORDER-002：停售時間是半開區間的右端，等於 now 也必須擋下。
+    [Theory]
+    [InlineData(-60)]
+    [InlineData(0)]
+    public async Task PlaceOrderAsync_WhenSalesEndReachedOrPassed_ReturnsSalesClosedWithoutLockingOrAddingOrder(int salesEndOffsetMinutes)
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(
+            salesStartAtUtc: Now.AddDays(-1), salesEndAtUtc: Now.AddMinutes(salesEndOffsetMinutes));
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        result.Error.Message.Should().Contain(@event.Id.ToString());
+        AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, ticketType.AvailableQuantity);
+    }
+
+    // TP-SALES-ORDER-003：開賣時間是閉區間的左端，等於 now 即可購買。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenNowEqualsSalesStart_CreatesOrder()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(salesStartAtUtc: Now, salesEndAtUtc: Now.AddHours(1));
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.OrderRepository.Data.Should().ContainSingle(o => o.Id == result.Value);
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeTrue();
+    }
+
+    // TP-SALES-ORDER-004：未設定停售時間時以活動開始時間為停售點。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSalesEndIsNullAndEventStarted_ReturnsSalesClosed()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(startAtUtc: Now.AddHours(-1));
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    // TP-SALES-ORDER-005：既有活動（兩欄位皆 null）在開始前維持可購買，不能因本變更突然擋下。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSalesWindowNotSetAndEventNotStarted_CreatesOrder()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(startAtUtc: Now.AddDays(1));
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.OrderRepository.Data.Should().ContainSingle(o => o.Id == result.Value);
+    }
+
+    // TP-SALES-ORDER-006：尚未開賣時其他條件都無從修正，必須先告知未開賣，而不是引導登記實名或改張數。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSalesNotOpenAndRealNameAndLimitAlsoFail_ReturnsSalesNotOpen()
+    {
+        var fixture = new Fixture();
+        var (_, ticketType, eventSeats) = fixture.SeedEventWithMultipleSeats(
+            seatCount: 3, maxTicketsPerOrder: 2, isRealNameRequired: true, salesStartAtUtc: Now.AddHours(1));
+        var request = new PlaceOrderRequest(eventSeats.Select(seat => new PlaceOrderSelectionRequest(seat.Id, ticketType.Id)).ToList());
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesNotOpen);
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+    }
+
+    // TP-SALES-ORDER-007：跨活動時沒有唯一活動可判斷販售期間，維持既有跨活動錯誤。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenItemsSpanEventsAndOneIsNotOpen_ReturnsCrossEventValidation()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeatA, ticketTypeA) = fixture.SeedEventWithSeatAndTicketType(salesStartAtUtc: Now.AddHours(1));
+        var (_, countTicketTypeB) = fixture.SeedEventWithCountBasedTicketType(availableQuantity: 10);
+        var request = new PlaceOrderRequest([
+            new PlaceOrderSelectionRequest(eventSeatA.Id, ticketTypeA.Id),
+            new PlaceOrderSelectionRequest(null, countTicketTypeB.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.Message.Should().Contain("same event");
+    }
+
+    // TP-SALES-ORDER-008：等待活動鎖期間跨過停售時點，交易內必須以鎖定後重新取得的 now 判斷，不得沿用交易外的時間。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSalesClosesWhileWaitingForEventLock_ReturnsSalesClosedAndRollsBack()
+    {
+        var fixture = new Fixture();
+        var salesEndAtUtc = Now.AddMinutes(1);
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(salesEndAtUtc: salesEndAtUtc);
+        fixture.EventRepository.GetForUpdateOverride = _ =>
+        {
+            fixture.DateTimeProvider.UtcNow = salesEndAtUtc;
+            return @event;
+        };
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1, "交易外檢查時仍可售，必須進入交易才會被權威檢查擋下");
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeFalse();
+        AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, ticketType.AvailableQuantity);
+    }
+
+    // TP-SALES-ORDER-009：交易外讀不到活動時快速失敗被跳過，交易內的權威檢查仍須擋下，且早於排隊資格。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenEventMissingOutsideTransactionButClosedInside_ReturnsSalesClosed()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(startAtUtc: Now.AddHours(1), salesEndAtUtc: Now.AddHours(-1));
+        @event.EnableQueueMode();
+        fixture.EventRepository.GetByIdOverride = _ => null;
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+        AssertNoSeatOrStockTouched(fixture, eventSeat, ticketType, ticketType.AvailableQuantity);
+    }
+
+    // TP-SALES-ORDER-013：009 用不需實名的活動，交易內「販售期間 → 實名補位」對調時不會失敗；這裡以需實名、未登記的買家釘住順序。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenEventMissingOutsideTransactionAndClosedInsideWithRealNameMissing_ReturnsSalesClosedWithoutRealNameLookup()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(
+            isRealNameRequired: true, startAtUtc: Now.AddHours(1), salesEndAtUtc: Now.AddHours(-1));
+        fixture.EventRepository.GetByIdOverride = _ => null;
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        fixture.MemberRealNameRepository.GetCallCount.Should().Be(0);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    // TP-SALES-ORDER-010：排隊放行不代表可以在停售後購買；販售期間檢查先於排隊資格，排隊紀錄不得被查詢或改動。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenAdmittedButSalesClosed_ReturnsSalesClosedWithoutTouchingQueueEntry()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(startAtUtc: Now.AddHours(1), salesEndAtUtc: Now.AddHours(-1));
+        @event.EnableQueueMode();
+        var buyerId = Guid.NewGuid();
+        var queueEntry = new PurchaseQueueEntry(Guid.NewGuid(), @event.Id, buyerId, Now.AddHours(-2));
+        queueEntry.Admit(Now.AddMinutes(-1), Now.AddMinutes(9));
+        fixture.PurchaseQueueRepository.Data.Add(queueEntry);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(buyerId, CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.SalesClosed);
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+        queueEntry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    // 停售前成立、停售後才付款／取消的 Pending 訂單：座位保留期內仍須能完成，販售期間只限制「新建立」訂單。
+    private async Task<(Fixture Fixture, Order Order, Guid BuyerId)> PlacePendingOrderThenCloseSalesAsync()
+    {
+        var fixture = new Fixture();
+        var salesEndAtUtc = Now.AddMinutes(1);
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(salesEndAtUtc: salesEndAtUtc);
+        var buyerId = Guid.NewGuid();
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(buyerId, CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+        result.IsSuccess.Should().BeTrue();
+        fixture.DateTimeProvider.UtcNow = salesEndAtUtc.AddMinutes(1);
+        return (fixture, fixture.OrderRepository.Data.Single(o => o.Id == result.Value), buyerId);
+    }
+
+    // TP-SALES-ORDER-011
+    [Fact]
+    public async Task ConfirmOrderAsync_WhenEventSalesClosed_ConfirmsOrderAsPaid()
+    {
+        var (fixture, order, buyerId) = await PlacePendingOrderThenCloseSalesAsync();
+
+        var result = await fixture.CreateOrderService().ConfirmOrderAsync(order.Id, buyerId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        order.Status.Should().Be(OrderStatus.Paid);
+    }
+
+    // TP-SALES-ORDER-012
+    [Fact]
+    public async Task CancelOrderAsync_WhenEventSalesClosed_CancelsOrder()
+    {
+        var (fixture, order, buyerId) = await PlacePendingOrderThenCloseSalesAsync();
+
+        var result = await fixture.CreateOrderService().CancelOrderAsync(order.Id, buyerId, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        order.Status.Should().Be(OrderStatus.Cancelled);
     }
 }

@@ -6,7 +6,7 @@ namespace ProjectC.Application.Events.GetEvents;
 
 public sealed class GetEventsHandler
 {
-    public const string CacheKey = "query-cache:events:list";
+    public const string CacheKey = "query-cache:events:list:v2";
 
     private readonly IEventRepository _eventRepository;
     private readonly IQueryCache _queryCache;
@@ -39,7 +39,9 @@ public sealed class GetEventsHandler
                 e.PosterUrl,
                 e.MaxTicketsPerOrder,
                 e.IsQueueModeEnabled,
-                e.IsRealNameRequired))
+                e.IsRealNameRequired,
+                e.SalesStartAtUtc,
+                e.SalesEndAtUtc))
             .ToList();
 
         await _queryCache.SetAsync(CacheKey, dtos, TimeSpan.FromSeconds(_queryCacheOptions.EventListTtlSeconds), cancellationToken);

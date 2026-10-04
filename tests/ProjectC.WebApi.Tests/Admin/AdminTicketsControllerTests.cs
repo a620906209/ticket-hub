@@ -3,7 +3,10 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Domain.Tickets;
+using ProjectC.Infrastructure.Persistence;
 using ProjectC.WebApi.Tests.TestSupport;
 using System.Net.Http.Json;
 using ProjectC.Application.Tickets.GetTicketHolder;
@@ -502,8 +505,16 @@ public class AdminTicketsControllerTests : IClassFixture<CustomWebApplicationFac
     public async Task GetHolder_WhenEventAlreadyStarted_Returns200WithHolderData()
     {
         var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var seeded = await RealNameTestData.SeedIssuedTicketAsync(
-            _factory, organizerClient, isRealNameRequired: true, startsAtUtc: DateTime.UtcNow.AddHours(-1));
+        var seeded = await RealNameTestData.SeedIssuedTicketAsync(_factory, organizerClient, isRealNameRequired: true);
+        // 開演後即停售、無法再下單出票（event-sales-window），故先於未來開演時出票，再直接改欄位模擬「出票後已開演」；
+        // Event 沒有修改開始時間的 Domain 方法。
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var startedAtUtc = DateTime.UtcNow.AddHours(-1);
+            await dbContext.Events.Where(e => e.Id == seeded.EventId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(e => e.StartAtUtc, startedAtUtc));
+        }
 
         var response = await GetHolderAsync(organizerClient, seeded.TicketId);
 

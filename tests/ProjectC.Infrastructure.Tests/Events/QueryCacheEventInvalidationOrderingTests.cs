@@ -19,6 +19,10 @@ namespace ProjectC.Infrastructure.Tests.Events;
 [Collection(PostgresCollection.Name)]
 public class QueryCacheEventInvalidationOrderingTests
 {
+    // 以字面值斷言而非引用正式常數：常數改值後，引用常數的測試無法證明契約是 v2（event-sales-window tasks.md 5.5）。
+    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    private const string LegacyEventListCacheKey = "query-cache:events:list";
+
     private readonly PostgresFixture _fixture;
     private static readonly QueryCacheOptions Options = new() { EventListTtlSeconds = 30, TicketTypesTtlSeconds = 10 };
 
@@ -76,12 +80,12 @@ public class QueryCacheEventInvalidationOrderingTests
             var getEventsHandler = new GetEventsHandler(new EventRepository(readDbContext), queryCache, Options);
             await getEventsHandler.HandleAsync(CancellationToken.None);
         }
-        queryCache.ContainsKey(GetEventsHandler.CacheKey).Should().BeTrue();
+        queryCache.ContainsKey(EventListCacheKeyV2).Should().BeTrue();
 
         Event? committedNewEventSeenDuringCallback = null;
         queryCache.OnRemoveAsync = async key =>
         {
-            if (key != GetEventsHandler.CacheKey)
+            if (key != EventListCacheKeyV2)
             {
                 return;
             }
@@ -114,7 +118,8 @@ public class QueryCacheEventInvalidationOrderingTests
             newEventId = result.Value;
         }
 
-        queryCache.ContainsKey(GetEventsHandler.CacheKey).Should().BeFalse();
+        queryCache.ContainsKey(EventListCacheKeyV2).Should().BeFalse();
+        queryCache.RemoveCalls.Should().Contain(EventListCacheKeyV2).And.NotContain(LegacyEventListCacheKey);
         committedNewEventSeenDuringCallback.Should().NotBeNull("commit 必須先於 invalidation 發生，否則獨立連線在回呼當下查不到新活動");
 
         await using var verifyDbContext = _fixture.CreateDbContext();
@@ -141,7 +146,7 @@ public class QueryCacheEventInvalidationOrderingTests
         bool? committedIsQueueModeEnabledSeenDuringCallback = null;
         queryCache.OnRemoveAsync = async key =>
         {
-            if (key != GetEventsHandler.CacheKey)
+            if (key != EventListCacheKeyV2)
             {
                 return;
             }
@@ -160,7 +165,8 @@ public class QueryCacheEventInvalidationOrderingTests
             result.IsSuccess.Should().BeTrue();
         }
 
-        queryCache.ContainsKey(GetEventsHandler.CacheKey).Should().BeFalse();
+        queryCache.ContainsKey(EventListCacheKeyV2).Should().BeFalse();
+        queryCache.RemoveCalls.Should().Contain(EventListCacheKeyV2).And.NotContain(LegacyEventListCacheKey);
         committedIsQueueModeEnabledSeenDuringCallback.Should().BeTrue("commit 必須先於 invalidation 發生");
 
         await using var verifyDbContext = _fixture.CreateDbContext();

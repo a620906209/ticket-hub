@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
+using ProjectC.Application.Events;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Domain.Events;
@@ -164,6 +165,13 @@ public sealed class OrderService
         // 上面的跨活動檢查已經保證所有票種屬於同一場活動，這裡不再是「任選第一個」，是唯一的活動。
         var orderEvent = await _eventRepository.GetByIdAsync(distinctEventIds[0], cancellationToken);
 
+        // 販售期間快速失敗：交易外以未加鎖的 orderEvent 判斷，只為了在開賣前／停售後不開交易、不排鎖；
+        // 交易內以 lockedEvent 與重新取得的 now 再檢查一次才是權威（event-sales-window design.md 決策 3）。
+        if (orderEvent is not null && EventSalesWindowErrors.GetErrorOrNull(orderEvent, _dateTimeProvider.UtcNow) is { } outsideSalesError)
+        {
+            return Result<Guid>.Failure(outsideSalesError);
+        }
+
         // 實名閘門（主要檢查）放在交易外、限購之前（real-name-verification design.md 決策 3）。交易外判斷之所以安全，
         // 依賴兩個不變量：I1 Event.IsRealNameRequired 建構後不可變；I2 會員實名只能從未登記變成已登記。
         // 未來若新增活動編輯可改此旗標（破壞 I1），必須改以交易內 lockedEvent 為唯一權威，比照 IsQueueModeEnabled；
@@ -196,6 +204,13 @@ public sealed class OrderService
         if (lockedEvent is null)
         {
             return Result<Guid>.Failure(Error.NotFound($"Event '{distinctEventIds[0]}' was not found."));
+        }
+
+        // now 必須在 GetForUpdateAsync 返回之後取得：等鎖期間可能跨過開賣／停售時點，用等鎖前的時間會誤判。
+        // 失敗時直接返回，交易未 commit 即在 dispose 時回滾（IUnitOfWorkTransaction 契約）。
+        if (EventSalesWindowErrors.GetErrorOrNull(lockedEvent, _dateTimeProvider.UtcNow) is { } salesError)
+        {
+            return Result<Guid>.Failure(salesError);
         }
 
         // 實名閘門補位：交易外讀不到活動時主要檢查被跳過，這裡以 lockedEvent 補上，必須在排隊資格與任何座位／庫存鎖定之前。

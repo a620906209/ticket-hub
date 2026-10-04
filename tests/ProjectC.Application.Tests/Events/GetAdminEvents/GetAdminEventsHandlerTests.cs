@@ -159,4 +159,26 @@ public class GetAdminEventsHandlerTests
 
         result.Should().ContainSingle(e => e.Id == ownEvent.Id);
     }
+
+    // EVT-SALES-009：管理端 DTO 帶原始販售期間值，null 不展開成 StartAtUtc
+    [Fact]
+    public async Task HandleAsync_WithAndWithoutSalesWindow_MapsRawSalesWindowToDto()
+    {
+        var startAt = DateTime.UtcNow.AddDays(10);
+        var salesStart = startAt.AddDays(-9);
+        var salesEnd = startAt.AddDays(-1);
+        var withWindow = new Event(Guid.NewGuid(), "With Window", startAt, Guid.NewGuid(), Guid.NewGuid(), OrganizerId,
+            salesStartAtUtc: salesStart, salesEndAtUtc: salesEnd);
+        _eventRepository.Data.Add(withWindow);
+        var (withoutWindow, _) = SeedEvent();
+
+        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+
+        var withWindowDto = result.Single(e => e.Id == withWindow.Id);
+        withWindowDto.SalesStartAtUtc.Should().Be(salesStart);
+        withWindowDto.SalesEndAtUtc.Should().Be(salesEnd);
+        var withoutWindowDto = result.Single(e => e.Id == withoutWindow.Id);
+        withoutWindowDto.SalesStartAtUtc.Should().BeNull();
+        withoutWindowDto.SalesEndAtUtc.Should().BeNull();
+    }
 }

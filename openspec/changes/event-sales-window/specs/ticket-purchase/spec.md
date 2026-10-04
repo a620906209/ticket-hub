@@ -71,3 +71,7 @@
 #### Scenario: TP-SALES-ORDER-012 停售前建立的 Pending 訂單停售後仍可取消
 - **WHEN** 買家在販售期間內建立 Pending 訂單，停售時間過後主動取消
 - **THEN** 訂單成功取消，座位或庫存依既有規則釋放
+
+#### Scenario: TP-SALES-ORDER-013 交易內已停售時先於實名補位檢查回報停售
+- **WHEN** 未登記實名的買家對已停售、需實名的活動下單；交易外的活動讀取回傳 null（略過交易外檢查），交易內的鎖定重讀回傳該活動（以測試替身模擬）
+- **THEN** 系統回傳 409、`Title = "SalesClosed"`，不回報 `RealNameRequired`，未查詢會員實名資料，不建立訂單

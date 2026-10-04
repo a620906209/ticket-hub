@@ -15,6 +15,8 @@ namespace ProjectC.WebApi.Tests.Events;
 /// </summary>
 public class RealNameEventListCacheTests
 {
+    // 以字面值而非引用正式常數（event-sales-window tasks.md 5.5／5.9）。
+    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
     private const string IsRealNameRequiredProperty = nameof(EventDto.IsRealNameRequired);
 
     private static async Task RewriteCachedEventListAsync(CustomWebApplicationFactory factory, Action<JsonObject> rewriteEvent)
@@ -23,12 +25,12 @@ public class RealNameEventListCacheTests
         warmUpResponse.EnsureSuccessStatusCode();
 
         var database = factory.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase();
-        var cached = await database.StringGetAsync(GetEventsHandler.CacheKey);
+        var cached = await database.StringGetAsync(EventListCacheKeyV2);
         cached.HasValue.Should().BeTrue("暖機請求應已寫入活動列表快取，否則以下改寫沒有意義");
         var events = JsonNode.Parse((string)cached!)!.AsArray();
         events.Should().NotBeEmpty();
         foreach (var eventNode in events) rewriteEvent(eventNode!.AsObject());
-        await database.StringSetAsync(GetEventsHandler.CacheKey, events.ToJsonString());
+        await database.StringSetAsync(EventListCacheKeyV2, events.ToJsonString());
     }
 
     private static async Task RunWithIsolatedFactoryAsync(Func<CustomWebApplicationFactory, Task> test)

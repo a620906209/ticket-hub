@@ -37,7 +37,7 @@
 - `purchase-queue`：加入排隊須在販售期間內，沒有預先等候室
 - `query-caching`：活動列表快取 key 隨回應形狀版本化，改為 `query-cache:events:list:v2`
 
-**拆分評估**：本 change 修改 4 個能力、37 項 tasks，皆超過 CLAUDE.md 門檻（3 個能力／約 30 項），評估後不拆分：
+**拆分評估**：本 change 修改 4 個能力、44 項 tasks（含 apply 後對抗審查補上的精度與最小日期修正 3.6～3.9、5.10、5.11，及測試補強 2.5、TP-SALES-ORDER-013），皆超過 CLAUDE.md 門檻（3 個能力／約 30 項），評估後不拆分：
 - `query-caching` 的修改只是活動列表快取 key 版本化，是 `EventDto` 新增欄位的直接後果，單獨成 change 無法獨立交付（沒有新欄位就不需要換 key），也不能晚於本 change 部署（否則重疊部署時舊 DTO 會寫入新版本讀取的 key）
 - 超出的 tasks 來自把每條情境拆成獨立測試任務，實作任務本身約 15 項；若把測試與實作拆開，任一個 change 都無法獨立驗證
 - 前端已拆為後續 change `event-sales-window-web-ui`

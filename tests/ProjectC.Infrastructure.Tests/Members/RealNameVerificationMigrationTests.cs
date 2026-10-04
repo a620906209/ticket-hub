@@ -96,6 +96,10 @@ public class RealNameVerificationMigrationTests
                OR (table_name = 'Events' AND column_name = 'IsRealNameRequired')
             """).ToListAsync();
 
+    /// <summary>Down 中止時資料庫已先回滾到 AddEventSalesWindow 之前，目前的 EF model 含販售期間欄位而無法讀 Events，改以 SQL 讀取。</summary>
+    private static Task<bool> ReadIsRealNameRequiredAsync(ApplicationDbContext dbContext, Guid eventId)
+        => dbContext.Database.SqlQuery<bool>($"""SELECT "IsRealNameRequired" AS "Value" FROM "Events" WHERE "Id" = {eventId}""").SingleAsync();
+
     private static Task<bool> RealNameCheckConstraintExistsAsync(ApplicationDbContext dbContext)
         => dbContext.Database.SqlQuery<int>($"""
             SELECT 1 AS "Value" FROM information_schema.table_constraints
@@ -130,7 +134,7 @@ public class RealNameVerificationMigrationTests
         (await GetRealNameColumnNamesAsync(dbContext)).Should().BeEquivalentTo("RealName", "NationalIdLast4", "IsRealNameRequired");
         var member = await dbContext.Members.AsNoTracking().SingleAsync(m => m.Id == memberId);
         (member.RealName, member.NationalIdLast4).Should().Be(("王小明", "1234"));
-        (await dbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId)).IsRealNameRequired.Should().BeFalse();
+        (await ReadIsRealNameRequiredAsync(dbContext, eventId)).Should().BeFalse();
     }
 
     // RNV-ROLLBACK-002：只有需實名活動也必須中止；否則重新升版後該活動變成不需實名，未登記者可直接購票。
@@ -146,7 +150,7 @@ public class RealNameVerificationMigrationTests
         await act.Should().ThrowAsync<PostgresException>();
         (await GetRealNameColumnNamesAsync(dbContext)).Should().BeEquivalentTo("RealName", "NationalIdLast4", "IsRealNameRequired");
         (await RealNameCheckConstraintExistsAsync(dbContext)).Should().BeTrue();
-        (await dbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId)).IsRealNameRequired.Should().BeTrue();
+        (await ReadIsRealNameRequiredAsync(dbContext, eventId)).Should().BeTrue();
     }
 
     // RNV-ROLLBACK-003：沒有實名資料時 Down 可正常移除 schema，再升版後回到全部未登記／不需實名。

@@ -83,7 +83,9 @@ public sealed class GetAdminEventsHandler
                     availableCount,
                     heldCount,
                     soldCount,
-                    e.IsRealNameRequired);
+                    e.IsRealNameRequired,
+                    e.SalesStartAtUtc,
+                    e.SalesEndAtUtc);
             })
             .ToList();
     }

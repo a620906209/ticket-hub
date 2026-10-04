@@ -13,6 +13,7 @@ using ProjectC.WebApi.Tests.TestSupport;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Domain.Events;
+using ProjectC.Domain.Orders;
 using ProjectC.Domain.PurchaseQueue;
 using ProjectC.Infrastructure.Persistence;
 
@@ -511,5 +512,150 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
         (await RealNameTestData.ReadProblemTitleAsync(response)).Should().NotBe("RealNameRequired");
         (await ReadInventorySnapshotAsync(realNameEvent)).Should().Be(realNameBefore);
         (await ReadInventorySnapshotAsync(otherEvent)).Should().Be(otherBefore);
+    }
+
+    // ---- event-sales-window：下單販售期間檢查（TP-SALES-ORDER-*） ----
+
+    private async Task<RealNameTestData.SeededEvent> SeedSalesWindowEventAsync(
+        DateTime? salesStartAtUtc = null, DateTime? salesEndAtUtc = null, bool isQueueModeEnabled = false)
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        return await RealNameTestData.SeedEventAsync(
+            _factory, organizerClient, isRealNameRequired: false, isQueueModeEnabled: isQueueModeEnabled,
+            salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
+    }
+
+    /// <summary>Event 沒有修改販售期間的 Domain 方法，測試資料準備直接改欄位，模擬「下單後活動已停售」。</summary>
+    private async Task CloseSalesAsync(Guid eventId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var closedSalesEndAtUtc = DateTime.UtcNow.AddHours(-2);
+        await dbContext.Events.Where(e => e.Id == eventId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(e => e.SalesEndAtUtc, closedSalesEndAtUtc));
+    }
+
+    private async Task<(RealNameTestData.SeededEvent SeededEvent, RealNameTestData.SeededMember Buyer, Guid OrderId)> PlacePendingOrderThenCloseSalesAsync()
+    {
+        var seededEvent = await SeedSalesWindowEventAsync();
+        var buyer = await RealNameTestData.CreateMemberAsync(_factory);
+        var orderId = await ReadCreatedIdAsync(await RealNameTestData.PlaceOrderAsync(buyer.Client, seededEvent));
+        await CloseSalesAsync(seededEvent.EventId);
+        return (seededEvent, buyer, orderId);
+    }
+
+    private async Task AssertSalesClosedBeforeActionAsync(Guid eventId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var storedEvent = await dbContext.Events.AsNoTracking().SingleAsync(e => e.Id == eventId);
+        storedEvent.SalesEndAtUtc.Should().BeBefore(DateTime.UtcNow, "前置條件：操作當下活動已停售");
+    }
+
+    // [TP-SALES-ORDER-001]
+    [Fact]
+    public async Task PlaceOrder_BeforeSalesStart_Returns409SalesNotOpenAndChangesNothing()
+    {
+        var seededEvent = await SeedSalesWindowEventAsync(salesStartAtUtc: DateTime.UtcNow.AddHours(5));
+        var buyer = await RealNameTestData.CreateMemberAsync(_factory);
+        var before = await ReadInventorySnapshotAsync(seededEvent);
+
+        var response = await RealNameTestData.PlaceOrderAsync(buyer.Client, seededEvent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be("SalesNotOpen");
+        var after = await ReadInventorySnapshotAsync(seededEvent);
+        after.Should().Be(before);
+        after.SeatStatus.Should().Be(EventSeatStatus.Available);
+        after.OrderCount.Should().Be(0);
+    }
+
+    // [TP-SALES-ORDER-002]
+    [Fact]
+    public async Task PlaceOrder_AfterSalesEnd_Returns409SalesClosedAndChangesNothing()
+    {
+        var seededEvent = await SeedSalesWindowEventAsync(
+            salesStartAtUtc: DateTime.UtcNow.AddHours(-10), salesEndAtUtc: DateTime.UtcNow.AddHours(-5));
+        var buyer = await RealNameTestData.CreateMemberAsync(_factory);
+        var before = await ReadInventorySnapshotAsync(seededEvent);
+
+        var response = await RealNameTestData.PlaceOrderAsync(buyer.Client, seededEvent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be("SalesClosed");
+        var after = await ReadInventorySnapshotAsync(seededEvent);
+        after.Should().Be(before);
+        after.SeatStatus.Should().Be(EventSeatStatus.Available);
+        after.OrderCount.Should().Be(0);
+    }
+
+    // [TP-SALES-ORDER-011] 販售期間只限制建立新訂單；停售前建立的 Pending 訂單仍可完成付款。
+    [Fact]
+    public async Task ConfirmOrder_OnSalesClosedEvent_ReturnsPaidAndIssuesTickets()
+    {
+        var (seededEvent, buyer, orderId) = await PlacePendingOrderThenCloseSalesAsync();
+        await AssertSalesClosedBeforeActionAsync(seededEvent.EventId);
+
+        var response = await buyer.Client.PostAsync($"/api/orders/{orderId}/confirm", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        (await dbContext.Orders.AsNoTracking().SingleAsync(o => o.Id == orderId)).Status.Should().Be(OrderStatus.Paid);
+        var orderItemIds = await dbContext.OrderItems.AsNoTracking()
+            .Where(i => EF.Property<Guid>(i, "OrderId") == orderId)
+            .Select(i => i.Id)
+            .ToListAsync();
+        (await dbContext.Tickets.AsNoTracking().CountAsync(t => orderItemIds.Contains(t.OrderItemId))).Should().Be(1);
+        (await ReadInventorySnapshotAsync(seededEvent)).SeatStatus.Should().Be(EventSeatStatus.Sold);
+    }
+
+    // [TP-SALES-ORDER-012] 停售後仍可取消 Pending 訂單，座位依既有規則釋放。
+    [Fact]
+    public async Task CancelOrder_OnSalesClosedEvent_ReturnsCancelledAndReleasesInventory()
+    {
+        var (seededEvent, buyer, orderId) = await PlacePendingOrderThenCloseSalesAsync();
+        await AssertSalesClosedBeforeActionAsync(seededEvent.EventId);
+
+        var response = await buyer.Client.PostAsync($"/api/orders/{orderId}/cancel", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        (await dbContext.Orders.AsNoTracking().SingleAsync(o => o.Id == orderId)).Status.Should().Be(OrderStatus.Cancelled);
+        (await ReadInventorySnapshotAsync(seededEvent)).SeatStatus.Should().Be(EventSeatStatus.Available);
+    }
+
+    // [TP-SALES-ORDER-010] 已取得入場資格不代表可在停售後下單；被擋下時不得消耗入場資格。
+    [Fact]
+    public async Task PlaceOrder_WhenAdmittedButSalesClosed_Returns409SalesClosedAndKeepsQueueEntry()
+    {
+        var seededEvent = await SeedSalesWindowEventAsync(
+            salesStartAtUtc: DateTime.UtcNow.AddHours(-10), salesEndAtUtc: DateTime.UtcNow.AddHours(-5), isQueueModeEnabled: true);
+        var buyer = await RealNameTestData.CreateMemberAsync(_factory);
+        var now = DateTime.UtcNow;
+        var entry = new PurchaseQueueEntry(Guid.NewGuid(), seededEvent.EventId, buyer.MemberId, now.AddHours(-6));
+        entry.Admit(now.AddHours(-1), now.AddHours(3));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            dbContext.PurchaseQueueEntries.Add(entry);
+            await dbContext.SaveChangesAsync();
+        }
+        var before = await ReadInventorySnapshotAsync(seededEvent);
+
+        var response = await RealNameTestData.PlaceOrderAsync(buyer.Client, seededEvent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await RealNameTestData.ReadProblemTitleAsync(response)).Should().Be("SalesClosed");
+        var after = await ReadInventorySnapshotAsync(seededEvent);
+        after.Should().Be(before);
+        after.SeatStatus.Should().Be(EventSeatStatus.Available);
+        after.OrderCount.Should().Be(0, "資料庫無該會員在此活動的訂單");
+        using var readScope = _factory.Services.CreateScope();
+        var readContext = readScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var storedEntry = await readContext.PurchaseQueueEntries.AsNoTracking().SingleAsync(e => e.Id == entry.Id);
+        storedEntry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
+        storedEntry.AdmissionExpiresAtUtc.Should().BeCloseTo(entry.AdmissionExpiresAtUtc!.Value, TimeSpan.FromMilliseconds(1));
     }
 }

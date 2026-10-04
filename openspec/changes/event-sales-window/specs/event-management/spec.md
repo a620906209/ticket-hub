@@ -12,6 +12,8 @@
   - `SalesEndAtUtc` 有值時 MUST 不晚於 `StartAtUtc`
   - `SalesStartAtUtc` 有值時 MUST 早於實際停售時間（`SalesEndAtUtc ?? StartAtUtc`）
   - `SalesStartAtUtc` 有值時 MUST 為 UTC 時間；`SalesEndAtUtc` 有值時 MUST 為 UTC 時間。兩欄位各自獨立判斷，不論另一欄位是否提供；請求時間字串須帶 `Z`，不帶時區或帶偏移（例如 `+08:00`）皆視為非 UTC
+  - `SalesStartAtUtc`、`SalesEndAtUtc` 有值時 MUST 為整微秒（不得含次微秒的 100ns tick）；`SalesStartAtUtc` 有值時，`StartAtUtc` 也 MUST 為整微秒。理由：資料庫只保存到微秒，同一微秒內「開賣早於停售」的兩個值儲存後會變成相等，讀回活動時違反上述時間關係而失敗。未提供 `SalesStartAtUtc` 時不對 `StartAtUtc` 加此限制，維持與本次變更前相容
+  - `SalesStartAtUtc`、`SalesEndAtUtc` 有值時 MUST NOT 為 `0001-01-01T00:00:00Z`（`DateTime.MinValue`）。理由：資料庫驅動把此值存成 `-infinity`，讀回時不再是 UTC，讀回活動時違反 UTC 規則而失敗
   - 系統 MUST NOT 要求開賣時間晚於現在：允許建立後立即開賣
 - **列表**：後台專用的活動列表查詢端點 SHALL 在每筆活動附帶 `SalesStartAtUtc`、`SalesEndAtUtc` 的原始值（可為 null，不把 null 展開成其他值）
 - **既有活動**：本次變更前已存在的活動，遷移後兩者皆為 null
@@ -80,3 +82,15 @@
 #### Scenario: EVT-SALES-015 一欄 UTC、另一欄非 UTC 被拒
 - **WHEN** 使用者建立活動，`SalesStartAtUtc` 帶 `Z`，`SalesEndAtUtc` 不帶 `Z`
 - **THEN** 系統回傳 400，不建立活動
+
+#### Scenario: EVT-SALES-017 販售期間含次微秒精度被拒
+- **WHEN** 使用者建立活動，`SalesStartAtUtc`、`SalesEndAtUtc`、或在提供 `SalesStartAtUtc` 時的 `StartAtUtc` 任一含次微秒精度（包括 `SalesStartAtUtc` 為 `2026-11-01T12:00:00.0000001Z`、`SalesEndAtUtc` 為 `2026-11-01T12:00:00.0000005Z` 這種以 100ns 精度比較合法、但兩者在同一微秒內的情況）
+- **THEN** 系統回傳 400，錯誤指向每個含次微秒的欄位，不建立活動與任何 `EventSeat`；之後匿名查詢活動列表仍成功
+
+#### Scenario: EVT-SALES-018 未提供開賣時間時不限制活動開始時間精度
+- **WHEN** 使用者建立活動，未提供兩個販售欄位，`StartAtUtc` 含次微秒精度
+- **THEN** 系統成功建立活動（與本次變更前相容）
+
+#### Scenario: EVT-SALES-019 販售時間為最小日期被拒
+- **WHEN** 使用者建立活動，`SalesStartAtUtc` 或 `SalesEndAtUtc` 為 `0001-01-01T00:00:00Z`（其餘欄位合法）
+- **THEN** 系統回傳 400，錯誤指向該欄位，不建立活動與任何 `EventSeat`；之後匿名查詢活動列表仍成功

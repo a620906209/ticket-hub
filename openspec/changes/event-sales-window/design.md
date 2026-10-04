@@ -58,6 +58,8 @@
   - `SalesStartAtUtc` 有值時 MUST `< (SalesEndAtUtc ?? StartAtUtc)`
 - `CreateEventRequestValidator` 做相同驗證，讓 API 回 400，不會走到 Domain 例外變成 500。
 - **已定案**：兩個新欄位各自獨立驗證，任一欄位有值時 MUST 為 `DateTimeKind.Utc`，也就是請求的時間字串須帶 `Z`；不帶時區（Unspecified）或帶偏移（如 `+08:00`，反序列化為 Local）一律回 400，避免寫入 timestamptz 時才失敗（見 R4）。此規則不依賴 Npgsql 實測結果；apply 時的實測（tasks 2.4、6.1）只用來驗證「讀回為 Utc」與 R4 的既定假設。
+- **精度**（apply 後對抗審查發現）：比較在 .NET 100ns tick 精度進行，PostgreSQL timestamptz 只存到微秒，Npgsql 寫入時以 2000-01-01 為基準向零取整（2000 年後往下、2000 年前往上，第 3 輪對抗審查實測）。同一微秒內的「開賣 < 停售」寫入後會相等，EF 以建構子具現化時丟 `ArgumentException`，連帶讓公開活動列表 500。Validator 因此拒絕含次微秒的 `SalesStartAtUtc`／`SalesEndAtUtc`，以及有 `SalesStartAtUtc` 時的 `StartAtUtc`（回 400）。選擇拒絕而非截斷：不靜默改動使用者輸入；Domain 不加此檢查，避免 Domain 依賴資料庫精度。`SalesEnd <= StartAt` 在取整後仍成立（取整單調不減，且 SalesEnd 本身為整微秒不變），不受影響。
+- **最小日期**（第 2 輪對抗審查發現）：`0001-01-01T00:00:00Z` 通過 Kind／精度／時間關係檢查，但 Npgsql 預設的 infinity 轉換把 `DateTime.MinValue` 存成 `-infinity`，讀回為 Kind=Unspecified，建構子 Kind 檢查丟例外，同樣讓活動列表 500。Validator 拒絕兩個販售欄位為 `DateTime.MinValue`；不改全域 Npgsql 設定（影響範圍大）。`DateTime.MaxValue` 已被整微秒規則擋下；`StartAtUtc` 為最小值時已被既有 `NotEqual(default)` 擋下。
 - **不**驗證開賣時間須晚於現在：主辦方常需要「建立後立即開賣」，而時鐘差會讓「必須在未來」的規則誤擋。
 
 ### 決策 3：建立訂單的檢查位置——交易外快速失敗 + 交易內權威重驗
