@@ -220,6 +220,19 @@
 - 禁止 `v-html` 渲染未消毒的使用者輸入
 - API 呼叫透過統一攔截器帶入 Auth Header
 
+### UI Skill 路由
+
+涉及前端 UI、UX、版面、樣式、元件或動畫時，先依任務類型選擇對應 UI skill：
+
+- 新增 Landing Page、Portfolio 或行銷頁面：使用 `taste-skill`（frontmatter name 為 `design-taste-frontend`）
+- 改造既有網站或 App：使用 `redesign-skill`
+- 明確要求極簡、編輯風格、暖色單色系或 Bento Grid：使用 `minimalist-skill`
+- UI 細節、元件質感、互動回饋或 UI 程式碼審查：使用 `emil-design-eng`
+- 新增動畫或轉場：使用 `animate`
+- 審查既有動畫：使用 `review-animations`
+
+除非使用者明確要求，否則不要同時套用互相衝突的視覺風格 skill；先選一個主要 skill，必要時再以 `emil-design-eng` 做互動細節審查。
+
 ---
 
 ## 測試規範
