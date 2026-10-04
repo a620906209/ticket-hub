@@ -27,6 +27,9 @@ public class EventConfiguration : IEntityTypeConfiguration<Event>
         builder.Property(e => e.CreatedAtUtc);
         // getter-only 的建構子綁定屬性 EF 不會自動對映，必須明確 Property()；預設 false 讓既有活動回填為不需實名。
         builder.Property(e => e.IsRealNameRequired).IsRequired().HasDefaultValue(false);
+        // 同上須明確對映；不設預設值：null 本身有語意（不設開賣下界／停售時間沿用 StartAtUtc），既有活動不回填。
+        builder.Property(e => e.SalesStartAtUtc);
+        builder.Property(e => e.SalesEndAtUtc);
 
         // Event 只用純量欄位參照 Venue／SeatMap，沒有 navigation，一樣用 HasOne<T>().WithMany() 建立 FK 約束。
         builder.HasOne<Venue>()

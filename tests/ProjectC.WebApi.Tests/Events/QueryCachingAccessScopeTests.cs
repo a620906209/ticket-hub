@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Tickets.CreateTicketType;
@@ -9,6 +10,7 @@ using ProjectC.Application.Tickets.GetTicketTypes;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.WebApi.Tests.TestSupport;
+using StackExchange.Redis;
 
 namespace ProjectC.WebApi.Tests.Events;
 
@@ -16,6 +18,26 @@ namespace ProjectC.WebApi.Tests.Events;
 // 不同身份的呼叫者之間安全共享（同一份快取，不依身份切分）。
 public class QueryCachingAccessScopeTests
 {
+    // 以字面值斷言而非引用正式常數：常數改值後，引用常數的測試無法證明契約是 v2（event-sales-window tasks.md 5.5）。
+    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    private const string LegacyEventListCacheKey = "query-cache:events:list";
+    private const string TicketTypesCacheKeyPattern = "query-cache:ticket-types:event:*";
+
+    private static IConnectionMultiplexer GetRedisConnection(CustomWebApplicationFactory factory)
+        => factory.Services.GetRequiredService<IConnectionMultiplexer>();
+
+    private static async Task<List<string>> ScanKeysAsync(CustomWebApplicationFactory factory, string pattern)
+    {
+        var connection = GetRedisConnection(factory);
+        var server = connection.GetServer(connection.GetEndPoints().Single());
+        var keys = new List<string>();
+        await foreach (var key in server.KeysAsync(pattern: pattern))
+        {
+            keys.Add(key.ToString());
+        }
+        return keys;
+    }
+
     private static async Task<Guid> ReadCreatedIdAsync(HttpResponseMessage response)
     {
         response.EnsureSuccessStatusCode();
@@ -47,6 +69,7 @@ public class QueryCachingAccessScopeTests
             eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
             var events = await eventsResponse.Content.ReadFromJsonAsync<List<EventDto>>();
             events.Should().ContainSingle(e => e.Id == eventId && e.Title == "Concert");
+            (await GetRedisConnection(factory).GetDatabase().KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue("匿名請求同樣寫入 v2 key");
         }
         finally
         {
@@ -79,6 +102,8 @@ public class QueryCachingAccessScopeTests
             ticketTypesResponse.StatusCode.Should().Be(HttpStatusCode.OK);
             var ticketTypes = await ticketTypesResponse.Content.ReadFromJsonAsync<List<TicketTypeDto>>();
             ticketTypes.Should().ContainSingle(t => t.ZoneCode == "A" && t.Price == 500m);
+            (await GetRedisConnection(factory).GetDatabase().KeyExistsAsync($"query-cache:ticket-types:event:{eventId}"))
+                .Should().BeTrue("匿名請求同樣寫入票種快取");
         }
         finally
         {
@@ -125,6 +150,8 @@ public class QueryCachingAccessScopeTests
             buyerEvents.Should().BeEquivalentTo(anonymousEvents, options => options.WithStrictOrdering());
             adminEvents.Should().BeEquivalentTo(anonymousEvents, options => options.WithStrictOrdering());
             factory.EventRepositoryCallCounter.GetAllAsyncCallCount.Should().Be(1, "三種身份應共用同一份快取內容，只有第一次真正查詢資料庫");
+            (await ScanKeysAsync(factory, "query-cache:events:list*")).Should().Equal(new[] { EventListCacheKeyV2 }, "活動列表只有 v2 一個 key，無依呼叫者區分的變體");
+            (await GetRedisConnection(factory).GetDatabase().KeyExistsAsync(LegacyEventListCacheKey)).Should().BeFalse();
         }
         finally
         {
@@ -165,6 +192,8 @@ public class QueryCachingAccessScopeTests
             buyerTicketTypes.Should().BeEquivalentTo(anonymousTicketTypes, options => options.WithStrictOrdering());
             adminTicketTypes.Should().BeEquivalentTo(anonymousTicketTypes, options => options.WithStrictOrdering());
             factory.TicketTypeRepositoryCallCounter.GetByEventIdAsyncCallCount.Should().Be(1, "三種身份應共用同一份快取內容，只有第一次真正查詢資料庫");
+            (await ScanKeysAsync(factory, TicketTypesCacheKeyPattern))
+                .Should().Equal(new[] { $"query-cache:ticket-types:event:{eventId}" }, "票種快取只有一個 key，無依呼叫者區分的變體");
         }
         finally
         {
@@ -181,10 +210,16 @@ public class QueryCachingAccessScopeTests
         try
         {
             var client = factory.CreateClient();
+            (await client.GetAsync("/api/events")).EnsureSuccessStatusCode();
+            var database = GetRedisConnection(factory).GetDatabase();
+            var eventListBefore = await database.StringGetAsync(EventListCacheKeyV2);
+            eventListBefore.HasValue.Should().BeTrue("前置的活動列表請求應已寫入 v2 key");
 
             var response = await client.GetAsync("/api/events/abc/ticket-types");
 
             response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await ScanKeysAsync(factory, TicketTypesCacheKeyPattern)).Should().BeEmpty("請求未進入 GetTicketTypesHandler，不應寫入票種快取");
+            ((string?)await database.StringGetAsync(EventListCacheKeyV2)).Should().Be((string?)eventListBefore, "路由拒絕不影響 v2 key");
         }
         finally
         {

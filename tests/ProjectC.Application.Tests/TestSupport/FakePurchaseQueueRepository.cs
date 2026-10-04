@@ -73,8 +73,11 @@ public sealed class FakePurchaseQueueRepository : IPurchaseQueueRepository
 
     // 比照真正的 ON CONFLICT DO NOTHING 語意，但單執行緒的 Fake 不需要真的處理併發衝突：
     // 撞到既有進行中紀錄時直接回傳該筆既有紀錄，否則新增並回傳。
+    public int AddOrGetExistingCallCount { get; private set; }
+
     public Task<PurchaseQueueEntry> AddOrGetExistingAsync(PurchaseQueueEntry newEntry, CancellationToken cancellationToken)
     {
+        AddOrGetExistingCallCount++;
         var existing = Data.FirstOrDefault(e => e.EventId == newEntry.EventId && e.MemberId == newEntry.MemberId &&
             (e.Status == PurchaseQueueEntryStatus.Waiting || e.Status == PurchaseQueueEntryStatus.Admitted));
         if (existing is not null)

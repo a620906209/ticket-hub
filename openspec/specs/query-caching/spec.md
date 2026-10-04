@@ -4,18 +4,18 @@
 TBD - created by archiving change query-caching. Update Purpose after archive.
 ## Requirements
 ### Requirement: 活動列表查詢採 Redis cache-aside 快取
-系統 SHALL 為買家可匿名存取的公開活動列表查詢端點 `GET /api/events`（`EventsController.GetEvents`／`GetEventsHandler`）導入 cache-aside 快取：查詢時先讀取固定 key `query-cache:events:list` 的快取內容，命中時直接回傳快取內容、不查詢資料庫；未命中時查詢資料庫取得完整活動列表，並在回傳前將結果寫入該快取 key。快取內容 MUST 與未快取時資料庫查詢的回應內容一致（欄位、順序皆相同），不因導入快取而改變既有回應格式。本 Requirement MUST NOT 適用於 `AdminEventsController.GetEvents`（`GetAdminEventsHandler`，`GET /api/admin/events`）——這是給 Admin 用的另一個獨立查詢端點，方法名稱雖然相同，但不在本次快取範圍內，不讀寫 `query-cache:events:list`。
+系統 SHALL 為買家可匿名存取的公開活動列表查詢端點 `GET /api/events`（`EventsController.GetEvents`／`GetEventsHandler`）導入 cache-aside 快取：查詢時先讀取固定 key `query-cache:events:list:v2`（版本後綴規則見「活動列表快取 key 隨回應形狀版本化」）的快取內容，命中時直接回傳快取內容、不查詢資料庫；未命中時查詢資料庫取得完整活動列表，並在回傳前將結果寫入該快取 key。快取內容 MUST 與未快取時資料庫查詢的回應內容一致（欄位、順序皆相同），不因導入快取而改變既有回應格式。本 Requirement MUST NOT 適用於 `AdminEventsController.GetEvents`（`GetAdminEventsHandler`，`GET /api/admin/events`）——這是給 Admin 用的另一個獨立查詢端點，方法名稱雖然相同，但不在本次快取範圍內，不讀寫 `query-cache:events:list:v2`。
 
 #### Scenario: QC-EVT-001 快取未命中時查詢資料庫並寫回快取
-- **WHEN** 呼叫 `GET /api/events`，`query-cache:events:list` 快取不存在
+- **WHEN** 呼叫 `GET /api/events`，`query-cache:events:list:v2` 快取不存在
 - **THEN** 系統查詢資料庫取得活動列表、回傳結果，並將結果寫入該快取 key
 
 #### Scenario: QC-EVT-002 快取命中時直接回傳快取內容
-- **WHEN** 呼叫 `GET /api/events`，`query-cache:events:list` 快取存在且未過期
+- **WHEN** 呼叫 `GET /api/events`，`query-cache:events:list:v2` 快取存在且未過期
 - **THEN** 系統直接回傳快取內容，不查詢資料庫
 
 #### Scenario: QC-EVT-003 活動列表為空時仍寫入快取
-- **WHEN** 資料庫目前沒有任何活動，呼叫 `GET /api/events`，`query-cache:events:list` 快取不存在
+- **WHEN** 資料庫目前沒有任何活動，呼叫 `GET /api/events`，`query-cache:events:list:v2` 快取不存在
 - **THEN** 系統查詢資料庫得到空列表、回傳空列表，並將空列表寫入該快取 key（不因結果為空而略過寫入或視為錯誤），下一次查詢命中快取直接回傳空列表、不再查詢資料庫
 
 ### Requirement: 票種列表查詢採 Redis cache-aside 快取，依活動切分
@@ -42,14 +42,14 @@ TBD - created by archiving change query-caching. Update Purpose after archive.
 - **THEN** 系統查詢資料庫得到空列表、回傳空列表，並將空列表寫入對應快取 key（不因結果為空而略過寫入或視為錯誤），下一次查詢命中快取直接回傳空列表、不再查詢資料庫
 
 ### Requirement: 活動列表快取於相關異動時明確失效
-系統 SHALL 在下列既有操作的資料庫交易提交成功後，明確清除 `query-cache:events:list`：建立活動（`CreateEventHandler`）、開關活動的熱門搶購模式（`SetEventQueueModeHandler`）。清除快取的呼叫 MUST NOT 影響觸發它的原操作本身是否成功——原操作的資料庫交易一旦提交成功即視為成功，快取清除是交易提交後的後續動作。
+系統 SHALL 在下列既有操作的資料庫交易提交成功後，明確清除 `query-cache:events:list:v2`：建立活動（`CreateEventHandler`）、開關活動的熱門搶購模式（`SetEventQueueModeHandler`）。清除快取的呼叫 MUST NOT 影響觸發它的原操作本身是否成功——原操作的資料庫交易一旦提交成功即視為成功，快取清除是交易提交後的後續動作。
 
 #### Scenario: QC-EVT-INV-001 建立活動後清除活動列表快取
-- **WHEN** 已切換至一個 Approved Organizer 的使用者成功建立一場新活動，且 `query-cache:events:list` 快取當時存在
+- **WHEN** 已切換至一個 Approved Organizer 的使用者成功建立一場新活動，且 `query-cache:events:list:v2` 快取當時存在
 - **THEN** 系統於建立交易提交成功後清除該快取 key，下一次查詢 `GET /api/events` 會重新查詢資料庫並看到新建立的活動
 
 #### Scenario: QC-EVT-INV-002 開關熱門搶購模式後清除活動列表快取
-- **WHEN** 已切換至一個 Approved Organizer 的使用者成功開啟或關閉自己名下某活動的熱門搶購模式，且 `query-cache:events:list` 快取當時存在
+- **WHEN** 已切換至一個 Approved Organizer 的使用者成功開啟或關閉自己名下某活動的熱門搶購模式，且 `query-cache:events:list:v2` 快取當時存在
 - **THEN** 系統於該操作的資料庫交易提交成功後清除該快取 key，下一次查詢 `GET /api/events` 會看到更新後的 `IsQueueModeEnabled`
 
 ### Requirement: 票種列表快取於相關異動時明確失效
@@ -72,15 +72,15 @@ TBD - created by archiving change query-caching. Update Purpose after archive.
 - **THEN** 系統只清除活動 A 對應的快取 key，活動 B 的快取 key 不受影響、維持原有內容直到自身 TTL 到期或自身的異動觸發失效
 
 ### Requirement: 快取項目具備 TTL 安全網，且訂有明確的最大陳舊時間上限
-系統 SHALL 為 `query-cache:events:list` 與 `query-cache:ticket-types:event:{eventId}` 兩類快取 key 各自設定正數 TTL（透過設定檔 `QueryCache:EventListTtlSeconds`／`QueryCache:TicketTypesTtlSeconds`，非寫死於程式碼），確保即使明確失效的呼叫因程式邏輯疏漏而遺漏，快取內容仍會在 TTL 到期後自動失效，不會無限期地與資料庫實際內容不一致。
+系統 SHALL 為 `query-cache:events:list:v2` 與 `query-cache:ticket-types:event:{eventId}` 兩類快取 key 各自設定正數 TTL（透過設定檔 `QueryCache:EventListTtlSeconds`／`QueryCache:TicketTypesTtlSeconds`，非寫死於程式碼），確保即使明確失效的呼叫因程式邏輯疏漏而遺漏，快取內容仍會在 TTL 到期後自動失效，不會無限期地與資料庫實際內容不一致。
 
 預設值：`EventListTtlSeconds = 30`、`TicketTypesTtlSeconds = 10`。活動列表變動頻率低（僅建立活動、開關熱門搶購模式兩種操作），採較長的 30 秒；票種列表含 `AvailableQuantity`，其新鮮度直接影響買家的購買決策判斷，採較短的 10 秒，降低任一失效呼叫遺漏時的最大影響時間。此 TTL 值即為「在明確失效機制正常運作的前提下，快取內容落後資料庫實際內容的最大允許時間上限」——正常情況下失效呼叫會在資料異動當下立即觸發，TTL 只是理論上限，不是預期的一般延遲。
 
-**已知的邊界例外（誠實揭露，非隱藏在設計文件裡的但書）**：資料庫交易提交與快取失效呼叫之間存在一個極短的時間視窗；若另一個並發查詢恰好在這個視窗內把交易提交前讀到的舊資料重新寫入快取（帶著全新的 TTL），該筆快取的實際陳舊時間上限是「原訂 TTL ＋ 這次重新寫入發生的時間點與交易提交時間點之間的差距」，而不是嚴格從交易提交那一刻起算的 TTL。**這個差距沒有本次改動另外設計或強制施加的上限**——它實際上等於一次「Handler 查詢資料庫→寫入快取」的完整耗時，其上限完全取決於既有、與本次改動無關的基礎設施層級限制（例如資料庫查詢本身的逾時設定，本次未新增或調整任何這類限制）；不得宣稱一個本次改動並未實作或測試強制施加的具體數值（例如「毫秒級」）。系統 SHALL 確保這個例外情況下的陳舊時間仍然是**有限**的（不會無限期陳舊、最終一定會過期），MUST NOT 因這個競態而導致快取內容永久停留在舊值——這是本 Requirement 唯一做出的保證，不承諾具體的數值上限。
+**已知的邊界例外（誠實揭露，非隱藏在設計文件裡的但書）**：一個並發查詢可能在資料庫交易提交前讀到舊資料，卻在交易提交且快取失效呼叫完成之後，才把這份舊資料寫入快取（帶著全新的 TTL；若寫入發生在失效呼叫之前，會被該次失效清除，不構成陳舊）；此時，該筆快取的實際陳舊時間上限是「原訂 TTL ＋ 這次重新寫入發生的時間點與交易提交時間點之間的差距」，而不是嚴格從交易提交那一刻起算的 TTL。**這個差距沒有本次改動另外設計或強制施加的上限**——它實際上等於一次「Handler 查詢資料庫→寫入快取」的完整耗時，其上限完全取決於既有、與本次改動無關的基礎設施層級限制（例如資料庫查詢本身的逾時設定，本次未新增或調整任何這類限制）；不得宣稱一個本次改動並未實作或測試強制施加的具體數值（例如「毫秒級」）。系統對這個例外情況做出兩項保證：(1) 該次重新寫入 MUST 套用設定的完整 TTL（`EventListTtlSeconds`／`TicketTypesTtlSeconds`），自該次寫入時刻重新起算，因此該筆舊資料自寫入起最多存活一個完整 TTL；(2) 因此陳舊時間是**有限**的，MUST NOT 因這個競態而導致快取內容永久停留在舊值。本 Requirement 不對「交易提交到重新寫入」之間的差距承諾具體數值上限。
 
 #### Scenario: QC-TTL-004 交易提交與快取失效之間的競態不會造成無界陳舊
-- **WHEN** 一個查詢請求在資料庫交易提交前已讀取到舊資料，且該請求在交易提交後、快取失效呼叫執行之前才把讀到的舊資料寫入快取
-- **THEN** 該筆被重新寫入的快取項目仍帶有完整的新 TTL，會在寫入後的 TTL 時間內自然過期，系統不會因為這個時序而讓該 key 無限期地不過期或無限期地陳舊
+- **WHEN** 一個查詢請求在資料庫交易提交前已讀取到舊資料，且該請求在交易提交、快取失效呼叫完成之後，才把讀到的舊資料寫入快取（寫入若早於失效呼叫，會被該次失效清除，不屬本情境）
+- **THEN** 該次寫入 MUST 重新套用設定的完整 TTL（自該次寫入時刻起算），該筆快取項目在寫入後的一個完整 TTL 內仍存在、之後自然過期，系統不會因為這個時序而讓該 key 無限期地不過期或無限期地陳舊
 
 #### Scenario: QC-TTL-001 快取寫入時帶有設定的 TTL
 - **WHEN** 系統因快取未命中而查詢資料庫並寫入快取
@@ -127,7 +127,7 @@ TBD - created by archiving change query-caching. Update Purpose after archive.
 - **THEN** 系統記錄 Warning 等級的結構化 log，原操作仍視為成功（依其資料庫交易結果判斷），不因快取失效失敗而回報該操作失敗
 
 ### Requirement: 查詢端點的匿名存取範圍與快取共享安全性維持既有行為
-`GET /api/events` 與 `GET /api/events/{id}/ticket-types` 本次改動前後皆維持既有的匿名可存取行為，MUST NOT 因導入快取而新增、收緊或放寬任何身份驗證或授權檢查。兩端點的回應內容（`EventDto`／`TicketTypeDto` 所含欄位）不依呼叫者身份、角色或所屬主辦方而異——回應對所有呼叫者皆相同，因此可安全地在所有呼叫者之間共享同一份快取內容：活動列表使用全站共用的單一 key `query-cache:events:list`；票種列表依活動 Id 切分（`query-cache:ticket-types:event:{eventId}`），同一活動的快取內容對所有呼叫者共用同一份。若未來這兩個端點的回應需要依身份或權限個人化（例如依主辦方顯示不同的管理資訊），MUST 在該次改動中重新設計快取 key（納入身份或權限維度），不得沿用本次的全站/單一活動共用 key 設計；本次改動不處理個人化情境。
+`GET /api/events` 與 `GET /api/events/{id}/ticket-types` 本次改動前後皆維持既有的匿名可存取行為，MUST NOT 因導入快取而新增、收緊或放寬任何身份驗證或授權檢查。兩端點的回應內容（`EventDto`／`TicketTypeDto` 所含欄位）不依呼叫者身份、角色或所屬主辦方而異——回應對所有呼叫者皆相同，因此可安全地在所有呼叫者之間共享同一份快取內容：活動列表使用全站共用的單一 key `query-cache:events:list:v2`；票種列表依活動 Id 切分（`query-cache:ticket-types:event:{eventId}`），同一活動的快取內容對所有呼叫者共用同一份。若未來這兩個端點的回應需要依身份或權限個人化（例如依主辦方顯示不同的管理資訊），MUST 在該次改動中重新設計快取 key（納入身份或權限維度），不得沿用本次的全站/單一活動共用 key 設計；本次改動不處理個人化情境。
 
 `{id:guid}` 路由參數限制（既有行為，非本次改動新增）：`eventId` 不是合法 GUID 格式時，請求在路由層即被拒絕，MUST NOT 進入 `GetTicketTypesHandler`、不觸碰快取或資料庫。
 
@@ -142,4 +142,33 @@ TBD - created by archiving change query-caching. Update Purpose after archive.
 #### Scenario: QC-ACCESS-003 eventId 格式錯誤時請求在路由層被拒絕
 - **WHEN** 呼叫 `GET /api/events/{id}/ticket-types`，路徑中的 `id` 不是合法的 GUID 格式
 - **THEN** 系統回傳 `404 Not Found`（既有 `{id:guid}` 路由限制行為）——這是 ASP.NET Core 路由層的框架保證：不匹配路由樣板的請求不會解析出 Controller/Action，`GetTicketTypesHandler` 與其依賴的 Repository／`IQueryCache` 因此不可能被呼叫，此為框架機制本身提供的保證，不需要額外的執行期監測手段才能確認
+
+### Requirement: 活動列表快取 key 隨回應形狀版本化
+活動列表快取內容（`EventDto` 列表）的欄位組成改變時，活動列表快取 key MUST 改用新的版本後綴；程式只讀寫自身版本的 key，MUST NOT 讀取或清除其他版本的 key。目前版本為 `query-cache:events:list:v2`（`event-sales-window` 新增 `SalesStartAtUtc`／`SalesEndAtUtc`）；先前版本的 key `query-cache:events:list`（無後綴）不再被讀取，其既有項目由 TTL 自然過期。
+
+- **目的**：新舊版本實例重疊運行（滾動部署）或回滾時，各版本只讀寫自身形狀的 key，舊版本 MUST NOT 能把缺少欄位的內容寫入新版本讀取的 key，因此新版本讀到的快取內容與「未快取時資料庫查詢的回應內容」形狀一致。
+- **重疊期間的陳舊性**：明確失效只清除執行該操作的實例所屬版本的 key。新舊版本重疊期間，由舊版本實例建立活動或開關熱門搶購模式時，新版本 key 不會被明確清除，可能落後資料庫，最長為 `EventListTtlSeconds`，屬於「快取項目具備 TTL 安全網」Requirement 的既有陳舊上限，不另立例外。
+- **v2 key 只會存有完整形狀的內容**：`query-cache:events:list:v2` 唯一的寫入者是新版本 `GetEventsHandler` 的未命中路徑，寫入值是從資料庫查詢得到的完整 `EventDto` 列表；舊版本不寫入 v2（見上方「目的」）。因此「v2 key 存有缺少 `SalesStartAtUtc`／`SalesEndAtUtc` 的舊形狀內容」不是可達狀態，系統不在讀取時檢查形狀。為了讓這個前提成立，寫入 v2 的序列化結果 MUST 對每筆活動都包含 `SalesStartAtUtc` 與 `SalesEndAtUtc` 兩個屬性名稱，值為 null 時同樣寫出（不得以序列化設定省略 null 屬性）。原因是兩欄位可合法為 null（遷移前的舊活動），省略後無法區分「值為 null」與「缺欄位」。日後 v2 的欄位組成再改變時，依本 Requirement 改用新的版本後綴，不在 v2 內混存不同形狀
+- **新版本 MUST NOT 寫入或清除無後綴 key**：這是回滾契約的前提，保證無後綴 key 內只會有舊版本寫入的舊形狀內容。
+- **回滾**（部署回本變更前的執行檔；資料庫保留新欄位，不執行遷移 Down）：
+  - 舊版本依其既有規格只讀寫、只清除無後綴 key；建立活動與開關熱門搶購模式後清除無後綴 key 的行為與本變更前相同，本變更不修改舊版本。
+  - 無後綴 key 可能落後資料庫的範圍：新版本運行期間的異動不清除無後綴 key，但新版本也不寫入它，因此回滾當下該 key 只可能殘留舊版本在重疊期間最後一次寫入的項目，最長在該次寫入後 `EventListTtlSeconds` 內過期；舊版本全部停止超過 `EventListTtlSeconds` 後才回滾時，該 key 必然不存在，回滾後第一次查詢即讀資料庫。此上限與「快取項目具備 TTL 安全網」Requirement 相同，不另立例外。
+  - 新版本 key 的殘留項目不主動清除：舊版本不讀取它，由 TTL 自然過期；以 `DEL` 手動清除僅為環境整理，非正確性所需。
+  - 驗證分工：舊版本的行為由其自身既有測試涵蓋（本變更不修改舊版本程式）；本變更的自動化測試驗證新版本這一側的前提（QC-EVT-VER-001～004）；實際回滾以部署演練驗證，不屬自動化測試範圍。
+
+#### Scenario: QC-EVT-VER-001 新版本不讀取舊版本 key 的內容
+- **WHEN** 無後綴的舊版本 key `query-cache:events:list` 存有不含 `SalesStartAtUtc`／`SalesEndAtUtc` 的活動列表，`query-cache:events:list:v2` 不存在，呼叫 `GET /api/events`
+- **THEN** 系統查詢資料庫，回傳的每筆活動附帶與資料庫一致的兩欄位值，將結果寫入 `query-cache:events:list:v2`；舊版本 key 的內容不被讀取、修改或清除
+
+#### Scenario: QC-EVT-VER-002 新版本的明確失效只清除自身版本 key
+- **WHEN** `query-cache:events:list` 與 `query-cache:events:list:v2` 皆存在，已切換至 Approved Organizer 的使用者成功建立一場新活動，或成功切換自己名下活動的熱門搶購模式
+- **THEN** 每一種操作後系統皆清除 `query-cache:events:list:v2`，`query-cache:events:list` 保持不變
+
+#### Scenario: QC-EVT-VER-004 v2 key 寫入完整形狀內容
+- **WHEN** `query-cache:events:list:v2` 不存在，資料庫有一場設定販售期間的活動與一場兩欄位皆為 null 的活動，呼叫 `GET /api/events`
+- **THEN** 系統查詢資料庫並寫入 `query-cache:events:list:v2`；該 key 的原始內容中，兩場活動都包含 `SalesStartAtUtc` 與 `SalesEndAtUtc` 屬性，設定者的值與資料庫相同，未設定者的值為 null（屬性存在、未被省略）
+
+#### Scenario: QC-EVT-VER-003 新版本不寫入舊版本 key
+- **WHEN** `query-cache:events:list` 不存在，新版本依序處理：`GET /api/events`（未命中）、`GET /api/events`（命中）、建立活動、開關某活動的熱門搶購模式、再次 `GET /api/events`
+- **THEN** 整個過程中 `query-cache:events:list` 始終不存在
 

@@ -1,6 +1,7 @@
 using FluentValidation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
+using ProjectC.Application.Events;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Members;
 using ProjectC.Domain.PurchaseQueue;
@@ -62,6 +63,13 @@ public sealed class JoinPurchaseQueueHandler
             return Result<Guid>.Failure(Error.NotFound($"Event '{eventId}' was not found."));
         }
 
+        // 販售期間快速失敗：放在熱門搶購模式與實名之前，開賣前／停售後一律回販售期間錯誤，
+        // 交易內以 lockedEvent 與重新取得的 now 再檢查才是權威（event-sales-window design.md 決策 4）。
+        if (EventSalesWindowErrors.GetErrorOrNull(@event, _dateTimeProvider.UtcNow) is { } outsideSalesError)
+        {
+            return Result<Guid>.Failure(outsideSalesError);
+        }
+
         if (!@event.IsQueueModeEnabled)
         {
             return Result<Guid>.Failure(Error.Conflict($"Event '{eventId}' is not in queue mode."));
@@ -88,6 +96,14 @@ public sealed class JoinPurchaseQueueHandler
             return Result<Guid>.Failure(Error.NotFound($"Event '{eventId}' was not found."));
         }
 
+        // now 在 GetForUpdateAsync 返回後才取得，販售期間檢查與下方 Admitted 逾時判斷共用同一個時點；
+        // 販售期間檢查必須在任何排隊紀錄查詢／寫入（含 Admitted→Expired）之前，失敗時交易未 commit，dispose 時回滾。
+        var now = _dateTimeProvider.UtcNow;
+        if (EventSalesWindowErrors.GetErrorOrNull(lockedEvent, now) is { } salesError)
+        {
+            return Result<Guid>.Failure(salesError);
+        }
+
         if (lockedEvent.IsRealNameRequired != @event.IsRealNameRequired)
         {
             throw new InvalidOperationException($"Event '{eventId}' IsRealNameRequired changed between reads (invariant I1 violated).");
@@ -97,8 +113,6 @@ public sealed class JoinPurchaseQueueHandler
         {
             return Result<Guid>.Failure(Error.Conflict($"Event '{eventId}' is not in queue mode."));
         }
-
-        var now = _dateTimeProvider.UtcNow;
 
         // 悲觀鎖查詢，依唯一性約束最多一筆（design.md 決策 3 步驟 1-2）。
         var existing = await _purchaseQueueRepository.GetForUpdateAsync(eventId, memberId, cancellationToken);

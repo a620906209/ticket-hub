@@ -161,4 +161,42 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         events!.Single(e => e.Id == realNameEvent.EventId).IsRealNameRequired.Should().BeTrue();
         events!.Single(e => e.Id == plainEvent.EventId).IsRealNameRequired.Should().BeFalse();
     }
+
+    // TP-BROWSE-SALES-001：前台只帶原始值，販售狀態由前端依時間自行推導；屬性名集合鎖定，避免伺服器端推導的狀態欄位
+    // 被快取 TTL 凍結而與實際可否購買不一致（event-sales-window design.md 決策 6）。
+    [Fact]
+    public async Task GetEvents_WithAndWithoutSalesWindow_ReturnsRawValuesWithoutSalesStatusField()
+    {
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var venueId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Test Venue")));
+        var seatMapId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync(
+            $"/api/admin/venues/{venueId}/seat-maps", new CreateSeatMapRequest([new SeatRequest("A", "1")])));
+        var startAtUtc = DateTime.UtcNow.Date.AddDays(30);
+        var salesStartAtUtc = DateTime.UtcNow.Date.AddDays(1);
+        var salesEndAtUtc = DateTime.UtcNow.Date.AddDays(20);
+        var withWindowId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync("/api/admin/events",
+            new CreateEventRequest("With Window", startAtUtc, venueId, seatMapId, SalesStartAtUtc: salesStartAtUtc, SalesEndAtUtc: salesEndAtUtc)));
+        var withoutWindowId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync("/api/admin/events",
+            new CreateEventRequest("Without Window", startAtUtc, venueId, seatMapId)));
+
+        var response = await _factory.CreateClient().GetAsync("/api/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var events = await response.Content.ReadFromJsonAsync<List<EventDto>>();
+        var withWindow = events!.Single(e => e.Id == withWindowId);
+        (withWindow.SalesStartAtUtc, withWindow.SalesEndAtUtc).Should().Be((salesStartAtUtc, salesEndAtUtc));
+        var withoutWindow = events!.Single(e => e.Id == withoutWindowId);
+        (withoutWindow.SalesStartAtUtc, withoutWindow.SalesEndAtUtc).Should().Be(((DateTime?)null, (DateTime?)null));
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        string[] expectedPropertyNames =
+        [
+            "id", "title", "startAtUtc", "venueId", "seatMapId", "description", "posterUrl",
+            "maxTicketsPerOrder", "isQueueModeEnabled", "isRealNameRequired", "salesStartAtUtc", "salesEndAtUtc",
+        ];
+        foreach (var element in document.RootElement.EnumerateArray())
+        {
+            element.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(expectedPropertyNames);
+        }
+    }
 }

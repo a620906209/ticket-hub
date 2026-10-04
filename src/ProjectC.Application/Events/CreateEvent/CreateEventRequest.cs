@@ -8,4 +8,6 @@ public sealed record CreateEventRequest(
     string? Description = null,
     string? PosterUrl = null,
     int? MaxTicketsPerOrder = null,
-    bool? IsRealNameRequired = null);
+    bool? IsRealNameRequired = null,
+    DateTime? SalesStartAtUtc = null,
+    DateTime? SalesEndAtUtc = null);

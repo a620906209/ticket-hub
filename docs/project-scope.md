@@ -173,6 +173,11 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - 部署環境是否加雲端平台展示（見第 4 節）——2026-10-02 盤點決定暫不決定，待下方兩項補強完成後再評估
 - **Phase 3 完成後盤點的補強項目（2026-10-02，各自另開 OpenSpec change）**：
   - ① **開賣時間**：目前 `Event`／`TicketType` 沒有開賣時間，下單與加入排隊皆不檢查時間（活動開始後甚至結束後仍可購票），第 1 節主辦方「設定開賣時間」需求未達成。規劃：Event 新增開賣時間、停售時間（預設為活動開始時間），下單與排隊檢查，前端顯示未開賣或倒數狀態
+    - **後端已完成**（`event-sales-window`，2026-10-03 實作；`Event` 新增 `SalesStartAtUtc`／`SalesEndAtUtc`，販售期間 `[SalesStartAtUtc, SalesEndAtUtc ?? StartAtUtc)`，下單與加入排隊在期間外回 409 `SalesNotOpen`／`SalesClosed`）；**前端待 `event-sales-window-web-ui`**
+    - **部署須知（R1）**：未設定停售時間的活動一律自 `StartAtUtc` 起停售，包含遷移當下已開始的既有活動（遷移後即無法再下單或加入排隊）；可滾動部署、不需清除快取，舊版活動列表快取 key `query-cache:events:list` 於舊版實例全部停止後最多一個 TTL（`EventListTtlSeconds`，預設 30 秒）自然過期
+  - **待確認（R4，2026-10-03 實測）**：建立活動時 `StartAtUtc` 不帶 `Z`（如 `2026-12-01T10:00:00`）或帶偏移（如 `+08:00`），即使新欄位帶 `Z`，仍回 **500**（EF Core 寫入 timestamptz 時 `DbUpdateException`）；帶 `Z` 則 201。屬既有缺口，未在 `event-sales-window` 修正，應比照新欄位由 Validator 擋為 400
+  - **待確認（`StartAtUtc` 極端值，2026-10-03 審查發現；2026-10-04 實測更正）**：`StartAtUtc` 為 `DateTime.MaxValue` 會被 Npgsql 存成 `infinity`。實測讀回**不會**丟例外、活動列表不會 500（不同於 EVT-SALES-019：`Event` 建構子不檢查 `StartAtUtc` 的 Kind），但讀回的值 Kind=Unspecified，JSON 輸出不帶 `Z`，前端會當本地時間解讀。影響輕微、須刻意送極端值才會發生；建議與上方 R4 合併為一個小 change，由 Validator 對 `StartAtUtc` 加「必須為 UTC」與「不得為最大值」兩條規則（回 400）
+  - **已知環境問題（2026-10-03，使用者決定先不修）**：QC-TTL-004（`QueryCacheTtlSafetyNetTests` in-flight 競態）與 `RedisDistributedLockTests` 的 TTL 測試在 WSL2 下偶發失敗。根因：Redis 以牆上時鐘判斷到期，WSL2 時鐘約每 20～30 秒倒退約 1 秒，key 實際存活超過測試以 `Stopwatch` 計算的 T+M2。依政策未修改控制值、未重試／跳過；若要根治，需改以 Redis `TIME` 為時鐘基準（design.md 決策 6，須重走 spec-reviewer）
   - ② **效能指標實測**：第 5 節「500 併發搶 50 張、0% 超賣、P95 < 500ms」從未實測，repo 內沒有壓測腳本。規劃：以 k6 在 compose 環境內壓測，產出腳本與結果報告，不改產品程式碼
 - ~~Could 項目的實作優先順序~~——已依序完成 Redis 分散式鎖、快取層、CAPTCHA、現場核銷掃碼頁、多租戶主辦方管理介面、實名制驗證；原列的「Queue 排隊室 Redis 資料結構重寫」已由 `purchase-queue-redis-admission` 達成（排隊 waiting／admitted 改為 Redis Sorted Set＋Lua 原子操作，Postgres 仍為持久化真相來源，座位鎖定維持 Postgres 悲觀鎖），Could 項目已全數完成
 - **共用／正式環境部署前須先限制 Seq 存取並訂定日誌保存期限**：實名登記稽核日誌與核銷查詢持票人的稽核日誌（僅記 Id，不含姓名與末四碼）集中於 Seq，部署至共用或正式環境前須限制可存取 Seq 的人員並設定保存期限（`real-name-verification` 歸檔時新增）

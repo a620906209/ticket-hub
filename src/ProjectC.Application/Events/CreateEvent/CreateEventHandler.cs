@@ -70,7 +70,9 @@ public sealed class CreateEventHandler
             request.MaxTicketsPerOrder,
             createdByMemberId,
             _dateTimeProvider.UtcNow,
-            request.IsRealNameRequired ?? false);
+            request.IsRealNameRequired ?? false,
+            request.SalesStartAtUtc,
+            request.SalesEndAtUtc);
         var eventSeats = @event.CreateEventSeats(seatMap);
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);

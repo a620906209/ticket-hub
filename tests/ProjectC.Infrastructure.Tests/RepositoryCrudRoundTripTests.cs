@@ -1,3 +1,4 @@
+using System.Globalization;
 using FluentAssertions;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Members;
@@ -136,5 +137,50 @@ public class RepositoryCrudRoundTripTests
         reloaded.Should().NotBeNull();
         reloaded!.IsHeldBy(orderId, now).Should().BeTrue();
         reloaded.GetStatus(now).Should().Be(EventSeatStatus.Held);
+    }
+
+    // event-sales-window tasks 2.4：EF 具現化 Event 時也會執行建構子的 Kind == Utc 檢查，
+    // 若 Npgsql 讀回 timestamptz 不是 Utc，所有設定販售期間的活動都會在讀取時丟例外。
+    [Fact]
+    public async Task Event_WithSalesWindow_RoundTripsValuesWithUtcKind()
+    {
+        // 取整天：timestamptz 只有微秒精度，避免 tick 截斷造成假性不相等；須早於 helper 的 StartAtUtc（UtcNow + 30 天）。
+        var salesStartAtUtc = DateTime.UtcNow.Date.AddDays(1);
+        var salesEndAtUtc = DateTime.UtcNow.Date.AddDays(20);
+        await using var seedDbContext = _fixture.CreateDbContext();
+        var (eventId, _) = await TicketingTestData.SeedEventWithSeatsAsync(
+            seedDbContext, seatCount: 1, salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
+
+        await using var readDbContext = _fixture.CreateDbContext();
+        var reloaded = await new EventRepository(readDbContext).GetByIdAsync(eventId, CancellationToken.None);
+
+        reloaded.Should().NotBeNull();
+        reloaded!.SalesStartAtUtc.Should().Be(salesStartAtUtc);
+        reloaded.SalesEndAtUtc.Should().Be(salesEndAtUtc);
+        reloaded.SalesStartAtUtc!.Value.Kind.Should().Be(DateTimeKind.Utc);
+        reloaded.SalesEndAtUtc!.Value.Kind.Should().Be(DateTimeKind.Utc);
+    }
+
+    // Npgsql 以 2000-01-01 為基準向零取整（2000 年前往上、之後往下）；Validator 只拒絕次微秒的前提是
+    // 整微秒值在基準兩側都原樣寫入讀回（event-sales-window design.md 決策 2「精度」）。
+    [Theory]
+    [InlineData("1999-06-01T12:34:56.123457Z", "1999-12-31T23:59:59.999999Z")]
+    [InlineData("2026-01-01T00:00:00.000001Z", "2026-06-30T12:34:56.654321Z")]
+    public async Task Event_WithWholeMicrosecondSalesWindow_RoundTripsExactlyOnBothSidesOf2000(string salesStart, string salesEnd)
+    {
+        var salesStartAtUtc = DateTime.Parse(salesStart, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+        var salesEndAtUtc = DateTime.Parse(salesEnd, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
+        await using var seedDbContext = _fixture.CreateDbContext();
+        var (eventId, _) = await TicketingTestData.SeedEventWithSeatsAsync(
+            seedDbContext, seatCount: 1, salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
+
+        await using var readDbContext = _fixture.CreateDbContext();
+        var reloaded = await new EventRepository(readDbContext).GetByIdAsync(eventId, CancellationToken.None);
+
+        reloaded.Should().NotBeNull();
+        reloaded!.SalesStartAtUtc.Should().Be(salesStartAtUtc);
+        reloaded.SalesEndAtUtc.Should().Be(salesEndAtUtc);
+        reloaded.SalesStartAtUtc!.Value.Kind.Should().Be(DateTimeKind.Utc);
+        reloaded.SalesEndAtUtc!.Value.Kind.Should().Be(DateTimeKind.Utc);
     }
 }

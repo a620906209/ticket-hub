@@ -21,4 +21,6 @@ public sealed class Error
     public static Error CaptchaInvalid(string message) => new(ErrorType.CaptchaInvalid, message);
     public static Error RealNameRequired(string message) => new(ErrorType.RealNameRequired, message);
     public static Error HolderVerificationRequired(string message) => new(ErrorType.HolderVerificationRequired, message);
+    public static Error SalesNotOpen(string message) => new(ErrorType.SalesNotOpen, message);
+    public static Error SalesClosed(string message) => new(ErrorType.SalesClosed, message);
 }

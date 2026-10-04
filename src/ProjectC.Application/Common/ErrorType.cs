@@ -12,4 +12,6 @@ public enum ErrorType
     CaptchaInvalid,
     RealNameRequired,
     HolderVerificationRequired,
+    SalesNotOpen,
+    SalesClosed,
 }

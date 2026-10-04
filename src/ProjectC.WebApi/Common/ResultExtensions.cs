@@ -39,6 +39,10 @@ public static class ResultExtensions
             // Title 沿用下方 error.Type.ToString()，核銷頁據此（而非泛用 409）改走查詢持票人、顯示確認面板；
             // 與「已核銷過」的 Conflict 區分（real-name-verification design.md 決策 4）。
             ErrorType.HolderVerificationRequired => StatusCodes.Status409Conflict,
+            // 不在販售期間是「活動目前狀態不允許此操作」，與「未開啟熱門搶購模式」的 409 同類；用 403 會與
+            // RealNameRequired／QueueAdmissionRequired 等身分／資格類拒絕混淆。前端依 Title 區分兩者（event-sales-window design.md 決策 5）。
+            ErrorType.SalesNotOpen => StatusCodes.Status409Conflict,
+            ErrorType.SalesClosed => StatusCodes.Status409Conflict,
             ErrorType.NotFound => StatusCodes.Status404NotFound,
             ErrorType.Conflict => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
@@ -644,5 +645,241 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
 
         events!.Single(e => e.Id == realNameEvent.EventId).IsRealNameRequired.Should().BeTrue();
         events!.Single(e => e.Id == plainEvent.EventId).IsRealNameRequired.Should().BeFalse();
+    }
+
+    // ---- 販售期間（event-sales-window EVT-SALES-*）----
+
+    // 以原始 JSON 送出，DateTime 的 Kind 由反序列化決定（"Z" → Utc、無指示 → Unspecified、offset → Local），
+    // 才能驗證 Kind 檢查；一律取整天，避免 timestamptz 微秒精度造成假性不相等。
+    private static string ToUtcJson(DateTime value) => value.ToString("yyyy-MM-ddTHH:mm:ss'Z'");
+
+    private static string CreateEventJson(Guid venueId, Guid seatMapId, string startAtUtc, string? salesStartAtUtc = null, string? salesEndAtUtc = null)
+    {
+        var salesStartProperty = salesStartAtUtc is null ? "" : $", \"salesStartAtUtc\": \"{salesStartAtUtc}\"";
+        var salesEndProperty = salesEndAtUtc is null ? "" : $", \"salesEndAtUtc\": \"{salesEndAtUtc}\"";
+        return $"{{\"title\": \"Concert\", \"startAtUtc\": \"{startAtUtc}\", \"venueId\": \"{venueId}\", \"seatMapId\": \"{seatMapId}\"{salesStartProperty}{salesEndProperty}}}";
+    }
+
+    private static Task<HttpResponseMessage> PostCreateEventJsonAsync(HttpClient client, string json)
+        => client.PostAsync("/api/admin/events", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+    private async Task<(int Events, int EventSeats)> CountEventRowsAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        return (await dbContext.Events.CountAsync(), await dbContext.EventSeats.CountAsync());
+    }
+
+    private static async Task<AdminEventSummaryDto> GetAdminEventAsync(HttpClient client, Guid eventId)
+    {
+        var events = await client.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+        return events!.Single(e => e.Id == eventId);
+    }
+
+    // 400 而不是 500：時間關係或 Kind 不合法必須由 Validator 擋下，不得落到 Domain 的 ArgumentException；且不得留下任何列。
+    private async Task AssertCreateEventRejectedWithoutRowsAsync(HttpClient organizerClient, string json)
+    {
+        var rowsBefore = await CountEventRowsAsync();
+
+        var response = await PostCreateEventJsonAsync(organizerClient, json);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await CountEventRowsAsync()).Should().Be(rowsBefore);
+    }
+
+    private static DateTime Today => DateTime.UtcNow.Date;
+
+    // EVT-SALES-001
+    [Fact]
+    public async Task CreateEvent_WithSalesWindow_Returns201AndAdminListReturnsSameValues()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var salesStartAtUtc = Today.AddDays(1);
+        var salesEndAtUtc = Today.AddDays(20);
+
+        var response = await PostCreateEventJsonAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), ToUtcJson(salesStartAtUtc), ToUtcJson(salesEndAtUtc)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var adminEvent = await GetAdminEventAsync(organizerClient, await ReadCreatedIdAsync(response));
+        adminEvent.SalesStartAtUtc.Should().Be(salesStartAtUtc);
+        adminEvent.SalesEndAtUtc.Should().Be(salesEndAtUtc);
+    }
+
+    // EVT-SALES-002：既有前端／整合方不帶新欄位時，行為與功能上線前相同。
+    [Fact]
+    public async Task CreateEvent_WithoutSalesWindow_Returns201AndAdminListReturnsNulls()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        var response = await PostCreateEventJsonAsync(organizerClient, CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30))));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var adminEvent = await GetAdminEventAsync(organizerClient, await ReadCreatedIdAsync(response));
+        adminEvent.SalesStartAtUtc.Should().BeNull();
+        adminEvent.SalesEndAtUtc.Should().BeNull();
+    }
+
+    // EVT-SALES-007：開賣時間在過去是合法的（建立後立即可售），不得被當成輸入錯誤。
+    [Fact]
+    public async Task CreateEvent_WithPastSalesStart_Returns201AndAdminListReturnsIt()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var salesStartAtUtc = Today.AddDays(-1);
+
+        var response = await PostCreateEventJsonAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(10)), salesStartAtUtc: ToUtcJson(salesStartAtUtc)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await GetAdminEventAsync(organizerClient, await ReadCreatedIdAsync(response))).SalesStartAtUtc.Should().Be(salesStartAtUtc);
+    }
+
+    // EVT-SALES-004
+    [Fact]
+    public async Task CreateEvent_WhenSalesEndIsAfterStartAt_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), salesEndAtUtc: ToUtcJson(Today.AddDays(31))));
+    }
+
+    // EVT-SALES-005
+    [Fact]
+    public async Task CreateEvent_WhenSalesStartEqualsSalesEnd_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), ToUtcJson(Today.AddDays(10)), ToUtcJson(Today.AddDays(10))));
+    }
+
+    // EVT-SALES-006：未帶停售時間時有效停售點是 StartAtUtc，開賣等於它代表販售期間為空。
+    [Fact]
+    public async Task CreateEvent_WhenSalesStartEqualsStartAtWithoutSalesEnd_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), salesStartAtUtc: ToUtcJson(Today.AddDays(30))));
+    }
+
+    // EVT-SALES-008
+    [Fact]
+    public async Task CreateEvent_WhenSalesStartHasNoUtcDesignator_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), salesStartAtUtc: Today.AddDays(1).ToString("yyyy-MM-ddTHH:mm:ss")));
+    }
+
+    // EVT-SALES-013
+    [Fact]
+    public async Task CreateEvent_WhenSalesEndHasNoUtcDesignator_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), salesEndAtUtc: Today.AddDays(20).ToString("yyyy-MM-ddTHH:mm:ss")));
+    }
+
+    // EVT-SALES-014
+    [Fact]
+    public async Task CreateEvent_WhenSalesStartHasOffset_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), salesStartAtUtc: Today.AddDays(1).ToString("yyyy-MM-ddTHH:mm:ss'+08:00'")));
+    }
+
+    // EVT-SALES-016
+    [Fact]
+    public async Task CreateEvent_WhenSalesEndHasOffset_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), salesEndAtUtc: Today.AddDays(20).ToString("yyyy-MM-ddTHH:mm:ss'+08:00'")));
+    }
+
+    // EVT-SALES-015：只有停售時間不帶 Z 也必須擋下，防止 Kind 檢查只做在第一個欄位。
+    [Fact]
+    public async Task CreateEvent_WhenOnlySalesEndHasNoUtcDesignator_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient, CreateEventJson(
+            venueId, seatMapId, ToUtcJson(Today.AddDays(30)), ToUtcJson(Today.AddDays(1)), Today.AddDays(20).ToString("yyyy-MM-ddTHH:mm:ss")));
+    }
+
+    // EVT-SALES-009
+    [Fact]
+    public async Task GetAdminEvents_WithAndWithoutSalesWindow_ReturnsEachEventsOwnValues()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var salesStartAtUtc = Today.AddDays(2);
+        var salesEndAtUtc = Today.AddDays(25);
+        var withWindowId = await ReadCreatedIdAsync(await PostCreateEventJsonAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), ToUtcJson(salesStartAtUtc), ToUtcJson(salesEndAtUtc))));
+        var withoutWindowId = await ReadCreatedIdAsync(await PostCreateEventJsonAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)))));
+
+        var events = await organizerClient.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+
+        var withWindow = events!.Single(e => e.Id == withWindowId);
+        (withWindow.SalesStartAtUtc, withWindow.SalesEndAtUtc).Should().Be((salesStartAtUtc, salesEndAtUtc));
+        var withoutWindow = events!.Single(e => e.Id == withoutWindowId);
+        (withoutWindow.SalesStartAtUtc, withoutWindow.SalesEndAtUtc).Should().Be(((DateTime?)null, (DateTime?)null));
+    }
+
+    // EVT-SALES-017：同一微秒內的開賣／停售若被接受，寫入 timestamptz 後兩者相等，讀回 Event 時建構子丟例外、
+    // 公開活動列表跟著 500；因此除了 400 與無新增列，也確認之後匿名活動列表仍正常。
+    [Fact]
+    public async Task CreateEvent_WhenSalesWindowCollapsesWithinOneMicrosecond_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var rowsBefore = await CountEventRowsAsync();
+
+        var response = await PostCreateEventJsonAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), "2026-11-01T12:00:00.0000001Z", "2026-11-01T12:00:00.0000005Z"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Detail.Should().Contain("SalesStartAtUtc must not have sub-microsecond precision.")
+            .And.Contain("SalesEndAtUtc must not have sub-microsecond precision.");
+        (await CountEventRowsAsync()).Should().Be(rowsBefore);
+        (await _factory.CreateClient().GetAsync("/api/events")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // EVT-SALES-019：最小日期若被接受，存成 -infinity 後讀回不是 UTC，公開活動列表會 500
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CreateEvent_WhenSalesTimeIsMinValue_Returns400AndPublicListStillLoads(bool isSalesStart)
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        const string minValueJson = "0001-01-01T00:00:00Z";
+        var json = isSalesStart
+            ? CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), salesStartAtUtc: minValueJson)
+            : CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)), salesEndAtUtc: minValueJson);
+
+        await AssertCreateEventRejectedWithoutRowsAsync(organizerClient, json);
+        (await _factory.CreateClient().GetAsync("/api/events")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

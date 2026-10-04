@@ -188,4 +188,188 @@ public class EventTests
 
         @event.IsQueueModeEnabled.Should().BeFalse();
     }
+
+    private static readonly DateTime SalesBaseUtc = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private static Event CreateEventWithSalesWindow(DateTime startAtUtc, DateTime? salesStartAtUtc, DateTime? salesEndAtUtc)
+        => new(Guid.NewGuid(), "Concert", startAtUtc, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+            salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
+
+    // EVT-SALES-001
+    [Fact]
+    public void Constructor_WithValidSalesWindow_SetsBothProperties()
+    {
+        var salesStart = SalesBaseUtc.AddDays(1);
+        var salesEnd = SalesBaseUtc.AddDays(9);
+
+        var @event = CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), salesStart, salesEnd);
+
+        @event.SalesStartAtUtc.Should().Be(salesStart);
+        @event.SalesEndAtUtc.Should().Be(salesEnd);
+    }
+
+    // EVT-SALES-002：既有呼叫端不帶參數時不得意外出現販售期間
+    [Fact]
+    public void Constructor_WithoutSalesWindow_LeavesBothPropertiesNull()
+    {
+        var @event = new Event(Guid.NewGuid(), "Concert", SalesBaseUtc.AddDays(10), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        @event.SalesStartAtUtc.Should().BeNull();
+        @event.SalesEndAtUtc.Should().BeNull();
+    }
+
+    // EVT-SALES-003
+    [Fact]
+    public void Constructor_WithOnlySalesStart_LeavesSalesEndNull()
+    {
+        var @event = CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), SalesBaseUtc.AddDays(1), null);
+
+        @event.SalesStartAtUtc.Should().Be(SalesBaseUtc.AddDays(1));
+        @event.SalesEndAtUtc.Should().BeNull();
+    }
+
+    // EVT-SALES-004
+    [Fact]
+    public void Constructor_WhenSalesEndIsAfterStartAt_ThrowsArgumentException()
+    {
+        var startAt = SalesBaseUtc.AddDays(10);
+
+        var act = () => CreateEventWithSalesWindow(startAt, null, startAt.AddTicks(1));
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // EVT-SALES-004：邊界，停售時間等於活動開始時間合法
+    [Fact]
+    public void Constructor_WhenSalesEndEqualsStartAt_Succeeds()
+    {
+        var startAt = SalesBaseUtc.AddDays(10);
+
+        var @event = CreateEventWithSalesWindow(startAt, null, startAt);
+
+        @event.SalesEndAtUtc.Should().Be(startAt);
+    }
+
+    // EVT-SALES-005
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void Constructor_WhenSalesStartIsNotBeforeSalesEnd_ThrowsArgumentException(int salesStartOffsetFromSalesEndTicks)
+    {
+        var salesEnd = SalesBaseUtc.AddDays(9);
+
+        var act = () => CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), salesEnd.AddTicks(salesStartOffsetFromSalesEndTicks), salesEnd);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // EVT-SALES-006
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void Constructor_WhenSalesEndIsNullAndSalesStartIsNotBeforeStartAt_ThrowsArgumentException(int salesStartOffsetFromStartAtTicks)
+    {
+        var startAt = SalesBaseUtc.AddDays(10);
+
+        var act = () => CreateEventWithSalesWindow(startAt, startAt.AddTicks(salesStartOffsetFromStartAtTicks), null);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // EVT-SALES-007：Domain 不依當下時間驗證，過去的開賣時間合法
+    [Fact]
+    public void Constructor_WhenSalesStartIsInPast_Succeeds()
+    {
+        var pastSalesStart = SalesBaseUtc.AddYears(-1);
+
+        var @event = CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), pastSalesStart, null);
+
+        @event.SalesStartAtUtc.Should().Be(pastSalesStart);
+    }
+
+    // EVT-SALES-008
+    [Fact]
+    public void Constructor_WhenSalesStartKindIsUnspecified_ThrowsArgumentException()
+    {
+        var salesStart = DateTime.SpecifyKind(SalesBaseUtc.AddDays(1), DateTimeKind.Unspecified);
+
+        var act = () => CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), salesStart, null);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // EVT-SALES-013
+    [Fact]
+    public void Constructor_WhenSalesEndKindIsUnspecified_ThrowsArgumentException()
+    {
+        var salesEnd = DateTime.SpecifyKind(SalesBaseUtc.AddDays(9), DateTimeKind.Unspecified);
+
+        var act = () => CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), null, salesEnd);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // EVT-SALES-014
+    [Fact]
+    public void Constructor_WhenSalesStartKindIsLocal_ThrowsArgumentException()
+    {
+        var salesStart = DateTime.SpecifyKind(SalesBaseUtc.AddDays(1), DateTimeKind.Local);
+
+        var act = () => CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), salesStart, null);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // EVT-SALES-016
+    [Fact]
+    public void Constructor_WhenSalesEndKindIsLocal_ThrowsArgumentException()
+    {
+        var salesEnd = DateTime.SpecifyKind(SalesBaseUtc.AddDays(9), DateTimeKind.Local);
+
+        var act = () => CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), null, salesEnd);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // EVT-SALES-015：兩欄位各自檢查 Kind，不因另一欄位為 Utc 而放行
+    [Fact]
+    public void Constructor_WhenOnlySalesEndKindIsNotUtc_ThrowsArgumentException()
+    {
+        var salesStart = SalesBaseUtc.AddDays(1);
+        var salesEnd = DateTime.SpecifyKind(SalesBaseUtc.AddDays(9), DateTimeKind.Unspecified);
+
+        var act = () => CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), salesStart, salesEnd);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // 決策 1 的左閉右開區間；支撐 TP-SALES-ORDER-001…005、PQ-SALES-JOIN-010／011 的 Domain 面
+    public static TheoryData<string, DateTime?, DateTime?, DateTime, EventSalesStatus> SalesStatusBoundaryCases()
+    {
+        var startAt = SalesBaseUtc.AddDays(10);
+        var salesStart = SalesBaseUtc.AddDays(1);
+        var salesEnd = SalesBaseUtc.AddDays(9);
+
+        return new TheoryData<string, DateTime?, DateTime?, DateTime, EventSalesStatus>
+        {
+            { "開賣前 1 tick", salesStart, salesEnd, salesStart.AddTicks(-1), EventSalesStatus.NotOpen },
+            { "開賣當下（左閉）", salesStart, salesEnd, salesStart, EventSalesStatus.Open },
+            { "停售前 1 tick", salesStart, salesEnd, salesEnd.AddTicks(-1), EventSalesStatus.Open },
+            { "停售當下（右開）", salesStart, salesEnd, salesEnd, EventSalesStatus.Closed },
+            { "未設停售，活動開始當下", salesStart, null, startAt, EventSalesStatus.Closed },
+            { "未設停售，活動開始前 1 tick", salesStart, null, startAt.AddTicks(-1), EventSalesStatus.Open },
+            { "皆未設定，活動開始前", null, null, SalesBaseUtc, EventSalesStatus.Open },
+        };
+    }
+
+    // TP-SALES-ORDER-001…005、PQ-SALES-JOIN-010／011：Domain 面（販售區間 [SalesStart ?? -∞, SalesEnd ?? StartAt) 的邊界）。
+    [Theory]
+    [MemberData(nameof(SalesStatusBoundaryCases))]
+    public void GetSalesStatus_AtEachBoundary_ReturnsExpectedStatus(
+        string caseName, DateTime? salesStartAtUtc, DateTime? salesEndAtUtc, DateTime nowUtc, EventSalesStatus expected)
+    {
+        var @event = CreateEventWithSalesWindow(SalesBaseUtc.AddDays(10), salesStartAtUtc, salesEndAtUtc);
+
+        @event.GetSalesStatus(nowUtc).Should().Be(expected, caseName);
+    }
 }
