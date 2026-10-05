@@ -138,7 +138,7 @@
   - 數量票 scenario：19 個非目標分區的座位票種，加上 1 個 `RequiresSeat=false`、`AvailableQuantity=50`、`ZoneCode = "GA"` 的數量票種，總數同樣為 20。`GA` 不與座位圖任何分區同名；`CreateTicketTypeHandler` 對 `RequiresSeat=false` 不驗證分區，產品也沒有「同活動票種 ZoneCode 唯一」的限制，但仍刻意避開重名，讓報表與列表能直接以 ZoneCode 辨識目標票種。
 - **活動命名**：Title 一律以 `[LoadTest] ` 開頭，後接 scenario 與 UTC 時間（例如 `[LoadTest] count 2026-10-05T08:00:00Z`），方便手動辨識與清理。
 - **setup 逾時**：兩支腳本設 `setupTimeout: '180s'`（k6 預設 60 秒，建 2000 席座位圖與 20 個票種可能超過）。逾時由 k6 視為 setup 失敗並中止，不會進入下單。
-- **前置檢查**：`setup()` 一開始先確認 token 檔的 `buyerTokens` 數量 ≥ 500 且彼此不重複，否則 `fail()`。避免 `__VU - 1` 索引越界取到 `undefined`、以無效 Bearer 送出請求。
+- **前置檢查**：`setup()` 一開始先確認 token 檔的 `buyerTokens` 數量 ≥ 500 且彼此不重複，否則 `fail()`。避免買家索引越界取到 `undefined`、以無效 Bearer 送出請求。
 - **販售時間**：`SalesStartAtUtc` 設為現在減 1 分鐘，`StartAtUtc` 設為現在加 1 天，`SalesEndAtUtc` 留空。不呼叫 queue-mode，預設就是非排隊。
 - **建立順序**：`POST /api/admin/venues` → `/{venueId}/seat-maps` → `POST /api/admin/events` → `/{eventId}/ticket-types`（逐一）。
   - 座位票的目標 event seat id 從 `GET /api/events/{id}/seats` 篩出 `HOT` 分區取得。
@@ -155,7 +155,7 @@
 
 - **執行器**：每個 scenario 是獨立腳本、獨立執行。
   - 使用 `per-vu-iterations` executor，`vus: 500`、`iterations: 1`。
-  - VU 以 `__VU - 1` 索引買家 token，確保 500 個 VU 對應 500 個不同會員。
+  - VU 以 `exec.scenario.iterationInTest`（scenario 內從 0 起算、不重複的 iteration 序號；每個 VU 只跑 1 次，所以 500 個 VU 對應 0–499）索引買家 token，確保 500 個 VU 對應 500 個不同會員。實作時實測發現 `__VU` 是全測試共用的 VU 編號（加上 verify scenario 的 VU 後不保證從 1 開始連續），原設計的 `__VU - 1` 可能越界，因此改用此值。
 - **同時起跑**：k6 沒有原生 barrier。採 `setup()` 回傳 `startAt = now + 10s`，VU 在下單前 `sleep` 到該時間點，讓 500 個請求集中送出。
   - 不使用 ramping，因為目標是「同時搶」而不是逐步加壓。
 - **量測範圍**：下單請求加上 tag `name: place-order`，threshold 只對 `http_req_duration{name:place-order}` 設 `p(95)<500`，confirm 與 setup 請求不計入。
@@ -190,10 +190,10 @@
   - 「報表 = k6 成功數」這一條在 `handleSummary` 自動判定：`handleSummary` 拿得到所有 scenario 的彙總 metric。verify scenario 把讀到的 `QuantitySold` 記到 Gauge `verify_quantity_sold`，`handleSummary` 呼叫純函式 `evaluateRunResult(data)`（`loadtest/lib/result.js`）比對 `orders_created` 與 `verify_quantity_sold`，同時檢查所有 threshold 的 `ok`。結果寫進 summary JSON 的 `runVerdict`（`passed` 與失敗原因清單）。
   - 限制：`handleSummary` 不保證能改變 exit code，所以單次執行「通過」的定義是 exit code 為 0 **且** `runVerdict.passed == true`。兩者由決策 11 的彙整腳本與報告一起檢查。
   - `verify_quantity_sold` 沒有值（verify 沒跑到或取資料失敗）時，`evaluateRunResult` 判為失敗，不視為一致。
-- **併發程度的佐證**：Trend `place_order_send_offset_ms` 記錄每個 VU 送出下單時距離 `startAt` 的毫秒數。報告用它的最大值說明 500 個請求是否真的集中送出。
+- **併發程度的佐證**：Trend `place_order_send_offset_ms` 記錄每個 VU 送出下單時距離 `startAt` 的毫秒數。報告用它的最大值減最小值說明 500 個請求是否真的集中送出。不看最大值：k6 只有牆上時鐘（`Date.now()` 與 `exec.instance.currentTestRunDuration` 皆是，沒有 `performance.now()`），WSL2 時鐘約每 29 秒倒退約 1.5 秒，等待期間倒退會讓全部時距一起平移成負值（2026-10-05 實測）。
 - **座位票成功數的判讀**：門檻 `count>=1` 只是防呆。500 次隨機選 50 席時，50 席都至少被選中一次的機率約 99.8%（任一席沒被選中的機率約 50 × 0.98^500 ≈ 0.2%），所以全部回應都是 201／409 時，成功數幾乎必然是 50。報告依下列順序歸因，不得跳過：
   1. 產品問題：`oversell_check_failed`、`place_order_5xx`、`place_order_unexpected`、`confirm_failed` 任一非 0，或 `QuantitySold ≠ orders_created`。
-  2. 壓測環境未達預期併發：`buyer_iterations_completed < 500`，或 `place_order_send_offset_ms` 最大值超過 1000ms。該次執行判未通過，報告註明是環境因素。
+  2. 壓測環境未達預期併發：`buyer_iterations_completed < 500`，或 `place_order_send_offset_ms` 最大值減最小值超過 1000ms（`evaluateSendSpread`：寫進 `runVerdict`，彙整時也重算一次）。該次執行判未通過，報告註明是環境因素。
   3. 以上皆否但座位票成功數 < 50：標「低於預期，需調查」，不直接歸因為隨機結果。
 - **不使用 raw SQL**：符合 CLAUDE.md 的禁止規則，全部透過既有 API 驗證。
 
@@ -206,7 +206,7 @@
   - 不設 API 位址環境變數（寫死在腳本，見決策 1）。
   - 不對外映射任何 port。
 - **k6 image 版本**：和既有 seq 一樣釘固定 tag，compose 註解記錄查證來源與日期；不額外釘 digest，因為本專案沒有 digest 慣例，且只用於本機壓測。k6 授權為 AGPL-3.0，這裡只在本機以工具容器執行、不散布，不受影響。
-- **檔案權限**：`grafana/k6` image 以非 root 使用者執行。Docker Desktop／WSL2 的 bind mount 權限寬鬆，`/output` 可寫；Linux 原生 Docker 可能無法寫入 summary JSON。本 change 只支援本機 Docker Desktop／WSL2，README 記錄此前提。
+- **檔案權限**：`grafana/k6` image 以非 root 使用者（uid 12345）執行。實作時實測發現：Docker Desktop／WSL2 的 bind mount 會保留容器內設定的權限，由 seeder（api 容器內的 root）建立的 `.output` 是 0755 root，k6 無法寫入 summary JSON（從主機建立的目錄則可寫）。因此 seeder 寫 token 檔時一併處理輸出目錄權限，由 xUnit 測試涵蓋。原本採目錄 0777、token 檔 0644（使用者 2026-10-05 選定）；審查指出同主機其他使用者可讀到有效 JWT，同日改為最小權限：目錄 0700、token 檔 0600，擁有者都 chown 給 k6 的 12345:12345（seeder 以 root 執行不受影響）；token 檔先以 0600 建立暫存檔再改名覆蓋，不沿用舊檔的 0644。Linux 權限只在 Docker／WSL2 內有效，Windows 主機端由 NTFS ACL 決定：README 要求以 `icacls` 移除 `loadtest/.output` 的繼承、只保留目前使用者／SYSTEM／Administrators（使用者 2026-10-05 選定）。Linux 原生 Docker 未驗證，本 change 只支援本機 Docker Desktop／WSL2，README 記錄此前提。
 - **seeder 執行方式**：`docker compose exec api dotnet run --project tools/ProjectC.LoadTest.Seeder -- --buyers 500`。沿用 api 容器的環境變數（DB、Jwt），不新增服務。
   - seeder 建置時會寫入 Domain／Application／Infrastructure 共用的 bin/obj volume，這和既有的 `docker compose exec api dotnet test` 行為相同。
   - 為避免建置影響正在量測的 api，執行順序固定為：seeder 完成 → 確認 api 回應正常（`GET /api/events` 回 200）→ 才執行 k6。壓測進行中不得執行 seeder 或 `dotnet test`。寫進 `loadtest/README.md`。
@@ -237,7 +237,7 @@
        - `quantity51`：數量票目標票種 `AvailableQuantity` 改為 51，使 k6 端與伺服器端都應偵測到超賣；
        - `bad-admin-token`：setup 使用竄改過的 admin token。
        - `bad-buyer-token`：下單使用竄改過的買家 token（預期全部 401）；
-       - `setup-timeout`：把 `setupTimeout` 改為 `'1s'`，觸發 setup 逾時。
+       - `setup-timeout`：把 `setupTimeout` 改為 `'1ms'`，觸發 setup 逾時（原訂 `'1s'`；2026-10-05 實作時實測 API 熱機後 setup 在 1 秒內完成、未逾時而繼續下單，故改為 1ms；k6 2.3.0 對 1ms 確實強制逾時，exit code 100）。
     4. 搶票類故障注入（`p95`、`quantity51`、`bad-buyer-token`）執行後，檢查 summary JSON 中「預期失敗的那幾個 threshold」`ok == false`，而不只看 exit code。
     5. setup 中止類的驗證（`bad-admin-token`、`setup-timeout`、token 不足）不依賴 summary JSON（setup 失敗時不保證產生）。證據為：k6 exit code 非 0、stdout 含 setup 失敗訊息，且 stdout 的 `iterations` 為 0 或未出現。依 k6 語意，setup 失敗時不會執行任何 VU 的 default／scenario 函式，因此不會送出下單請求。
   - 實際執行壓測本身也是驗收（5.4、5.5）。
@@ -255,6 +255,7 @@
   - 就緒判斷：Release 首次啟動需完整編譯，時間不固定，所以切換、還原後都以輪詢判斷就緒（從主機執行 `curl -fsS http://localhost:<主機 port>/api/events`（主機 port 以 `docker compose port api 8080` 取得；預設 8080，`.env` 的 `API_HOST_PORT` 可改） 回 200），不用固定等待時間。
   - 組態確認：讀 api 容器 PID 1 的指令列（`docker compose exec api sh -c "tr '\\0' ' ' < /proc/1/cmdline"`）。不用 `ps`，因為 SDK image 不保證有安裝；只看 PID 1，因為 `dotnet run` 本身帶 `-c Release`，它啟動的子程序不帶。
   - service name 仍是 `api`，k6 位址維持寫死的 `http://api:8080`，不需要新增目標。
+  - k6 一律以 `docker compose --profile loadtest run --rm --no-deps k6 ...` 執行：k6 有 `depends_on: api`，不帶 `--no-deps` 時 Compose 會依預設 compose 檔比對 api 設定，發現與 Release 覆寫不同就把 api 重建回 `dotnet watch`。2026-10-05 實作時第一次 Release 批次因此全部打在 Debug 上（結果移到 `loadtest/.output/invalid-release-attempt/`、整批重跑，報告註明）；同時改為每一次執行前都確認 PID 1 指令列，而非每批一次。
   - `ASPNETCORE_ENVIRONMENT` 仍是 Development（seeder 與開發設定需要），報告註明「Release 組態 + Development 環境」，不是完整的正式環境設定。
   - Release 的建置產出寫到既有 named volume 下的 `bin/Release`、`obj/Release`，不與 Debug 產出衝突。
 - **替代方案**：
@@ -271,13 +272,13 @@
   - 每次執行之間至少間隔 60 秒，避免同一買家連續兩次執行落在同一個 per-member 限流視窗（20 次／60 秒；單次執行每位買家最多 2 個請求，實際不會觸發，但間隔讓結果不受上一次殘留負載影響）。
 - **summary 檔名**：`/output/<scenario>-<LT_API_BUILD>-run<LT_RUN>-summary.json`，同一次執行的 summary、`runVerdict` 與 verify 結果（`verify_quantity_sold`、失敗原因）都在這一個檔案裡，不需要另外關聯 verify 輸出。檔案內另記 `runInfo`（scenario、`LT_API_BUILD`、`LT_RUN`、開始的 UTC 時間）。
   - `LT_RUN` 只接受 `1`、`2`、`3`。init 階段以 `open()` 試讀目標檔名，**檔案已存在時 setup `fail()`**：不允許覆寫既有結果，落實「失敗不得以重跑取代」。
-  - 故障注入執行（設定 `LT_FAULT`）不需要 `LT_RUN`，檔名改為 `/output/<scenario>-fault-<LT_FAULT>-summary.json`，與正式結果分開；`LT_API_BUILD` 非法或未設定時，`<LT_API_BUILD>` 用 `invalid`；`LT_RUN` 非法或未設定時，`run<LT_RUN>` 用 `run-invalid`；`handleSummary` 不得拋例外。這兩種 invalid／run-invalid 檔名都不會與 12 個正式檔名衝突，且都含 `-run`，會被 tasks 5.3 的整理步驟移走；故障注入檔名不含 `-run`、會留在 `/output`，但不在彙整腳本讀取的固定檔名內，不影響結果。
+  - 故障注入執行（設定 `LT_FAULT`）不需要 `LT_RUN`，檔名改為 `/output/<scenario>-fault-<LT_FAULT>-summary.json`，與正式結果分開；`LT_API_BUILD` 非法或未設定時，`<LT_API_BUILD>` 用 `invalid`；`LT_RUN` 非法或未設定時，`run<LT_RUN>` 用 `run-invalid`；`handleSummary` 不得拋例外（實測拋例外時 k6 仍 exit 0 且不寫檔），出錯時改寫一份 `runVerdict.passed == false` 並列出錯誤的 summary。這兩種 invalid／run-invalid 檔名都不會與 12 個正式檔名衝突，且都含 `-run`，會被 tasks 5.3 的整理步驟移走；故障注入檔名不含 `-run`、會留在 `/output`，但不在彙整腳本讀取的固定檔名內，不影響結果。
 
 ### 決策 11：報告資料表由彙整腳本產生
 
 - **為什麼**：報告的數字若由人手抄，LT-REPORT-001（數字等於 summary JSON）只能靠肉眼比對。改由腳本從 summary JSON 產生資料表，報告直接貼上，比對就變成可重複的 `diff`。
 - **做法**：
-  - 純函式 `aggregateRuns(runs)` 與 `renderReportTables(aggregate)` 放在 `loadtest/lib/aggregate.js`：每組（組態 × scenario）列出 3 次的 P95／P99、成功數、409 數、5xx 數、`QuantitySold`、`place_order_send_offset_ms` 最大值、`runVerdict`；計算 P95／P99 的中位數、最小值、最大值；3 次 `runVerdict.passed` 都為 true 才標「通過」，否則標「未通過」並列出第幾次、哪些失敗原因；缺檔視為該次未通過。
+  - 純函式 `aggregateRuns(runs)` 與 `renderReportTables(aggregate)` 放在 `loadtest/lib/aggregate.js`：每組（組態 × scenario）列出 3 次的 P95／P99、成功數、409 數、5xx 數、`QuantitySold`、`place_order_send_offset_ms` 最大值減最小值、`runVerdict`；計算 P95／P99 的中位數、最小值、最大值；3 次 `runVerdict.passed` 都為 true 才標「通過」，否則標「未通過」並列出第幾次、哪些失敗原因；缺檔視為該次未通過。
   - **缺欄位不得預設為 0**：`evaluateRunResult` 與 `aggregateRuns` 讀不到預期的 metric 或欄位（例如 `http_req_duration{name:place-order}` 的 `p(95)`、`p(99)`，`orders_created` 的 `count`，threshold 的 `ok`）時，該次判為未通過，失敗原因寫明缺少哪個欄位；表格中該格顯示「缺少」，不顯示 0，也不參與中位數等統計。原因：自我測試的假資料是依我們對 k6 summary 結構的理解手寫的，若真實輸出的 key 寫法不同，預設為 0 會讓錯誤靜默通過；改成明確失敗，第一次彙整真實結果時就會暴露。
     - 從未遞增的自訂 Counter 可能不會出現在 summary 中（例如沒有任何 5xx 時的 `place_order_5xx`）。為了不必在彙整端猜「沒出現是 0 還是缺漏」，兩支壓測腳本在 `setup()` 開頭對全部 7 個自訂 Counter（`orders_created`、`place_order_conflict`、`place_order_5xx`、`place_order_unexpected`、`confirm_failed`、`buyer_iterations_completed`、`oversell_check_failed`）各呼叫一次 `add(0)`，保證它們都會出現在 summary；彙整端因此可以一律把「沒出現」當成缺少。
     - Gauge `verify_quantity_sold` 與 Trend `place_order_send_offset_ms` **刻意不補 0**：Gauge 必須保持「verify 沒跑到就缺少」，才能判為未通過（決策 7）；Trend 補 0 會污染統計值。
@@ -295,7 +296,7 @@
 - [dev DB 累積測試資料（每次執行新增 2000 席活動）] → 對策：明確列為 Non-Goal，活動 Title 以 `[LoadTest] ` 開頭方便辨識，報告附上手動清理建議。這可能讓活動列表快取與管理介面變雜，屬於可接受的取捨。
 - [「報表 = k6 成功數」無法用 threshold 表達] → 對策：`handleSummary` 以 `evaluateRunResult` 自動判定並寫入 `runVerdict`；單次通過須 exit code 0 且 `runVerdict.passed`（決策 7）。
 - [api 平時以 `dotnet watch`（Debug）執行] → 對策：加 Release 組態對照（決策 10），§5 目標以 Release 結果判定。
-- [`LT_API_BUILD` 標籤可能與實際組態不符（k6 無法從 API 得知組態）] → 對策：每批執行前讀 api 容器 PID 1 的指令列確認組態（決策 10），並把結果記入報告。
+- [`LT_API_BUILD` 標籤可能與實際組態不符（k6 無法從 API 得知組態）] → 對策：每一次執行前讀 api 容器 PID 1 的指令列確認組態，k6 以 `--no-deps` 執行避免 api 被重建（決策 10），並把結果記入報告。
 
 ## Migration Plan
 

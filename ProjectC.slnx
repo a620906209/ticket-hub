@@ -9,6 +9,10 @@
     <Project Path="tests/ProjectC.Application.Tests/ProjectC.Application.Tests.csproj" />
     <Project Path="tests/ProjectC.Domain.Tests/ProjectC.Domain.Tests.csproj" />
     <Project Path="tests/ProjectC.Infrastructure.Tests/ProjectC.Infrastructure.Tests.csproj" />
+    <Project Path="tests/ProjectC.LoadTest.Seeder.Tests/ProjectC.LoadTest.Seeder.Tests.csproj" />
     <Project Path="tests/ProjectC.WebApi.Tests/ProjectC.WebApi.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/ProjectC.LoadTest.Seeder/ProjectC.LoadTest.Seeder.csproj" />
   </Folder>
 </Solution>

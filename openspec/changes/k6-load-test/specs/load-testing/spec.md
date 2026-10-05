@@ -169,7 +169,7 @@ k6 SHALL 以 docker compose 中 `loadtest` profile 的服務執行，以 compose
 - **THEN** 不會建立或啟動 k6 容器
 
 #### Scenario: LT-COMPOSE-002 以 profile 執行壓測
-- **WHEN** 先執行 seeder，再執行 `docker compose --profile loadtest run --rm k6 run <scenario 腳本>`
+- **WHEN** 先執行 seeder，再執行 `docker compose --profile loadtest run --rm --no-deps k6 run <scenario 腳本>`
 - **THEN** k6 從容器內連到 `http://api:8080` 完成壓測，並輸出 summary（含 JSON 匯出檔）
 
 #### Scenario: LT-COMPOSE-003 token 檔不進版控
