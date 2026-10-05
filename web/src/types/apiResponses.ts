@@ -12,6 +12,8 @@ export interface EventSummary {
   maxTicketsPerOrder: number | null
   isQueueModeEnabled: boolean
   isRealNameRequired: boolean
+  salesStartAtUtc: string | null
+  salesEndAtUtc: string | null
 }
 
 // 對應 GET /api/events/{id}/queue/entries/me；status："NotJoined" / "Waiting" / "Admitted" / "Expired"
@@ -162,6 +164,8 @@ export interface AdminEventSummary {
   heldSeatCount: number
   soldSeatCount: number
   isRealNameRequired: boolean
+  salesStartAtUtc: string | null
+  salesEndAtUtc: string | null
 }
 
 // 對應 GET /api/admin/tickets/{ticketId}/holder；完整末四碼只在此回應出現，供現場比對證件

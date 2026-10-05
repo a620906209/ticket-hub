@@ -3,16 +3,21 @@ import { onMounted, ref } from 'vue'
 import { getEvents } from '../../api/events'
 import type { EventSummary } from '../../types/apiResponses'
 import { toErrorMessage } from '../../utils/errors'
+import { getSalesStatus } from '../../utils/salesWindow'
+import SalesStatusTag from '../../components/SalesStatusTag.vue'
 
 const events = ref<EventSummary[]>([])
 const loading = ref(false)
 const errorMessage = ref('')
+// 列表只在載入時計算一次販售狀態，不需每秒更新（停留跨越邊界時以詳情頁的即時判斷為準）
+const loadedAtMs = ref(Date.now())
 
 async function loadEvents(): Promise<void> {
   loading.value = true
   errorMessage.value = ''
   try {
     events.value = await getEvents()
+    loadedAtMs.value = Date.now()
   } catch (error) {
     errorMessage.value = toErrorMessage(error, '載入活動列表失敗')
   } finally {
@@ -32,6 +37,7 @@ onMounted(loadEvents)
       <router-link v-for="event in events" :key="event.id" :to="`/events/${event.id}`" class="event-card">
         <h2>{{ event.title }}</h2>
         <p>{{ new Date(event.startAtUtc).toLocaleString() }}</p>
+        <SalesStatusTag class="sales-status" :status="getSalesStatus(event, loadedAtMs)" />
       </router-link>
     </div>
   </div>
@@ -73,5 +79,8 @@ onMounted(loadEvents)
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 14px;
+}
+.event-card .sales-status {
+  margin-top: 8px;
 }
 </style>

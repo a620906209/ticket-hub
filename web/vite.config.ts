@@ -36,5 +36,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // element-plus 若以 Node 原生 ESM 載入，其 default import 的 async-validator 會拿到 CJS 物件而非 class，
+    // el-form 的 rules 在測試中整個失效（validate() 恆通過）；交給 Vite 轉換才會正確處理 interop。
+    server: { deps: { inline: ['element-plus'] } },
   },
 })

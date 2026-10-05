@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import type { FormInstance } from 'element-plus'
+import type { FormInstance, FormItemRule } from 'element-plus'
 import { createEvent, getVenueById, getVenues } from '../../api/admin'
 import type { SeatMapSummary, VenueSummary } from '../../types/apiResponses'
 import { maxLengthRule, optionalPositiveIntegerRule, requiredRule } from '../../utils/validators'
@@ -67,6 +67,8 @@ const eventForm = reactive<{
   posterUrl: string
   maxTicketsPerOrder: number | undefined
   isRealNameRequired: boolean
+  salesStartAt: Date | string | null
+  salesEndAt: Date | string | null
 }>({
   title: '',
   startAt: '',
@@ -76,7 +78,38 @@ const eventForm = reactive<{
   posterUrl: '',
   maxTicketsPerOrder: undefined,
   isRealNameRequired: false,
+  salesStartAt: '',
+  salesEndAt: '',
 })
+
+// el-date-picker 選了再清空時 v-model 為 null、初始為空字串，一律以 truthy 判斷有無值；
+// 不可對 null 呼叫 new Date()，否則會變成 1970-01-01。
+function toTimeMs(value: Date | string | null): number | null {
+  return value ? new Date(value).getTime() : null
+}
+
+const salesEndAtRule: FormItemRule = {
+  validator: (_rule, value: Date | string | null, callback) => {
+    const salesEndMs = toTimeMs(value)
+    const startMs = toTimeMs(eventForm.startAt)
+    if (salesEndMs !== null && startMs !== null && salesEndMs > startMs) {
+      callback(new Error('停售時間不可晚於活動開始時間'))
+      return
+    }
+    callback()
+  },
+}
+const salesStartAtRule: FormItemRule = {
+  validator: (_rule, value: Date | string | null, callback) => {
+    const salesStartMs = toTimeMs(value)
+    const effectiveEndMs = toTimeMs(eventForm.salesEndAt) ?? toTimeMs(eventForm.startAt)
+    if (salesStartMs !== null && effectiveEndMs !== null && salesStartMs >= effectiveEndMs) {
+      callback(new Error('開賣時間須早於停售時間（未填停售時間時為活動開始時間）'))
+      return
+    }
+    callback()
+  },
+}
 const eventRules = {
   title: [requiredRule('請輸入活動名稱'), maxLengthRule(200, '活動名稱長度不可超過 200 字')],
   startAt: [requiredRule('請選擇開始時間')],
@@ -85,6 +118,26 @@ const eventRules = {
   description: [maxLengthRule(2000, '活動說明長度不可超過 2000 字')],
   posterUrl: [maxLengthRule(500, '海報網址長度不可超過 500 字')],
   maxTicketsPerOrder: [optionalPositiveIntegerRule('每筆訂單限購張數須為正整數')],
+  salesStartAt: [salesStartAtRule],
+  salesEndAt: [salesEndAtRule],
+}
+
+// 販售期間的驗證依賴其他欄位，依賴欄位變更時重新驗證，避免舊錯誤訊息殘留。
+// validateField 驗證失敗時會 reject，錯誤已由 el-form-item 顯示，這裡不需再處理。
+function revalidateFields(fields: string[]): void {
+  void eventFormRef.value?.validateField(fields).catch(() => undefined)
+}
+watch(
+  () => eventForm.startAt,
+  () => revalidateFields(['salesStartAt', 'salesEndAt']),
+)
+watch(
+  () => eventForm.salesEndAt,
+  () => revalidateFields(['salesStartAt']),
+)
+
+function toOptionalIsoString(value: Date | string | null): string | undefined {
+  return value ? new Date(value).toISOString() : undefined
 }
 const eventSubmitting = ref(false)
 const eventError = ref('')
@@ -96,16 +149,18 @@ async function handleCreateEvent(): Promise<void> {
 
   eventSubmitting.value = true
   try {
-    await createEvent(
-      eventForm.title,
-      new Date(eventForm.startAt).toISOString(),
-      eventForm.venueId,
-      eventForm.seatMapId,
-      eventForm.description || undefined,
-      eventForm.posterUrl || undefined,
-      eventForm.maxTicketsPerOrder,
-      eventForm.isRealNameRequired,
-    )
+    await createEvent({
+      title: eventForm.title,
+      startAtUtc: new Date(eventForm.startAt).toISOString(),
+      venueId: eventForm.venueId,
+      seatMapId: eventForm.seatMapId,
+      description: eventForm.description || undefined,
+      posterUrl: eventForm.posterUrl || undefined,
+      maxTicketsPerOrder: eventForm.maxTicketsPerOrder,
+      isRealNameRequired: eventForm.isRealNameRequired,
+      salesStartAtUtc: toOptionalIsoString(eventForm.salesStartAt),
+      salesEndAtUtc: toOptionalIsoString(eventForm.salesEndAt),
+    })
     ElMessage.success('活動建立成功')
     await router.push({ name: 'admin-events' })
   } catch (error) {
@@ -129,6 +184,14 @@ async function handleCreateEvent(): Promise<void> {
       </el-form-item>
       <el-form-item label="開始時間" prop="startAt">
         <el-date-picker v-model="eventForm.startAt" type="datetime" placeholder="選擇日期時間" />
+      </el-form-item>
+      <el-form-item label="開賣時間" prop="salesStartAt">
+        <el-date-picker v-model="eventForm.salesStartAt" type="datetime" placeholder="選填" />
+        <span class="field-hint">留空代表建立後立即開賣；建立後不可變更</span>
+      </el-form-item>
+      <el-form-item label="停售時間" prop="salesEndAt">
+        <el-date-picker v-model="eventForm.salesEndAt" type="datetime" placeholder="選填" />
+        <span class="field-hint">留空代表活動開始時停售；建立後不可變更</span>
       </el-form-item>
       <el-form-item label="場館" prop="venueId">
         <el-alert v-if="venuesError" :title="venuesError" type="error" show-icon style="margin-bottom: 8px" />
