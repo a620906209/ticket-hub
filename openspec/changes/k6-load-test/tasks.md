@@ -162,8 +162,8 @@
   - §5 目標的最終判定（以 Release 為準）與 Debug／Release 差異；
   - 判讀與限制，包含 Release 仍搭配 Development 環境、WSL2 時鐘、本機共用資源。
 - [x] 6.3 更新 docs/project-scope.md §8 ② 的狀態，連結到報告。
-- [ ] 6.4 確認 `git diff --stat master -- src/` 為空（沒有修改產品程式碼），完整 .NET 測試套件在容器內通過（`docker compose exec api dotnet test`）。
-  - **未完成**：`src/` 無差異已確認，但完整套件尚未能穩定地一次全過。以下失敗都與本 change 無關，但不能據此寫成「全部通過」。
+- [x] 6.4 確認 `git diff --stat master -- src/` 為空（沒有修改產品程式碼），完整 .NET 測試套件在容器內通過（`docker compose exec api dotnet test`）。
+  - **勾選說明（2026-10-05 使用者決定）**：`src/` 無差異已確認；完整套件尚未能穩定地一次全過，以下失敗屬既有不穩定測試、與本 change 無關，故勾選，但不代表「全部通過」。
   - 2026-10-05 第 1 次：1150 個測試中 1 個失敗（`PurchaseQueueAdmissionServiceTests.AdvanceQueueOnceAsync_WhenPromotionDecisionIsAbandonedBeforePostgresLands_ReconciliationCompletesItAfterPendingMarkerExpires`，Redis pending TTL 判斷，既有 WSL2 時鐘相關不穩定測試），單獨重跑 3 次皆通過；未修改或跳過。
   - 2026-10-05 使用者審查時：`RealNameLoggingTests.RedemptionFlow_WithHolderLookup_NeverLogsHolderRealNameOrLast4` 失敗，日誌含「2468」，來源為 `GetTicketHolderHandler`。查證後判定為測試誤判：該 handler 只記錄 4 個 Guid 與固定結果字串，「2468」是隨機 Guid 的片段。已修正 `tests/ProjectC.WebApi.Tests/Members/RealNameLoggingTests.cs`：先遮掉 Guid 與含 a-f 的 32／16 位 hex（TraceId／SpanId），再做原本的子字串比對。最初的做法是「只比對前後非英數字的獨立值」，strict-reviewer 指出這會漏抓 `Last42468` 這類緊貼英數字的外洩，因此改掉。新增 13 個案例：改回純子字串比對時 3 個失敗，改回獨立值比對時 4 個失敗。此項為無對應 spec 的測試修正，未修改 `src/`。
   - 2026-10-05 修正後：Domain 139、Application 449、Seeder 38、Infrastructure 197 全過；WebApi 473 中 1 個失敗（`RealNameLoggingTests.RealNameGates_ForRegisteredAndUnregisteredBuyers_NeverLogRealNameData`）。之後 WebApi 整組又連續重跑 6 次都全過，未重現，失敗訊息未取得，**原因不明**。
