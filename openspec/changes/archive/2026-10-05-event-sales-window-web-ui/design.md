@@ -91,9 +91,10 @@
   - 判斷依據為 `ApiError.status === 409` 且 `problem.title` 相符，與 `CaptchaInvalid`／`RealNameRequired` 的既有作法一致。
 - **下單**（`handleSubmit`）：
   - 在泛用錯誤分支之前攔截。
-  - 只設定 `errorMessage`，不呼叫 `loadData()`，也不呼叫 `clearSelections()`。後端在檢查販售期間時尚未鎖定任何座位，選擇仍然有效。
+  - 不呼叫 `loadData()`，也不呼叫 `clearSelections()`。後端在檢查販售期間時尚未鎖定任何座位，選擇仍然有效。
+  - `SalesNotOpen` 設定 `errorMessage`；`SalesClosed` **不設** `errorMessage`，訊息由販售提示顯示（`isSalesClosedByServer` 使提示轉為「本活動已停售」），否則同一句會在錯誤提示與販售提示各出現一次（2026-10-05 瀏覽器實測發現）。
 - **加入排隊**（`handleJoinQueue`）：
-  - 兩者都顯示中文訊息並清空驗證碼輸入。
+  - 兩者都顯示中文訊息並清空驗證碼輸入（`SalesClosed` 同上，訊息由販售提示顯示，不設 `errorMessage`）。
   - `SalesNotOpen`：換發新的驗證碼。後端先核對驗證碼再檢查販售期間，驗證碼已被消耗，而加入畫面仍顯示。
   - `SalesClosed`：**不換發**。`isSalesClosedByServer` 使 `showJoinPrompt` 變為 false、加入畫面隱藏，換發的驗證碼不會有人使用，也違反「非販售中不載入驗證碼」。既有 catch 分支末尾一律 `void refreshCaptcha()`，因此 `SalesClosed` 必須在該分支之前 return。
 - **伺服器判定優先**：

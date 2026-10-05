@@ -38,6 +38,7 @@
   - 分頁從背景切回前景時，SHALL 立即依當下時間重算狀態。
 - **下單收到 409**：下單 API 回應 409 且 `Title` 為 `SalesNotOpen` 或 `SalesClosed` 時，系統 SHALL：
   - 顯示中文訊息（`SalesNotOpen`：「尚未開賣，請於開賣時間後再試」；`SalesClosed`：「本活動已停售」）
+  - `SalesClosed` 的訊息由購票區的販售提示（轉為「本活動已停售」）顯示，MUST NOT 另以錯誤訊息重複顯示同一句；`SalesNotOpen` 不改變販售提示，以錯誤訊息顯示
   - MUST NOT 顯示後端回傳的英文 `detail`
   - MUST 保留已選座位（含快速選位抽出並加入已選清單的座位）與計數數量，不重新載入座位資料，不清空選擇
 - **加入排隊收到 409**：加入排隊 API 回應 409 且 `Title` 為 `SalesNotOpen` 或 `SalesClosed` 時，系統 SHALL：
