@@ -486,3 +486,6 @@ $RECYCLE.BIN/
 # 機敏資訊：appsettings.Development.json 依 CLAUDE.md 規範不進版本控制
 **/appsettings.Development.json
 **/appsettings.*.local.json
+
+# 壓測 seeder 產出的 token 檔與 k6 summary（含有效 JWT，不進版控；k6-load-test design.md 決策 4）
+loadtest/.output/

@@ -1,0 +1,150 @@
+{
+  "runInfo": {
+    "scenario": "seat-ticket",
+    "apiBuild": "debug",
+    "run": "2",
+    "fault": null,
+    "startedAtUtc": "2026-10-05T08:00:00.000Z",
+    "eventId": "00000000-0000-0000-0000-000000000000"
+  },
+  "runVerdict": {
+    "passed": true,
+    "reasons": []
+  },
+  "metrics": {
+    "http_req_duration{name:place-order}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 225.25,
+        "min": 10,
+        "med": 225.25,
+        "max": 476.5,
+        "p(90)": 449.5,
+        "p(95)": 450.5,
+        "p(99)": 475.5
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "orders_created": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 49,
+        "rate": 1
+      },
+      "thresholds": {
+        "count<=50": {
+          "ok": true
+        },
+        "count>=1": {
+          "ok": true
+        }
+      }
+    },
+    "place_order_conflict": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 451,
+        "rate": 1
+      }
+    },
+    "place_order_5xx": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 1
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "place_order_unexpected": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 1
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "confirm_failed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 1
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "buyer_iterations_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 500,
+        "rate": 1
+      },
+      "thresholds": {
+        "count==500": {
+          "ok": true
+        }
+      }
+    },
+    "oversell_check_failed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 1
+      },
+      "thresholds": {
+        "count==0": {
+          "ok": true
+        }
+      }
+    },
+    "verify_quantity_sold": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 49,
+        "min": 49,
+        "max": 49
+      }
+    },
+    "place_order_send_offset_ms": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "avg": 40,
+        "min": 0,
+        "med": 40,
+        "max": 95,
+        "p(90)": 85,
+        "p(95)": 90,
+        "p(99)": 94
+      }
+    }
+  },
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 90000
+  }
+}

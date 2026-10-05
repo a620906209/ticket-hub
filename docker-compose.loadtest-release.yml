@@ -1,0 +1,11 @@
+# 壓測專用：把 api 暫時改以 Release 組態執行（k6-load-test design.md 決策 10）。
+# 平時的 `dotnet watch` 是 Debug 組態，JIT 最佳化較少，P95 不代表正式部署的表現，所以另做 Release 對照。
+# 只覆寫 entrypoint，service name 仍是 api，k6 的寫死位址 http://api:8080 不必改；ASPNETCORE_ENVIRONMENT
+# 仍是 Development（seeder 與開發設定需要），因此結果是「Release 組態 + Development 環境」。
+#
+# 切換：docker compose -f docker-compose.yml -f docker-compose.loadtest-release.yml up -d --no-deps api
+# 還原：docker compose up -d --no-deps api
+services:
+  api:
+    # list 形式，不經 shell 切字串。
+    entrypoint: ["dotnet", "run", "--project", "src/ProjectC.WebApi/ProjectC.WebApi.csproj", "-c", "Release", "--no-launch-profile", "--urls", "http://0.0.0.0:8080"]

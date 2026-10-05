@@ -117,6 +117,11 @@ services:
       - application_tests_obj:/src/tests/ProjectC.Application.Tests/obj
       - webapi_tests_bin:/src/tests/ProjectC.WebApi.Tests/bin
       - webapi_tests_obj:/src/tests/ProjectC.WebApi.Tests/obj
+      # 壓測 seeder 與其測試專案（k6-load-test design.md 決策 8），沿用上面的 Windows I/O 效能慣例。
+      - loadtest_seeder_bin:/src/tools/ProjectC.LoadTest.Seeder/bin
+      - loadtest_seeder_obj:/src/tools/ProjectC.LoadTest.Seeder/obj
+      - loadtest_seeder_tests_bin:/src/tests/ProjectC.LoadTest.Seeder.Tests/bin
+      - loadtest_seeder_tests_obj:/src/tests/ProjectC.LoadTest.Seeder.Tests/obj
 
   web:
     build:
@@ -132,6 +137,25 @@ services:
       - ./web:/app
       # node_modules 用 named volume，避免透過 bind mount 在 Windows 上讀寫大量小檔案，效能才不會很差。
       - web_node_modules:/app/node_modules
+
+  k6:
+    # 壓測工具容器（k6-load-test design.md 決策 8）。放在 loadtest profile，預設 `docker compose up`
+    # 不會建立；只透過 `docker compose --profile loadtest run --rm --no-deps k6 run /scripts/<腳本>` 單次執行。
+    # 釘選版本理由同 seq：避免 latest 更新後腳本 API 或 summary 結構無預警改變。
+    # 版本確認來源：GitHub release grafana/k6 v2.3.0（2026-09-21 發布）與 Docker Hub tag 2.3.0，2026-10-05 查證。
+    image: grafana/k6:2.3.0
+    profiles: ["loadtest"]
+    # api 沒有 healthcheck，只保證啟動順序；api 是否就緒由 loadtest/README.md 的輪詢步驟確認。
+    # 執行 k6 時一律帶 `--no-deps`：否則 Compose 會依預設 compose 檔把以 Release 覆寫啟動的 api 重建回 dotnet watch。
+    depends_on:
+      api:
+        condition: service_started
+    # 不設 API 位址環境變數、不映射 port：腳本寫死 http://api:8080，k6 只走 compose 內部網路
+    # （design.md 決策 1「安全邊界」）。
+    volumes:
+      # 腳本唯讀；token 檔與 summary JSON 走另一個可寫掛載（design.md 決策 4）。
+      - ./loadtest:/scripts:ro
+      - ./loadtest/.output:/output
 
 networks:
   default:
@@ -156,4 +180,8 @@ volumes:
   application_tests_obj:
   webapi_tests_bin:
   webapi_tests_obj:
+  loadtest_seeder_bin:
+  loadtest_seeder_obj:
+  loadtest_seeder_tests_bin:
+  loadtest_seeder_tests_obj:
   web_node_modules:
