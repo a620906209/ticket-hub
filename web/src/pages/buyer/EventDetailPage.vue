@@ -13,10 +13,14 @@ import type { EventSeat, EventSummary, QueueStatus, TicketType } from '../../typ
 import type { SelectedSeat } from '../../types/ui'
 import { toErrorMessage } from '../../utils/errors'
 import { formatCurrency } from '../../utils/currency'
+import { getEffectiveSalesEndAtUtc, getSalesStatus } from '../../utils/salesWindow'
+import type { SalesStatus } from '../../utils/salesWindow'
 import QueueWaitingPanel from '../../components/QueueWaitingPanel.vue'
+import SalesStatusTag from '../../components/SalesStatusTag.vue'
 
 // 與後端 PurchaseQueueOptions.PollingIntervalSeconds 同數量級的起始值（design.md 決策 3）。
 const QUEUE_POLL_INTERVAL_MS = 5000
+const SALES_CLOCK_INTERVAL_MS = 1000
 
 const route = useRoute()
 const router = useRouter()
@@ -72,6 +76,46 @@ async function loadRealNameStatus(): Promise<void> {
   }
 }
 
+// 販售狀態以每秒更新的本機時鐘驅動，切回前景立即重算：背景分頁的 timer 會被瀏覽器節流
+// （event-sales-window-web-ui design.md 決策 2）。
+const nowMs = ref(Date.now())
+let salesClockTimer: number | null = null
+
+function handleVisibilityChange(): void {
+  if (document.visibilityState === 'visible') {
+    nowMs.value = Date.now()
+  }
+}
+
+// 停售不可逆，伺服器回 SalesClosed 後一律視為已停售；loadData() 不重置，否則偏慢的本機時鐘
+// 會再推導為 Open，讓買家再撞一次 409（design.md 決策 4，與 isRealNameRejectedByServer 一致）。
+const isSalesClosedByServer = ref(false)
+const salesStatus = computed<SalesStatus | null>(() => {
+  if (!event.value) return null
+  if (isSalesClosedByServer.value) return 'Closed'
+  return getSalesStatus(event.value, nowMs.value)
+})
+
+// 本頁曾推導為「尚未開賣」才在開賣後顯示「現在開放購票」，原位替換避免下方內容在開賣那一刻上移
+// （design.md 決策 5）。只設不清：排隊等待期間也要保留，放行後重新顯示（BW-SALES-019）。
+const hasSeenSalesNotOpen = ref(false)
+watch(salesStatus, (status) => {
+  if (status === 'NotOpen') hasSeenSalesNotOpen.value = true
+})
+
+const SALES_NOT_OPEN_MESSAGE = '尚未開賣，請於開賣時間後再試'
+const SALES_CLOSED_MESSAGE = '本活動已停售'
+
+function getSalesWindowErrorTitle(error: unknown): 'SalesNotOpen' | 'SalesClosed' | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null
+  const title = error.problem?.title
+  return title === 'SalesNotOpen' || title === 'SalesClosed' ? title : null
+}
+
+function formatDateTime(isoString: string | null | undefined): string {
+  return isoString ? new Date(isoString).toLocaleString() : ''
+}
+
 // 一旦已經查詢過排隊狀態，以每次輪詢回應當下的 queueModeEnabled 為準（比活動列表當初讀到的
 // isQueueModeEnabled 更新），才能正確反映「等待期間 Admin 關閉熱門搶購模式」（BW-TOGGLE-001）。
 const isQueueModeActive = computed(() => queueStatus.value?.queueModeEnabled ?? event.value?.isQueueModeEnabled ?? false)
@@ -80,15 +124,41 @@ const isQueueModeActive = computed(() => queueStatus.value?.queueModeEnabled ?? 
 const showQueueWaiting = computed(
   () => authStore.isAuthenticated && queueStatus.value?.status === 'Waiting' && isQueueModeActive.value,
 )
+// 非販售中不顯示加入畫面，驗證碼也就不會在等開賣期間載入而逾時（design.md 決策 3）。
 const showJoinPrompt = computed(
   () =>
     authStore.isAuthenticated &&
     isQueueModeActive.value &&
-    (queueStatus.value === null || queueStatus.value.status === 'NotJoined' || queueStatus.value.status === 'Expired'),
+    (queueStatus.value === null || queueStatus.value.status === 'NotJoined' || queueStatus.value.status === 'Expired') &&
+    salesStatus.value === 'Open',
 )
 const canPurchase = computed(
-  () => !authStore.isAuthenticated || !isQueueModeActive.value || queueStatus.value?.status === 'Admitted',
+  () =>
+    (!authStore.isAuthenticated || !isQueueModeActive.value || queueStatus.value?.status === 'Admitted') &&
+    salesStatus.value === 'Open',
 )
+// 未登入者不套用視覺停用：點選仍須能觸發導向登入頁（design.md 決策 3「未登入者」）。
+const isSalesLocked = computed(() => authStore.isAuthenticated && salesStatus.value !== 'Open')
+
+const salesPromptKind = computed<'NotOpen' | 'OpenedDuringStay' | 'Closed' | null>(() => {
+  if (showQueueWaiting.value || salesStatus.value === null) return null
+  if (salesStatus.value === 'Closed') return 'Closed'
+  if (salesStatus.value === 'NotOpen') return 'NotOpen'
+  return hasSeenSalesNotOpen.value ? 'OpenedDuringStay' : null
+})
+const salesPromptType = computed(() => (salesPromptKind.value === 'OpenedDuringStay' ? 'success' : 'info'))
+const salesPromptTitle = computed(() => {
+  switch (salesPromptKind.value) {
+    case 'NotOpen':
+      return `尚未開賣，將於 ${formatDateTime(event.value?.salesStartAtUtc)} 開放購票`
+    case 'OpenedDuringStay':
+      return '現在開放購票'
+    case 'Closed':
+      return SALES_CLOSED_MESSAGE
+    default:
+      return ''
+  }
+})
 
 // 進入「尚未加入排隊」畫面時才載入驗證碼，避免不需要排隊的活動也白白呼叫 GET /api/captcha。
 watch(
@@ -353,6 +423,21 @@ async function handleJoinQueue(): Promise<void> {
       void refreshCaptcha()
       return
     }
+    // 後端先核對驗證碼再檢查販售期間，驗證碼已消耗。SalesNotOpen 加入畫面仍在，需換發；
+    // SalesClosed 會隱藏加入畫面，換發的驗證碼沒人用，也違反「非販售中不載入驗證碼」（design.md 決策 4）。
+    const salesWindowErrorTitle = getSalesWindowErrorTitle(error)
+    // 已停售訊息由販售提示（salesPromptTitle）顯示，不再設 errorMessage，避免同一句出現兩次。
+    if (salesWindowErrorTitle === 'SalesClosed') {
+      isSalesClosedByServer.value = true
+      captchaAnswer.value = ''
+      return
+    }
+    if (salesWindowErrorTitle === 'SalesNotOpen') {
+      errorMessage.value = SALES_NOT_OPEN_MESSAGE
+      captchaAnswer.value = ''
+      void refreshCaptcha()
+      return
+    }
     if (error instanceof ApiError && error.problem?.title === 'CaptchaInvalid') {
       errorMessage.value = toErrorMessage(error, '驗證碼錯誤，請重新輸入')
       captchaAnswer.value = ''
@@ -461,6 +546,18 @@ async function handleSubmit(): Promise<void> {
       errorMessage.value = '請求過於頻繁，請稍後再試'
       return
     }
+    // 販售期間外：後端檢查販售期間時尚未鎖定座位或庫存，選擇仍有效，不清空、不重新載入。
+    // SalesNotOpen 不覆寫推導狀態，時鐘偏快的買家才能在真正開賣後重試（design.md 決策 4）。
+    const salesWindowErrorTitle = getSalesWindowErrorTitle(error)
+    // 已停售訊息由販售提示（salesPromptTitle）顯示，不再設 errorMessage，避免同一句出現兩次。
+    if (salesWindowErrorTitle === 'SalesClosed') {
+      isSalesClosedByServer.value = true
+      return
+    }
+    if (salesWindowErrorTitle === 'SalesNotOpen') {
+      errorMessage.value = SALES_NOT_OPEN_MESSAGE
+      return
+    }
     // 其餘失敗（座位被搶、計數庫存於送出當下已變動、後端其他驗證失敗）一律清空並刷新，
     // 不依錯誤類型分流（design.md 決策 8）。
     // 注意：loadData() 一開始會清空 errorMessage，所以錯誤訊息必須在 loadData() 之後才設定，
@@ -476,8 +573,21 @@ async function handleSubmit(): Promise<void> {
   }
 }
 
-onMounted(loadData)
-onUnmounted(stopQueuePolling)
+onMounted(() => {
+  salesClockTimer = window.setInterval(() => {
+    nowMs.value = Date.now()
+  }, SALES_CLOCK_INTERVAL_MS)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  void loadData()
+})
+onUnmounted(() => {
+  stopQueuePolling()
+  if (salesClockTimer !== null) {
+    window.clearInterval(salesClockTimer)
+    salesClockTimer = null
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 </script>
 
 <template>
@@ -490,6 +600,11 @@ onUnmounted(stopQueuePolling)
           <img v-if="event.posterUrl" :src="event.posterUrl" alt="" class="poster" />
           <h1>{{ event.title }}</h1>
           <p class="start-at">{{ new Date(event.startAtUtc).toLocaleString() }}</p>
+          <p class="sales-window">
+            販售期間：{{ event.salesStartAtUtc ? formatDateTime(event.salesStartAtUtc) : '即日起' }} ～
+            {{ formatDateTime(getEffectiveSalesEndAtUtc(event)) }}
+          </p>
+          <p v-if="salesStatus" class="sales-status"><SalesStatusTag :status="salesStatus" /></p>
           <p v-if="event.isRealNameRequired" class="real-name-tag">本活動需實名</p>
           <p v-if="event.description" class="description">{{ event.description }}</p>
           <el-table :data="ticketTypes" size="small" empty-text="尚未設定票種">
@@ -502,6 +617,15 @@ onUnmounted(stopQueuePolling)
 
         <section class="purchase-column">
           <h2>選位購票</h2>
+
+          <el-alert
+            v-if="salesPromptKind"
+            class="sales-prompt"
+            :type="salesPromptType"
+            :closable="false"
+            :title="salesPromptTitle"
+            style="margin-bottom: 16px"
+          />
 
           <el-alert
             v-if="!authStore.isAuthenticated"
@@ -541,7 +665,7 @@ onUnmounted(stopQueuePolling)
 
           <div class="quick-pick">
             <span class="quick-pick-label">區域隨選：</span>
-            <el-select v-model="quickPickZone" style="width: 110px">
+            <el-select v-model="quickPickZone" :disabled="isSalesLocked" style="width: 110px">
               <el-option label="全部區域" :value="ALL_ZONES" />
               <el-option v-for="zoneCode in zoneOptions" :key="zoneCode" :label="`${zoneCode} 區`" :value="zoneCode" />
             </el-select>
@@ -551,14 +675,17 @@ onUnmounted(stopQueuePolling)
               :max="Number.isFinite(remainingCapacity) ? remainingCapacity : undefined"
               :step="1"
               :precision="0"
+              :disabled="isSalesLocked"
               style="width: 110px"
             />
-            <el-button type="primary" :loading="submitting" @click="handleQuickPick">自動選位並送出訂單</el-button>
+            <el-button type="primary" :loading="submitting" :disabled="isSalesLocked" @click="handleQuickPick">
+              自動選位並送出訂單
+            </el-button>
           </div>
 
           <div v-for="[zoneCode, zoneSeats] in seatsByZone" :key="zoneCode" class="zone-block">
             <h3>{{ zoneCode }} 區</h3>
-            <div class="seat-grid">
+            <div class="seat-grid" :class="{ 'seat-grid--locked': isSalesLocked }">
               <button
                 v-for="seat in zoneSeats"
                 :key="seat.eventSeatId"
@@ -589,7 +716,7 @@ onUnmounted(stopQueuePolling)
                 :max="countMaxFor(ticketType)"
                 :step="1"
                 :precision="0"
-                :disabled="ticketType.availableQuantity === null"
+                :disabled="ticketType.availableQuantity === null || isSalesLocked"
                 style="width: 110px"
                 @change="(value: number | undefined) => handleCountChange(ticketType, value)"
               />
@@ -753,6 +880,19 @@ onUnmounted(stopQueuePolling)
   background: var(--el-fill-color-light);
   color: var(--color-text-secondary);
   border-color: var(--color-border);
+}
+.seat-grid--locked .seat-btn {
+  cursor: default;
+}
+.seat-grid--locked .seat-btn:not(.selected):hover {
+  border-color: var(--color-border);
+}
+.sales-window {
+  color: var(--color-text-secondary);
+  margin: 0 0 8px;
+}
+.sales-status {
+  margin: 0 0 12px;
 }
 .summary {
   margin-top: 24px;

@@ -23,19 +23,25 @@ export function createSeatMap(venueId: string, seats: SeatInput[]): Promise<{ id
   return authorizedRequest(`/admin/venues/${venueId}/seat-maps`, { method: 'POST', body: { seats } })
 }
 
-export function createEvent(
-  title: string,
-  startAtUtc: string,
-  venueId: string,
-  seatMapId: string,
-  description?: string,
-  posterUrl?: string,
-  maxTicketsPerOrder?: number,
-  isRealNameRequired = false,
-): Promise<{ id: string }> {
+export interface CreateEventInput {
+  title: string
+  startAtUtc: string
+  venueId: string
+  seatMapId: string
+  description?: string
+  posterUrl?: string
+  maxTicketsPerOrder?: number
+  isRealNameRequired?: boolean
+  salesStartAtUtc?: string
+  salesEndAtUtc?: string
+}
+
+// 參數超過 3 個改收物件（event-sales-window-web-ui design.md 決策 6）；
+// 未提供的選填欄位為 undefined，JSON.stringify 會略過，等同不放進 body。
+export function createEvent(input: CreateEventInput): Promise<{ id: string }> {
   return authorizedRequest('/admin/events', {
     method: 'POST',
-    body: { title, startAtUtc, venueId, seatMapId, description, posterUrl, maxTicketsPerOrder, isRealNameRequired },
+    body: { ...input, isRealNameRequired: input.isRealNameRequired ?? false },
   })
 }
 

@@ -9,6 +9,13 @@ import { maxLengthRule, positiveNumberRule, requiredPositiveIntegerRule, require
 import { toErrorMessage } from '../../utils/errors'
 
 const events = ref<AdminEventSummary[]>([])
+
+// 後台照實呈現原值，不把 null 展開成推導後的時間（design 決策 5），讓操作人員看出是否有設定。
+function formatSalesWindow(event: AdminEventSummary): string {
+  const salesStart = event.salesStartAtUtc ? new Date(event.salesStartAtUtc).toLocaleString() : '未設定'
+  const salesEnd = event.salesEndAtUtc ? new Date(event.salesEndAtUtc).toLocaleString() : '未設定（活動開始時停售）'
+  return `${salesStart} ～ ${salesEnd}`
+}
 const loading = ref(false)
 const listError = ref('')
 
@@ -149,6 +156,9 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
       </el-table-column>
       <el-table-column label="開始時間">
         <template #default="{ row }">{{ new Date(row.startAtUtc).toLocaleString() }}</template>
+      </el-table-column>
+      <el-table-column label="販售期間">
+        <template #default="{ row }"><span class="sales-window">{{ formatSalesWindow(row) }}</span></template>
       </el-table-column>
       <el-table-column prop="venueId" label="場館 Id" />
       <el-table-column prop="seatMapId" label="座位圖 Id" />

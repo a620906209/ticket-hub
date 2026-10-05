@@ -24,7 +24,13 @@ describe('admin api 實名相關請求（real-name-verification）', () => {
   }
 
   it.each([true, false])('[AWU-EVENT-RN-001/002] 建立活動的 body 帶 isRealNameRequired = %s', async (isRealNameRequired) => {
-    await createEvent('Concert', '2026-12-31T12:00:00.000Z', 'venue-1', 'seatmap-1', undefined, undefined, undefined, isRealNameRequired)
+    await createEvent({
+      title: 'Concert',
+      startAtUtc: '2026-12-31T12:00:00.000Z',
+      venueId: 'venue-1',
+      seatMapId: 'seatmap-1',
+      isRealNameRequired,
+    })
 
     expect(sentRequest().body).toMatchObject({ isRealNameRequired })
   })

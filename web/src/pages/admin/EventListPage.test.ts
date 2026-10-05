@@ -28,6 +28,8 @@ function buildEvent(overrides: Partial<AdminEventSummary> = {}): AdminEventSumma
     heldSeatCount: 0,
     soldSeatCount: 0,
     isRealNameRequired: false,
+    salesStartAtUtc: null,
+    salesEndAtUtc: null,
     ...overrides,
   }
 }
@@ -113,6 +115,24 @@ describe('EventListPage 活動列表：建立者/建立時間/售票狀況', () 
 
     expect(wrapper.text()).not.toContain('1970')
     expect(wrapper.text()).toContain('—')
+  })
+
+  // 未設定者須照實顯示「未設定」，不可展開成活動開始時間，否則操作人員無法分辨是否有設定。
+  it('[AWU-EVENT-SALES-008] 有設定販售期間者顯示開賣與停售時間，未設定者顯示「未設定」', async () => {
+    const salesStartAtUtc = '2026-11-01T10:00:00Z'
+    const salesEndAtUtc = '2026-12-30T10:00:00Z'
+    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([
+      buildEvent({ id: 'with-window', salesStartAtUtc, salesEndAtUtc }),
+      buildEvent({ id: 'without-window' }),
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const salesWindows = wrapper.findAll('.sales-window').map((cell) => cell.text())
+    expect(salesWindows).toEqual([
+      `${new Date(salesStartAtUtc).toLocaleString()} ～ ${new Date(salesEndAtUtc).toLocaleString()}`,
+      '未設定 ～ 未設定（活動開始時停售）',
+    ])
   })
 
   it('售票狀況橫條圖依三個數字的比例設定各區段的 flex 寬度', async () => {
@@ -236,7 +256,8 @@ describe('EventListPage 建立票種：座位制／計數制（RequiresSeat 開�
     await flushPromises()
 
     expect(adminApi.createTicketType).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('可售總量須為大於 0 的整數')
+    // Element Plus 欄位錯誤訊息延遲 100ms 才顯示（validateStateDebounced）
+    await vi.waitFor(() => expect(wrapper.text()).toContain('可售總量須為大於 0 的整數'))
   })
 
   it('關閉開關但可售總量填 0，顯示驗證錯誤、不呼叫 createTicketType', async () => {
@@ -253,7 +274,8 @@ describe('EventListPage 建立票種：座位制／計數制（RequiresSeat 開�
     await flushPromises()
 
     expect(adminApi.createTicketType).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('可售總量須為大於 0 的整數')
+    // Element Plus 欄位錯誤訊息延遲 100ms 才顯示（validateStateDebounced）
+    await vi.waitFor(() => expect(wrapper.text()).toContain('可售總量須為大於 0 的整數'))
   })
 
   it('關閉開關但可售總量填負數，顯示驗證錯誤、不呼叫 createTicketType', async () => {
@@ -270,7 +292,8 @@ describe('EventListPage 建立票種：座位制／計數制（RequiresSeat 開�
     await flushPromises()
 
     expect(adminApi.createTicketType).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('可售總量須為大於 0 的整數')
+    // Element Plus 欄位錯誤訊息延遲 100ms 才顯示（validateStateDebounced）
+    await vi.waitFor(() => expect(wrapper.text()).toContain('可售總量須為大於 0 的整數'))
   })
 
   it('關閉開關輸入可售總量後重新開啟開關，可售總量欄位值被清空', async () => {

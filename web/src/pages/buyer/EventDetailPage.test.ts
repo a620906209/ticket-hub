@@ -51,9 +51,9 @@ const ElInputNumberStub = defineComponent({
   },
 })
 const ElSelectStub = {
-  props: ['modelValue'],
+  props: ['modelValue', 'disabled'],
   emits: ['update:modelValue', 'change'],
-  template: `<select :value="modelValue" @change="$emit('update:modelValue', $event.target.value); $emit('change', $event.target.value)">
+  template: `<select :value="modelValue" :disabled="disabled" @change="$emit('update:modelValue', $event.target.value); $emit('change', $event.target.value)">
     <slot />
   </select>`,
 }
@@ -66,7 +66,8 @@ function buildEvent(overrides: Partial<EventSummary> = {}): EventSummary {
   return {
     id: 'event-1',
     title: 'Concert',
-    startAtUtc: '2026-12-31T20:00:00Z',
+    // 固定遠未來：販售狀態依本機時鐘推導，日期一過既有測試會全部變成「已停售」（event-sales-window-web-ui task 3.1）。
+    startAtUtc: '2099-12-31T20:00:00Z',
     venueId: 'venue-1',
     seatMapId: 'seatmap-1',
     description: null,
@@ -74,6 +75,8 @@ function buildEvent(overrides: Partial<EventSummary> = {}): EventSummary {
     maxTicketsPerOrder: null,
     isQueueModeEnabled: false,
     isRealNameRequired: false,
+    salesStartAtUtc: null,
+    salesEndAtUtc: null,
     ...overrides,
   }
 }
@@ -1103,5 +1106,552 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
 
     expect(wrapper.text()).not.toContain('購票前需先登記實名')
     expect(wrapper.find('.el-alert--error').exists()).toBe(true)
+  })
+})
+
+describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
+  const NOW = new Date('2030-01-01T00:00:00.000Z').getTime()
+  const iso = (ms: number) => new Date(ms).toISOString()
+  const localized = (ms: number) => new Date(ms).toLocaleString()
+  const SALES_START = NOW + 60_000
+  const SALES_END = NOW + 120_000
+
+  function notOpenEvent(overrides: Partial<EventSummary> = {}) {
+    return buildEvent({ salesStartAtUtc: iso(SALES_START), ...overrides })
+  }
+  function closedEvent(overrides: Partial<EventSummary> = {}) {
+    return buildEvent({ salesEndAtUtc: iso(NOW - 1000), ...overrides })
+  }
+
+  function salesTagText(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.sales-status').text()
+  }
+  function salesPrompt(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.purchase-column .sales-prompt')
+  }
+  function errorAlert(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.el-alert--error')
+  }
+  function firstElementAfterHeading(wrapper: ReturnType<typeof mount>) {
+    const column = wrapper.find('.purchase-column').element
+    expect(column.children[0].tagName).toBe('H2')
+    return column.children[1]
+  }
+  function quickPickSelect(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.quick-pick select')
+  }
+  function quickPickCountInput(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.quick-pick input[type="number"]')
+  }
+  function joinQueueButton(wrapper: ReturnType<typeof mount>) {
+    return wrapper.findAll('button').find((b) => b.text() === '加入排隊')
+  }
+  function captchaAnswerInput(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('input[type="text"]')
+  }
+  function isDisabled(element: { attributes: (name: string) => string | undefined }) {
+    return element.attributes('disabled') !== undefined
+  }
+
+  // 計數輸入、區域下拉、數量輸入、快速選位按鈕四者一併檢查，避免只鎖住其中幾個。
+  function expectPurchaseControlsDisabled(wrapper: ReturnType<typeof mount>, expected: boolean) {
+    expect(isDisabled(countInputFor(wrapper, '站立區'))).toBe(expected)
+    expect(isDisabled(quickPickSelect(wrapper))).toBe(expected)
+    expect(isDisabled(quickPickCountInput(wrapper))).toBe(expected)
+    expect(isDisabled(quickPickButton(wrapper))).toBe(expected)
+  }
+
+  async function crossTo(ms: number) {
+    vi.setSystemTime(ms)
+    await vi.advanceTimersByTimeAsync(1000)
+  }
+
+  function salesWindowError(title: 'SalesNotOpen' | 'SalesClosed') {
+    return new ApiError(409, { status: 409, title, detail: `Event 'event-1' english detail for ${title}.` })
+  }
+
+  function isFollowing(reference: Element, other: Element) {
+    return (reference.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    mockIsAuthenticated = true
+    pushMock.mockReset()
+    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventSeats).mockReset()
+    vi.mocked(eventsApi.getTicketTypes).mockReset()
+    vi.mocked(ordersApi.placeOrder).mockReset()
+    vi.mocked(queueApi.getMyQueueStatus).mockReset()
+    vi.mocked(queueApi.joinQueue).mockReset()
+    vi.mocked(captchaApi.getCaptcha).mockReset()
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
+      buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
+      buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
+    ])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
+    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' } as Awaited<ReturnType<typeof ordersApi.placeOrder>>)
+    vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-1', imageBase64: 'base64-image-1' })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    // 只在測試本體結尾還原的話，斷言失敗時會污染同檔其他測試（task 3.11）。
+    delete (document as unknown as Record<string, unknown>).visibilityState
+  })
+
+  it('[BW-SALES-002] 詳情頁顯示開賣、停售時間與「販售中」', async () => {
+    const salesStart = NOW - 3_600_000
+    const salesEnd = NOW + 3_600_000
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([
+      buildEvent({ salesStartAtUtc: iso(salesStart), salesEndAtUtc: iso(salesEnd) }),
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const salesWindow = wrapper.find('.sales-window').text()
+    expect(salesWindow).toContain(localized(salesStart))
+    expect(salesWindow).toContain(localized(salesEnd))
+    expect(salesTagText(wrapper)).toBe('販售中')
+  })
+
+  it('[BW-SALES-003] 未設定販售期間顯示「即日起」至活動開始時間，可選位並送出', async () => {
+    const event = buildEvent()
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([event])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const salesWindow = wrapper.find('.sales-window').text()
+    expect(salesWindow).toContain('即日起')
+    expect(salesWindow).toContain(new Date(event.startAtUtc).toLocaleString())
+    expect(salesTagText(wrapper)).toBe('販售中')
+
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['BW-SALES-004', '尚未開賣', () => notOpenEvent(), `尚未開賣，將於 ${localized(SALES_START)} 開放購票`],
+    ['BW-SALES-005', '已停售', () => closedEvent(), '本活動已停售'],
+  ])('[%s] %s時座位圖仍顯示但停用全部購票操作', async (_id, tagText, buildFixture, promptText) => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildFixture()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(salesTagText(wrapper)).toBe(tagText)
+    expect(wrapper.findAll('.seat-btn')).toHaveLength(2)
+    expect(wrapper.find('.seat-grid').classes()).toContain('seat-grid--locked')
+
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    expect(wrapper.find('.seat-btn.selected').exists()).toBe(false)
+
+    expectPurchaseControlsDisabled(wrapper, true)
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+    expect(isDisabled(submitButton(wrapper))).toBe(true)
+
+    expect(salesPrompt(wrapper).text()).toContain(promptText)
+  })
+
+  it('[BW-SALES-006] 尚未開賣的熱門搶購活動不顯示加入排隊畫面、不呼叫驗證碼 API', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(joinQueueButton(wrapper)).toBeUndefined()
+    expect(captchaApi.getCaptcha).not.toHaveBeenCalled()
+    expect(salesPrompt(wrapper).text()).toContain(`尚未開賣，將於 ${localized(SALES_START)} 開放購票`)
+  })
+
+  it('[BW-SALES-007] 停留到開賣時間自動解鎖，手動選位後可送出訂單', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(salesTagText(wrapper)).toBe('尚未開賣')
+
+    await crossTo(SALES_START)
+
+    expect(salesTagText(wrapper)).toBe('販售中')
+    expectPurchaseControlsDisabled(wrapper, false)
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    expect(wrapper.findAll('.seat-btn')[0].classes()).toContain('selected')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+    expect(ordersApi.placeOrder).toHaveBeenCalledWith([{ eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' }])
+  })
+
+  it('[BW-SALES-007] 熱門搶購活動跨過開賣才載入驗證碼並顯示加入排隊畫面', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(0)
+
+    await crossTo(SALES_START)
+    await flushPromises()
+
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(1)
+    expect(joinQueueButton(wrapper)).toBeDefined()
+    expect(salesTagText(wrapper)).toBe('販售中')
+  })
+
+  it('[BW-SALES-017] 跨過開賣時「尚未開賣」提示原位改為「現在開放購票」', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    const wrapper = mountPage()
+    await flushPromises()
+    const promptBefore = firstElementAfterHeading(wrapper)
+    expect(promptBefore.textContent).toContain('尚未開賣')
+
+    await crossTo(SALES_START)
+
+    const promptAfter = firstElementAfterHeading(wrapper)
+    expect(promptAfter).toBe(promptBefore)
+    expect(promptAfter.textContent).toContain('現在開放購票')
+    expect(salesTagText(wrapper)).toBe('販售中')
+    expectPurchaseControlsDisabled(wrapper, false)
+  })
+
+  it('[BW-SALES-017] 未登入者跨過開賣同樣顯示「現在開放購票」，且排在「請先登入」之前', async () => {
+    mockIsAuthenticated = false
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await crossTo(SALES_START)
+
+    const prompt = firstElementAfterHeading(wrapper)
+    expect(prompt.textContent).toContain('現在開放購票')
+    const loginAlert = wrapper.findAll('.purchase-column .el-alert').find((a) => a.text().includes('請先登入'))
+    expect(loginAlert).toBeDefined()
+    expect(isFollowing(prompt, loginAlert!.element)).toBe(true)
+  })
+
+  it('[BW-SALES-017] 熱門搶購活動跨過開賣後「現在開放購票」位於加入排隊畫面上方', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await crossTo(SALES_START)
+    await flushPromises()
+
+    const prompt = firstElementAfterHeading(wrapper)
+    expect(prompt.textContent).toContain('現在開放購票')
+    const queueWarning = wrapper.findAll('.purchase-column .el-alert').find((a) => a.text().includes('請先加入排隊'))
+    expect(queueWarning).toBeDefined()
+    expect(isFollowing(prompt, queueWarning!.element)).toBe(true)
+  })
+
+  it('[BW-SALES-017] 載入時即為販售中的活動不顯示「現在開放購票」', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    const wrapper = mountPage()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(3000)
+
+    expect(salesPrompt(wrapper).exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('現在開放購票')
+  })
+
+  it('[BW-SALES-018] 停留期間依序跨過開賣與停售，提示與標籤同步變化', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ salesEndAtUtc: iso(SALES_END) })])
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(salesPrompt(wrapper).text()).toContain('尚未開賣')
+    expect(salesTagText(wrapper)).toBe('尚未開賣')
+
+    await crossTo(SALES_START)
+    expect(salesPrompt(wrapper).text()).toContain('現在開放購票')
+    expect(salesTagText(wrapper)).toBe('販售中')
+
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    await crossTo(SALES_END)
+    expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
+    expect(salesTagText(wrapper)).toBe('已停售')
+    expect(isDisabled(submitButton(wrapper))).toBe(true)
+  })
+
+  it('[BW-SALES-019] 熱門搶購開賣後排隊等待時隱藏「現在開放購票」，放行後重新顯示並可下單', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    vi.mocked(queueApi.joinQueue).mockResolvedValue({ id: 'entry-1' })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await crossTo(SALES_START)
+    await flushPromises()
+    expect(salesPrompt(wrapper).text()).toContain('現在開放購票')
+
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 2 }))
+    await captchaAnswerInput(wrapper).setValue('TEST')
+    await joinQueueButton(wrapper)!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(QueueWaitingPanel).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('現在開放購票')
+
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+
+    const prompt = firstElementAfterHeading(wrapper)
+    expect(prompt.textContent).toContain('現在開放購票')
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('[BW-SALES-008] 停留到停售時間自動停用，跨越前已選的座位不會送出', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ salesEndAtUtc: iso(SALES_END) })])
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(salesTagText(wrapper)).toBe('販售中')
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+
+    await crossTo(SALES_END)
+
+    expect(salesTagText(wrapper)).toBe('已停售')
+    expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
+    expect(isDisabled(submitButton(wrapper))).toBe(true)
+    expectPurchaseControlsDisabled(wrapper, true)
+    await quickPickButton(wrapper).trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(0)
+  })
+
+  it('[BW-SALES-009] 分頁切回前景時立即重算，不等下一次定時更新', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(salesTagText(wrapper)).toBe('尚未開賣')
+
+    vi.setSystemTime(SALES_START)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await wrapper.vm.$nextTick()
+
+    expect(salesTagText(wrapper)).toBe('販售中')
+    expectPurchaseControlsDisabled(wrapper, false)
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    expect(wrapper.findAll('.seat-btn')[0].classes()).toContain('selected')
+  })
+
+  it('[BW-SALES-009] 分頁仍在背景（hidden）時不提前重算', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    vi.setSystemTime(SALES_START)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await wrapper.vm.$nextTick()
+
+    expect(salesTagText(wrapper)).toBe('尚未開賣')
+  })
+
+  async function mountWithSeatAndCountSelected() {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    await countInputFor(wrapper, '站立區').setValue(2)
+    return wrapper
+  }
+
+  function expectNoReload() {
+    expect(eventsApi.getEvents).toHaveBeenCalledTimes(1)
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
+    expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(1)
+  }
+
+  it('[BW-SALES-010] 下單收到 SalesNotOpen：中文訊息、保留選擇、不重新載入、仍可重試', async () => {
+    const wrapper = await mountWithSeatAndCountSelected()
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesWindowError('SalesNotOpen'))
+
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(errorAlert(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
+    expect(wrapper.text()).not.toContain('english detail')
+    expect(wrapper.findAll('.seat-btn')[0].classes()).toContain('selected')
+    expect((countInputFor(wrapper, '站立區').element as HTMLInputElement).value).toBe('2')
+    expectNoReload()
+    expect(salesTagText(wrapper)).toBe('販售中')
+    expect(isDisabled(submitButton(wrapper))).toBe(false)
+
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(2)
+  })
+
+  it('[BW-SALES-010] 快速選位路徑收到 SalesNotOpen 時保留抽出的座位', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesWindowError('SalesNotOpen'))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.seat-btn.selected')).toHaveLength(1)
+    expect(errorAlert(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
+    expectNoReload()
+  })
+
+  it('[BW-SALES-011] 下單收到 SalesClosed：中文訊息、保留選擇、不重新載入、頁面轉為已停售', async () => {
+    const wrapper = await mountWithSeatAndCountSelected()
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesWindowError('SalesClosed'))
+
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    // 已停售只在販售提示顯示一次；若又設 errorMessage，畫面會重複出現同一句。
+    expect(errorAlert(wrapper).exists()).toBe(false)
+    expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
+    expect(wrapper.text()).not.toContain('english detail')
+    expect(wrapper.findAll('.seat-btn')[0].classes()).toContain('selected')
+    expect((countInputFor(wrapper, '站立區').element as HTMLInputElement).value).toBe('2')
+    expectNoReload()
+    expect(salesTagText(wrapper)).toBe('已停售')
+    expect(isDisabled(submitButton(wrapper))).toBe(true)
+    expectPurchaseControlsDisabled(wrapper, true)
+  })
+
+  it('[BW-SALES-011] 快速選位路徑收到 SalesClosed 時保留抽出的座位', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesWindowError('SalesClosed'))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('.seat-btn.selected')).toHaveLength(1)
+    expect(salesTagText(wrapper)).toBe('已停售')
+    expect(errorAlert(wrapper).exists()).toBe(false)
+    expectNoReload()
+  })
+
+  async function mountJoinPromptAndSubmit(title: 'SalesNotOpen' | 'SalesClosed') {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    vi.mocked(queueApi.joinQueue).mockRejectedValue(salesWindowError(title))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(1)
+
+    await captchaAnswerInput(wrapper).setValue('TEST')
+    await joinQueueButton(wrapper)!.trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('[BW-SALES-012] 加入排隊收到 SalesNotOpen：中文訊息、清空並換發驗證碼、停留加入畫面', async () => {
+    const wrapper = await mountJoinPromptAndSubmit('SalesNotOpen')
+
+    expect(errorAlert(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
+    expect(wrapper.text()).not.toContain('english detail')
+    expect((captchaAnswerInput(wrapper).element as HTMLInputElement).value).toBe('')
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(2)
+    expect(joinQueueButton(wrapper)).toBeDefined()
+    expect(wrapper.findComponent(QueueWaitingPanel).exists()).toBe(false)
+  })
+
+  it('[BW-SALES-014] 加入排隊收到 SalesClosed：轉為已停售、隱藏加入畫面、不再換發驗證碼', async () => {
+    const wrapper = await mountJoinPromptAndSubmit('SalesClosed')
+    await vi.advanceTimersByTimeAsync(3000)
+
+    // 已停售只在販售提示顯示一次；若又設 errorMessage，畫面會重複出現同一句。
+    expect(errorAlert(wrapper).exists()).toBe(false)
+    expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
+    expect(salesTagText(wrapper)).toBe('已停售')
+    expect(joinQueueButton(wrapper)).toBeUndefined()
+    expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(1)
+    expect(wrapper.findComponent(QueueWaitingPanel).exists()).toBe(false)
+  })
+
+  it.each([
+    ['尚未開賣', () => notOpenEvent(), '尚未開賣，將於'],
+    ['已停售', () => closedEvent(), '本活動已停售'],
+  ])('[BW-SALES-015] 未登入者在%s時控制項不停用，操作皆導向登入頁', async (_label, buildFixture, promptText) => {
+    mockIsAuthenticated = false
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildFixture()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const prompt = firstElementAfterHeading(wrapper)
+    expect(prompt.textContent).toContain(promptText)
+    const loginAlert = wrapper.findAll('.purchase-column .el-alert').find((a) => a.text().includes('請先登入'))
+    expect(loginAlert).toBeDefined()
+    expect(isFollowing(prompt, loginAlert!.element)).toBe(true)
+
+    expectPurchaseControlsDisabled(wrapper, false)
+    expect(wrapper.find('.seat-grid').classes()).not.toContain('seat-grid--locked')
+
+    const loginRedirect = { path: '/login', query: { redirect: '/events/event-1' } }
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    expect(pushMock).toHaveBeenLastCalledWith(loginRedirect)
+    pushMock.mockClear()
+    await countInputFor(wrapper, '站立區').setValue(1)
+    expect(pushMock).toHaveBeenLastCalledWith(loginRedirect)
+    pushMock.mockClear()
+    await quickPickButton(wrapper).trigger('click')
+    expect(pushMock).toHaveBeenLastCalledWith(loginRedirect)
+    await flushPromises()
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(0)
+  })
+
+  it('[BW-SALES-016] 排隊等待中跨越停售仍顯示等待畫面，放行後顯示已停售並停用送出', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([
+      buildEvent({ isQueueModeEnabled: true, salesEndAtUtc: iso(SALES_END) }),
+    ])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 5 }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await crossTo(SALES_END)
+    expect(wrapper.findComponent(QueueWaitingPanel).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('本活動已停售')
+
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+    await vi.advanceTimersByTimeAsync(5000)
+    await flushPromises()
+
+    expect(wrapper.findComponent(QueueWaitingPanel).exists()).toBe(false)
+    expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
+    expect(isDisabled(submitButton(wrapper))).toBe(true)
+  })
+
+  it('卸載時清除販售時鐘 interval 並移除 visibilitychange 監聽', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
+    const addListenerSpy = vi.spyOn(document, 'addEventListener')
+    const removeListenerSpy = vi.spyOn(document, 'removeEventListener')
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const intervalCallIndex = setIntervalSpy.mock.calls.findIndex(([, delay]) => delay === 1000)
+    expect(intervalCallIndex).toBeGreaterThanOrEqual(0)
+    const intervalId = setIntervalSpy.mock.results[intervalCallIndex].value
+    const visibilityHandler = addListenerSpy.mock.calls.find(([type]) => type === 'visibilitychange')?.[1]
+    expect(visibilityHandler).toBeDefined()
+
+    wrapper.unmount()
+
+    expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId)
+    expect(removeListenerSpy).toHaveBeenCalledWith('visibilitychange', visibilityHandler)
+    setIntervalSpy.mockRestore()
+    clearIntervalSpy.mockRestore()
+    addListenerSpy.mockRestore()
+    removeListenerSpy.mockRestore()
   })
 })
