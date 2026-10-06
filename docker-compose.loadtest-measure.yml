@@ -1,0 +1,10 @@
+# 壓測瓶頸量測專用：只把 OrderService 的最低 log 等級降到 Debug，開啟下單分段耗時 log
+# （order-placement-p95-optimization design.md 決策 1）。Console sink 已在 appsettings.json 限制為 Information，
+# 所以分段 log 只進 Seq。量測執行與正式驗收執行必須分開：正式驗收時不得疊加這個檔案。
+#
+# 開啟（搭配 Release）：docker compose -f docker-compose.yml -f docker-compose.loadtest-release.yml -f docker-compose.loadtest-measure.yml up -d --no-deps api
+# 還原：docker compose up -d --no-deps api
+services:
+  api:
+    environment:
+      Serilog__MinimumLevel__Override__ProjectC.Application.Orders.OrderService: Debug

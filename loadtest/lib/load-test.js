@@ -28,6 +28,7 @@ import {
   placeOrderConflict,
   placeOrderSendOffsetMs,
   placeOrderUnexpected,
+  recordPlaceOrderResponse,
   verifyQuantitySold,
 } from './metrics.js';
 import { PLACE_ORDER_DURATION_METRIC, evaluateRunResult, readMetricValue } from './result.js';
@@ -38,7 +39,7 @@ const TOTAL_TICKET_TYPES = OTHER_ZONE_COUNT + 1;
 
 /** init 階段呼叫：試讀目標 summary 檔，存在就回傳 true（open() 只能在 init 階段使用）。 */
 export function detectExistingSummary(settings) {
-  if (!settings.isOfficialRun) return false;
+  if (!settings.isSummaryOverwriteProtected) return false;
   try {
     open(settings.summaryPath);
     return true;
@@ -165,6 +166,7 @@ export function runPlaceOrder(settings, data, buildSelection) {
   if (waitMs > 0) sleep(waitMs / 1000);
   placeOrderSendOffsetMs.add(Date.now() - data.startAt);
   const response = postJson('/api/orders', { selections: [selection] }, withTags(params, 'place-order'));
+  recordPlaceOrderResponse(response.status);
 
   if (response.status === 201) {
     ordersCreated.add(1);
