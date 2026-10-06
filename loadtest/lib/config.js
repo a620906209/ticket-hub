@@ -30,8 +30,27 @@ export const FAULTS_BY_SCENARIO = {
   'seat-ticket': ['p95', 'bad-admin-token', 'bad-buyer-token', 'setup-timeout'],
 };
 
+// 小寫英數與連字號：標籤直接成為 /output 下的檔名前綴，不能含 `/` 或 `..`（design 決策 7）。
+const MEASURE_TAG_PATTERN = /^[a-z0-9-]{1,32}$/;
+
+/** 解析 `LT_MEASURE_TAG`；未帶（或空字串）時 `tag` 為 null，`isRequired` 時記為錯誤（無競爭基準必須帶標籤）。 */
+export function parseMeasureTag(env, { isRequired }) {
+  const raw = env.LT_MEASURE_TAG === undefined || env.LT_MEASURE_TAG === '' ? null : String(env.LT_MEASURE_TAG);
+  if (raw === null)
+    return { tag: null, isInvalid: false, errors: isRequired ? ['LT_MEASURE_TAG is required (lowercase letters, digits, hyphen; 1-32 chars)'] : [] };
+  if (!MEASURE_TAG_PATTERN.test(raw))
+    return { tag: null, isInvalid: true, errors: ['LT_MEASURE_TAG must match ^[a-z0-9-]{1,32}$'] };
+  return { tag: raw, isInvalid: false, errors: [] };
+}
+
+/** 有標籤時加上 `measure-<tag>-` 前綴；標籤不合法時用固定的 invalid 前綴，不把原始輸入放進路徑。 */
+export function applyMeasurePrefix(fileName, measureTag) {
+  if (measureTag.isInvalid) return `measure-invalid-${fileName}`;
+  return measureTag.tag === null ? fileName : `measure-${measureTag.tag}-${fileName}`;
+}
+
 /**
- * 解析 `LT_FAULT`／`LT_API_BUILD`／`LT_RUN`。不拋例外：錯誤收集在 `errors`，由 setup 決定 `fail()`，
+ * 解析 `LT_FAULT`／`LT_API_BUILD`／`LT_RUN`／`LT_MEASURE_TAG`。不拋例外：錯誤收集在 `errors`，由 setup 決定 `fail()`，
  * `handleSummary` 也能用同一份結果決定檔名。
  */
 export function parseRunSettings(scenario, env) {
@@ -48,7 +67,10 @@ export function parseRunSettings(scenario, env) {
   if (fault === null && !isRunValid) errors.push(`LT_RUN must be one of ${RUN_NUMBERS.join(', ')}`);
   const run = isRunValid ? env.LT_RUN : null;
 
-  const summaryFileName = fault !== null
+  const measureTag = parseMeasureTag(env, { isRequired: false });
+  errors.push(...measureTag.errors);
+
+  const baseFileName = fault !== null
     ? `${scenario}-fault-${fault}-summary.json`
     : `${scenario}-${build}-${run === null ? 'run-invalid' : `run${run}`}-summary.json`;
 
@@ -57,9 +79,10 @@ export function parseRunSettings(scenario, env) {
     fault,
     build,
     run,
-    summaryPath: `${OUTPUT_DIR}/${summaryFileName}`,
-    // 只有正式執行（非故障注入、設定合法）的檔名需要防覆寫；故障注入與 invalid 檔名不在彙整白名單內。
-    isOfficialRun: fault === null && errors.length === 0,
+    measureTag: measureTag.tag,
+    summaryPath: `${OUTPUT_DIR}/${applyMeasurePrefix(baseFileName, measureTag)}`,
+    // 正式執行與量測執行（非故障注入、設定合法）的檔名需要防覆寫；故障注入與 invalid 檔名不在彙整白名單內。
+    isSummaryOverwriteProtected: fault === null && errors.length === 0,
     errors,
   };
 }

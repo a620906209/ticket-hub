@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -78,6 +79,62 @@ public sealed class OrderService
     }
 
     public async Task<Result<Guid>> PlaceOrderAsync(Guid buyerId, PlaceOrderRequest request, CancellationToken cancellationToken)
+    {
+        var timings = new PlaceOrderPhaseTimings(Stopwatch.GetTimestamp());
+        var outcome = "Exception";
+        try
+        {
+            var result = await PlaceOrderCoreAsync(buyerId, request, timings, cancellationToken);
+            outcome = result.IsSuccess ? "Success" : result.Error!.Type.ToString();
+            return result;
+        }
+        finally
+        {
+            // 在 finally 統一輸出，涵蓋所有提前 return 與例外路徑（order-placement-p95-optimization design.md 決策 1）。
+            // 例外不附帶進 log：例外訊息可能含 Id 與 SQL 參數；結果只記固定字串 Exception。
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                LogPhaseTimings(timings, outcome, request);
+            }
+        }
+    }
+
+    private void LogPhaseTimings(PlaceOrderPhaseTimings timings, string outcome, PlaceOrderRequest request)
+    {
+        var endTimestamp = Stopwatch.GetTimestamp();
+        var hasSeatItems = request?.Selections?.Any(s => s is not null && s.EventSeatId.HasValue) ?? false;
+        // 鎖內被拒絕（壓測九成樣本是鎖內 409）沒有 commit，InLock 以結束時間收尾，否則最主要的樣本量不到鎖內耗時；
+        // 此時 InLock 含交易 dispose 的回滾時間。
+        _logger.LogDebug(
+            "PlaceOrder phase timings: Outcome={Outcome} HasSeatItems={HasSeatItems} PreTransactionMs={PreTransactionMs} " +
+            "BeginTransactionMs={BeginTransactionMs} EventLockWaitMs={EventLockWaitMs} InLockMs={InLockMs} CommitMs={CommitMs} TotalMs={TotalMs}",
+            outcome,
+            hasSeatItems,
+            PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.Start, timings.TransactionStarting ?? endTimestamp),
+            PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.TransactionStarting, timings.TransactionBegun),
+            PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.TransactionBegun, timings.EventLocked),
+            PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.EventLocked, timings.CommitStarting ?? endTimestamp),
+            PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.CommitStarting, timings.Committed),
+            PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.Start, endTimestamp));
+    }
+
+    // 時間點一律以 Stopwatch 單調時鐘取得：WSL2 牆上時鐘會倒退，時間戳相減會失真（design.md 決策 1）。
+    // 未到達的時間點為 null，對應分段輸出 null 而非 0，才能區分「沒到達」與「很快」。
+    private sealed class PlaceOrderPhaseTimings(long start)
+    {
+        public long Start { get; } = start;
+        public long? TransactionStarting { get; set; }
+        public long? TransactionBegun { get; set; }
+        public long? EventLocked { get; set; }
+        public long? CommitStarting { get; set; }
+        public long? Committed { get; set; }
+
+        public static double? GetElapsedMilliseconds(long? from, long? to)
+            => from is { } fromValue && to is { } toValue ? Stopwatch.GetElapsedTime(fromValue, toValue).TotalMilliseconds : null;
+    }
+
+    private async Task<Result<Guid>> PlaceOrderCoreAsync(
+        Guid buyerId, PlaceOrderRequest request, PlaceOrderPhaseTimings timings, CancellationToken cancellationToken)
     {
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
@@ -194,13 +251,55 @@ public sealed class OrderService
             }
         }
 
+        // 座位樣板只依 SeatId 批次讀取（no-tracking），取代鎖內載入整張座位圖——那是座位票鎖內時間的主要成本
+        // （order-placement-p95-optimization design.md 決策 4）。在交易外以未加鎖的資料判斷之所以安全，依賴
+        // Seat.SeatMapId／Seat.ZoneCode／EventSeat.SeatId／EventSeat.EventId／Event.SeatMapId 建構後不可變
+        // （ProjectC.Domain.Tests SeatPlacementImmutabilityTests 守住）；若未來任一欄位可變更，這些比對必須移回鎖內。
+        var seatPlacements = new List<SeatPlacement>();
+        if (validationSeatsById.Count > 0)
+        {
+            var seatIds = validationSeatsById.Values.Select(es => es.SeatId).Distinct().ToList();
+            var seatTemplatesById = (await _seatMapRepository.GetSeatsByIdsAsync(seatIds, cancellationToken)).ToDictionary(s => s.Id);
+            if (validationSeatsById.Values.FirstOrDefault(es => !seatTemplatesById.ContainsKey(es.SeatId)) is { } seatWithoutTemplate)
+            {
+                return Result<Guid>.Failure(Error.NotFound($"Seat '{seatWithoutTemplate.SeatId}' was not found in the seat map."));
+            }
+
+            seatPlacements = request.Selections
+                .Where(s => s.EventSeatId.HasValue)
+                .Select(s =>
+                {
+                    var eventSeat = validationSeatsById[s.EventSeatId!.Value];
+                    return new SeatPlacement(eventSeat, seatTemplatesById[eventSeat.SeatId], ticketTypesById[s.TicketTypeId]);
+                })
+                .ToList();
+        }
+
+        // 交易外讀不到活動時不知道它的 SeatMapId，成員與分區比對改在鎖內以 lockedEvent 補上（見下方實名補位之後）。
+        if (orderEvent is not null && GetSeatPlacementErrorOrNull(seatPlacements, orderEvent.SeatMapId) is { } seatPlacementError)
+        {
+            return Result<Guid>.Failure(seatPlacementError);
+        }
+
+        // 提早 409：以交易前的 no-tracking 資料判斷注定失敗的請求，不進 Event 列鎖佇列、不占連線（design.md 決策 5）。
+        // 只拒絕不放行，鎖內 CreateOrderHandler 仍是唯一權威。交易外讀不到活動或讀到排隊模式時跳過：
+        // 排隊模式的 403 必須以鎖內重讀為準，不得被這裡的 409 取代。
+        if (orderEvent is { IsQueueModeEnabled: false } &&
+            GetEarlyConflictOrNull(request, validationSeatsById, ticketTypesById, _dateTimeProvider.UtcNow) is { } earlyConflict)
+        {
+            return Result<Guid>.Failure(earlyConflict);
+        }
+
+        timings.TransactionStarting = Stopwatch.GetTimestamp();
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        timings.TransactionBegun = Stopwatch.GetTimestamp();
 
         // Queue Mode 切換的線性化時點：重新鎖定並讀取 Event，以鎖定後讀到的 IsQueueModeEnabled 為唯一
         // 採信依據，不得沿用上面交易前、未加鎖的 orderEvent（rate-limiting-queue design.md 決策 4）。
         // 這個鎖定對每筆訂單都會執行，不論該活動是否曾被判斷為未開啟排隊。鎖定順序固定為
         // Event → PurchaseQueueEntry → EventSeat → TicketType。
         var lockedEvent = await _eventRepository.GetForUpdateAsync(distinctEventIds[0], cancellationToken);
+        timings.EventLocked = Stopwatch.GetTimestamp();
         if (lockedEvent is null)
         {
             return Result<Guid>.Failure(Error.NotFound($"Event '{distinctEventIds[0]}' was not found."));
@@ -221,6 +320,12 @@ public sealed class OrderService
                 await _memberRealNameRepository.GetAsync(buyerId, cancellationToken) is null)
             {
                 return Result<Guid>.Failure(Error.RealNameRequired($"Event '{lockedEvent.Id}' requires real-name registration."));
+            }
+
+            // 座位圖成員與分區比對補位：必須在排隊資格與任何座位／庫存鎖定之前（design.md 決策 4）。
+            if (GetSeatPlacementErrorOrNull(seatPlacements, lockedEvent.SeatMapId) is { } lockedSeatPlacementError)
+            {
+                return Result<Guid>.Failure(lockedSeatPlacementError);
             }
         }
         else if (orderEvent.IsRealNameRequired != lockedEvent.IsRealNameRequired)
@@ -284,10 +389,6 @@ public sealed class OrderService
             lockedTicketTypesById = lockedTicketTypes.ToDictionary(t => t.Id);
         }
 
-        // 分區比對：座位實際所屬分區 MUST 與所選票種的分區一致，防止用低價分區的票種配高價分區的座位
-        // （見 ticketing-purchase design.md 決策 2 第 4 點）。座位圖依 EventId 快取，正常情況下所有
-        // 項目屬於同一場活動只查一次；跨活動的狀況交給下面 CreateOrderHandler.Handle 再擋一次。
-        var seatMapsByEventId = new Dictionary<Guid, SeatMap>();
         var seatSelections = new List<SeatSelection>();
         var quantitySelections = new List<QuantitySelection>();
 
@@ -313,35 +414,7 @@ public sealed class OrderService
                 return Result<Guid>.Failure(Error.Validation("Ticket type does not belong to the same event as the selected seat."));
             }
 
-            if (!seatMapsByEventId.TryGetValue(eventSeat.EventId, out var seatMap))
-            {
-                var @event = await _eventRepository.GetByIdAsync(eventSeat.EventId, cancellationToken);
-                if (@event is null)
-                {
-                    return Result<Guid>.Failure(Error.NotFound($"Event '{eventSeat.EventId}' was not found."));
-                }
-
-                seatMap = await _seatMapRepository.GetByIdAsync(@event.SeatMapId, cancellationToken);
-                if (seatMap is null)
-                {
-                    return Result<Guid>.Failure(Error.NotFound($"Seat map '{@event.SeatMapId}' was not found."));
-                }
-
-                seatMapsByEventId[eventSeat.EventId] = seatMap;
-            }
-
-            var seatTemplate = seatMap.Seats.FirstOrDefault(s => s.Id == eventSeat.SeatId);
-            if (seatTemplate is null)
-            {
-                return Result<Guid>.Failure(Error.NotFound($"Seat '{eventSeat.SeatId}' was not found in the seat map."));
-            }
-
-            if (seatTemplate.ZoneCode != ticketType.ZoneCode)
-            {
-                return Result<Guid>.Failure(Error.Validation(
-                    $"Seat '{eventSeat.Id}' belongs to zone '{seatTemplate.ZoneCode}', which does not match ticket type zone '{ticketType.ZoneCode}'."));
-            }
-
+            // 座位圖成員與分區已在交易前（或鎖內補位）比對過，鎖內不再重讀活動與座位圖（design.md 決策 4）。
             seatSelections.Add(new SeatSelection(eventSeat, ticketType));
         }
 
@@ -356,7 +429,9 @@ public sealed class OrderService
         queueEntry?.Complete();
 
         _orderRepository.Add(result.Value!);
+        timings.CommitStarting = Stopwatch.GetTimestamp();
         await transaction.CommitAsync(cancellationToken);
+        timings.Committed = Stopwatch.GetTimestamp();
 
         // 訂單完成同步移除 Redis admitted 鏡像，交易 commit 後才執行、非同一交易，best-effort
         // （purchase-queue-redis-admission design.md Decision 8）。
@@ -427,6 +502,53 @@ public sealed class OrderService
     /// </summary>
     public Task<Result> CancelExpiredOrderAsync(Guid orderId, CancellationToken cancellationToken)
         => ChangeOrderStatusAsync(orderId, requestingBuyerId: null, WrapSync(_cancelOrderHandler.Handle), invalidatesTicketTypeCache: true, cancellationToken);
+
+    private sealed record SeatPlacement(EventSeat EventSeat, Seat SeatTemplate, TicketType TicketType);
+
+    /// <summary>
+    /// 先比對所有座位的座位圖成員（404，訊息沿用原本鎖內「樣板不在座位圖」的訊息），再比對分區（400）：
+    /// 座位實際所屬分區 MUST 與所選票種一致，防止用低價分區的票種配高價分區的座位（ticketing-purchase design.md 決策 2 第 4 點）。
+    /// </summary>
+    private static Error? GetSeatPlacementErrorOrNull(IReadOnlyList<SeatPlacement> seatPlacements, Guid eventSeatMapId)
+    {
+        if (seatPlacements.FirstOrDefault(p => p.SeatTemplate.SeatMapId != eventSeatMapId) is { } foreignPlacement)
+        {
+            return Error.NotFound($"Seat '{foreignPlacement.EventSeat.SeatId}' was not found in the seat map.");
+        }
+
+        if (seatPlacements.FirstOrDefault(p => p.SeatTemplate.ZoneCode != p.TicketType.ZoneCode) is { } mismatchedPlacement)
+        {
+            return Error.Validation(
+                $"Seat '{mismatchedPlacement.EventSeat.Id}' belongs to zone '{mismatchedPlacement.SeatTemplate.ZoneCode}', which does not match ticket type zone '{mismatchedPlacement.TicketType.ZoneCode}'.");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 判斷順序與 <see cref="CreateOrderHandler"/> 相同（先座位、後計數票種，各依請求順序），被拒時訊息才會與鎖內一致。
+    /// 座位只透過 <see cref="EventSeat.IsAvailableForHold"/> 判斷，逾時的暫扣視同可售。
+    /// </summary>
+    private static Error? GetEarlyConflictOrNull(
+        PlaceOrderRequest request, IReadOnlyDictionary<Guid, EventSeat> seatsById, IReadOnlyDictionary<Guid, TicketType> ticketTypesById, DateTime now)
+    {
+        var unavailableSeatId = request.Selections
+            .Where(s => s.EventSeatId.HasValue)
+            .Select(s => s.EventSeatId!.Value)
+            .FirstOrDefault(id => !seatsById[id].IsAvailableForHold(now));
+        if (unavailableSeatId != Guid.Empty)
+        {
+            return PlaceOrderConflictErrors.SeatNoLongerAvailable(unavailableSeatId);
+        }
+
+        // PlaceOrderRequestValidator 已擋掉重複的計數票種，GroupBy 加總只是不依賴另一個檔案的防禦；long 累加理由同限購檢查。
+        var insufficientTicketTypeId = request.Selections
+            .Where(s => !s.EventSeatId.HasValue)
+            .GroupBy(s => s.TicketTypeId)
+            .FirstOrDefault(g => ticketTypesById[g.Key].AvailableQuantity < g.Sum(s => (long)s.Quantity))
+            ?.Key;
+        return insufficientTicketTypeId is { } ticketTypeId ? PlaceOrderConflictErrors.TicketTypeInventoryInsufficient(ticketTypeId) : null;
+    }
 
     // CancelOrderHandler.Handle 維持同步（純記憶體邏輯，無 I/O），包一層轉成跟 ConfirmOrderHandler.Handle
     // 相同的非同步委派型別，讓兩者能共用同一套 ChangeOrderStatusAsync 交易骨架（見 design.md 決策 3）。

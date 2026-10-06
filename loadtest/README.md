@@ -7,6 +7,7 @@
 | `count-ticket.js` | 數量票：500 VU 各下 1 張 `GA` 純計數票（庫存 50） |
 | `seat-ticket.js` | 座位票：500 VU 各從 `HOT` 分區 50 席隨機選 1 席 |
 | `aggregate.js` | 彙整 12 份正式 summary JSON，產生 `/output/report-tables.md` |
+| `baseline.js` | 瓶頸量測：無競爭基準（1 VU 依序 50 筆），見「瓶頸量測」 |
 | `tests/*.test.js` | 判定與彙整邏輯的自我測試 |
 
 ## 前提
@@ -103,12 +104,93 @@ MSYS_NO_PATHCONV=1 docker compose --profile loadtest run --rm --no-deps k6 run /
 | `bad-buyer-token` | 下單使用竄改過的買家 token，全部 401 |
 | `setup-timeout` | `setupTimeout` 改為 1ms（setup 有數十個 HTTP 請求，必然逾時），setup 逾時中止 |
 
+## 瓶頸量測
+
+OpenSpec change `order-placement-p95-optimization` 的「先量測後優化」工具。**量測執行與正式驗收執行必須分開**：分段 log 與等待事件取樣本身有成本，量測結果只用來看比例與分布；正式驗收（上面的 12 次執行）不得疊加量測 override、不得取樣、不得帶 `LT_MEASURE_TAG`。
+
+### 量測標籤 `LT_MEASURE_TAG`
+
+- 格式 `^[a-z0-9-]{1,32}$`；不符時 setup 中止，不送出任何下單。
+- 帶標籤時 summary 寫到 `/output/measure-<tag>-<原檔名>`，不在彙整白名單內，不會被 `aggregate.js` 讀到；門檻與判定不變。已存在時同樣中止、不覆寫。
+- 量測執行一律帶標籤（例如 `before`、`after-c`、`after-a`）。
+
+### 開啟分段耗時 log
+
+```bash
+# Release + 分段 log（量測用）
+docker compose -f docker-compose.yml -f docker-compose.loadtest-release.yml -f docker-compose.loadtest-measure.yml up -d --no-deps api
+# 還原（Debug、關閉分段 log）
+docker compose up -d --no-deps api
+```
+
+- `docker-compose.loadtest-measure.yml` 只把 `OrderService` 降到 Debug。Console sink 在 `appsettings.json` 限制為 Information，分段 log 只進 Seq（`http://localhost:8081`）。
+- 每筆下單一行：`PlaceOrder phase timings: Outcome=… HasSeatItems=… PreTransactionMs=… BeginTransactionMs=… EventLockWaitMs=… InLockMs=… CommitMs=… TotalMs=…`（未走到的分段為 null）。
+- 切換後依「Release 組態對照」確認 PID 1，並確認環境變數：`docker compose exec api printenv | grep Serilog__`。
+
+### 無競爭基準（`baseline.js`）
+
+1 個 VU 依序送 50 筆下單，每筆不同買家（setup 先確認前 50 個 token 的 JWT `sub` 互不相同）、座位票每筆不同座位，全部都應為 201：
+
+```bash
+MSYS_NO_PATHCONV=1 docker compose --profile loadtest run --rm --no-deps k6 run -e LT_BASELINE_TICKET=seat -e LT_MEASURE_TAG=before /scripts/baseline.js
+```
+
+- `LT_BASELINE_TICKET=count|seat`；必須帶 `LT_MEASURE_TAG`。輸出 `measure-<tag>-baseline-<count|seat>-summary.json`，stdout 與 summary 的 `baseline` 欄位含 `p50`、`p95`、`isValid`。
+- 任一筆非 201 → k6 非 0 結束、該次無效；429 另標示「被限流，量測無效」（不得調整限流設定來湊結果）。
+
+### 等待事件取樣（`sample-db-waits.sh`）
+
+壓測開始前另開一個終端啟動，秒數涵蓋整個下單時段（約 90 秒）：
+
+```bash
+bash loadtest/sample-db-waits.sh before seat-ticket 90
+```
+
+- 每 200ms 查一次 `pg_stat_activity`（`sql/db-waits.sql`），依 `state`／`wait_event_type`／`wait_event` 分組計數，輸出 `loadtest/.output/measure-<tag>-db-waits-<scenario>.csv`；已存在時中止。
+- 取樣連線的 application name 為 `lt-db-waits`，占 1 條連線（報告須註明）；啟動前有殘留即中止並印出清理 SQL；正常結束或 Ctrl+C 都會終止該連線並確認沒有殘留。非 0 結束即該次量測無效。
+
+### 每次量測後必做
+
+記下壓測開始與結束的 UTC 時間（`date -u +%Y-%m-%dT%H:%M:%SZ`），結束後立即：
+
+```bash
+# 1. 有效性檢查：Seq 分段 log 筆數 = 有回應且非 429 的下單數、Console 沒有分段 log、沒有逾時。非 0 即無效，不得寫入報告。
+bash loadtest/check-measure-logging.sh <start-utc> <end-utc> loadtest/.output/measure-before-seat-ticket-release-run1-summary.json
+# 2. 匯出分段統計（Seq 未掛 volume，容器重建後就沒了）
+bash loadtest/export-measure-phases.sh <start-utc> <end-utc> loadtest/.output/measure-before-phases-seat-ticket.json
+```
+
+- 匯出內容：全部樣本與依 `Outcome` 分組的各分段筆數（非 null）、p50、p95、max（毫秒），以及原始值（`raw`）。以 Seq 的 `/api/data` 取出原始值，再由 `lib/phase-stats.jq` 精確計算（排序後線性內插，與 k6 的 `p(N)` 同定義）：
+
+  ```sql
+  select Outcome, PreTransactionMs, BeginTransactionMs, EventLockWaitMs, InLockMs, CommitMs, TotalMs
+  from stream where @MessageTemplate like 'PlaceOrder phase timings:%' limit 100000
+  ```
+
+  不用 Seq SQL 的 `percentile()`：實測它是近似值（同批 50 筆 `EventLockWaitMs` p95 精確值 0.731ms，Seq 回 0.779ms），在 Seq UI 用 `percentile()` 查到的數字會與匯出檔略有差異。取回筆數與 `count(*)` 不符時中止、不寫檔。
+- 時間範圍只用來篩選 log，耗時一律以應用端單調時鐘計算（WSL2 牆上時鐘會倒退）。
+
+### 報告比對（`check-report-tables.sh`）
+
+```bash
+bash loadtest/check-report-tables.sh docs/load-test/p95-optimization-report.md loadtest/.output/report-tables.md
+```
+
+比對報告 `<!-- report-tables:begin -->`／`<!-- report-tables:end -->` 之間的資料表與彙整輸出；Release 未達標的 scenario 必須有 `<!-- unmet-reason:<scenario> -->` 區段且引用 `measure-` 檔名與毫秒數值；報告須含 `P95 < 500ms`。
+
 ## 自我測試
 
 ```bash
 MSYS_NO_PATHCONV=1 docker compose --profile loadtest run --rm --no-deps k6 run /scripts/tests/verify.test.js
 MSYS_NO_PATHCONV=1 docker compose --profile loadtest run --rm --no-deps k6 run /scripts/tests/report.test.js
 MSYS_NO_PATHCONV=1 docker compose --profile loadtest run --rm --no-deps k6 run /scripts/tests/aggregate-flow.test.js
+MSYS_NO_PATHCONV=1 docker compose --profile loadtest run --rm --no-deps k6 run /scripts/tests/config.test.js
+MSYS_NO_PATHCONV=1 docker compose --profile loadtest run --rm --no-deps k6 run /scripts/tests/baseline.test.js
+# 瓶頸量測的 shell 腳本（sample-db-waits 會啟動一次性的 postgres:16-alpine 容器，約 1 分鐘）
+bash loadtest/tests/check-measure-logging.test.sh
+bash loadtest/tests/check-report-tables.test.sh
+bash loadtest/tests/phase-stats.test.sh
+bash loadtest/tests/sample-db-waits.test.sh
 ```
 
 exit code 為 0 代表全部 check 通過。`aggregate-flow.test.js` 會在 `loadtest/.output/` 留下 `aggregate-flow-report-tables.md`，不在彙整白名單內，可直接刪除。

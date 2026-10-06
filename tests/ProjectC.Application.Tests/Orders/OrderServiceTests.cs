@@ -1,5 +1,5 @@
 using FluentAssertions;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using ProjectC.Application.Common;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
@@ -36,6 +36,7 @@ public class OrderServiceTests
         public FakeQueryCache QueryCache { get; } = new();
         public FakePurchaseQueueAdmissionMirror AdmissionMirror { get; } = new();
         public FakeMemberRealNameRepository MemberRealNameRepository { get; } = new();
+        public CapturingLogger<OrderService> Logger { get; } = new();
 
         public OrderService CreateOrderService() => new(
             TicketTypeRepository,
@@ -52,7 +53,7 @@ public class OrderServiceTests
             new CancelOrderHandler(DateTimeProvider),
             EmailNotificationService,
             DbContext,
-            NullLogger<OrderService>.Instance,
+            Logger,
             QueryCache,
             AdmissionMirror,
             MemberRealNameRepository);
@@ -112,6 +113,33 @@ public class OrderServiceTests
 
             return (@event, ticketType);
         }
+
+        /// <summary>
+        /// 座位樣板屬於另一張座位圖的異常資料（order-placement-p95-optimization tasks.md 4.1、TP-ORDER-030）：
+        /// 活動 E 用座位圖 M1，EventSeat 的 SeatId 卻指向 M2 的座位。EventSeat 建構子是 internal，
+        /// 由一個只在這裡使用、不加入任何 repository 的同 Id 活動（SeatMapId = M2）產生。
+        /// </summary>
+        public (Event Event, EventSeat ForeignEventSeat, TicketType TicketType) SeedEventWithSeatFromAnotherSeatMap(
+            string foreignSeatZoneCode, string ticketTypeZoneCode)
+        {
+            var eventSeatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
+            eventSeatMap.AddSeat(ticketTypeZoneCode, "1");
+            var otherSeatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
+            otherSeatMap.AddSeat(foreignSeatZoneCode, "1");
+
+            var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), eventSeatMap.Id, Guid.NewGuid());
+            var ticketType = @event.CreateTicketType(ticketTypeZoneCode, 500m, eventSeatMap);
+            var testOnlyTwin = new Event(@event.Id, "Concert", Now.AddDays(1), Guid.NewGuid(), otherSeatMap.Id, Guid.NewGuid());
+            var foreignEventSeat = testOnlyTwin.CreateEventSeats(otherSeatMap).Single();
+
+            EventRepository.Data.Add(@event);
+            SeatMapRepository.Data.Add(eventSeatMap);
+            SeatMapRepository.Data.Add(otherSeatMap);
+            EventSeatRepository.Data.Add(foreignEventSeat);
+            TicketTypeRepository.Data.Add(ticketType);
+
+            return (@event, foreignEventSeat, ticketType);
+        }
     }
 
     // ---- PlaceOrderAsync ----
@@ -169,6 +197,158 @@ public class OrderServiceTests
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
         fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    // ---- 分區／座位圖成員比對移到交易前（order-placement-p95-optimization 優化 C） ----
+    // 目的：注定被拒的座位請求不進 Event 列鎖佇列、不占連線；鎖內不再載入整張座位圖（座位票 InLock 的主要成本）。
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatZoneDoesNotMatchTicketTypeZone_RejectsBeforeOpeningTransaction()
+    {
+        // TP-ORDER-021
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(seatZoneCode: "A", ticketTypeZoneCode: "B");
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.Message.Should().Be(
+            $"Seat '{eventSeat.Id}' belongs to zone 'A', which does not match ticket type zone 'B'.", "訊息與搬移前的鎖內檢查相同");
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0, "分區不一致在交易前就能判斷，不得排進 Event 列鎖");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeEnabledAndNotAdmittedAndSeatZoneMismatches_ReturnsValidationErrorNotQueueAdmissionRequired()
+    {
+        // TP-ORDER-026：分區檢查移到交易前後，未入場買家選錯分區先得到 400，而非鎖內的 403。
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(seatZoneCode: "A", ticketTypeZoneCode: "B");
+        @event.EnableQueueMode();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatTemplateDoesNotExist_ReturnsNotFoundBeforeOpeningTransaction()
+    {
+        // TP-ORDER-029
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        fixture.SeatMapRepository.Data.Clear();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatTemplateBelongsToAnotherSeatMap_ReturnsNotFoundBeforeOpeningTransaction()
+    {
+        // TP-ORDER-030（交易外讀到活動）：票種分區刻意與座位不同，回 404 而非 400 證明成員比對先於分區比對。
+        var fixture = new Fixture();
+        var (_, foreignEventSeat, ticketType) = fixture.SeedEventWithSeatFromAnotherSeatMap(foreignSeatZoneCode: "B", ticketTypeZoneCode: "A");
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(foreignEventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        result.Error.Message.Should().Be($"Seat '{foreignEventSeat.SeatId}' was not found in the seat map.");
+        fixture.OrderRepository.Data.Should().BeEmpty();
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenEventUnreadOutsideTransactionAndSeatTemplateBelongsToAnotherSeatMap_ReturnsNotFoundBeforeQueueCheckAndLocks()
+    {
+        // TP-ORDER-030（交易外讀不到活動）：成員比對移到鎖內，順序為成員 → 分區 → 排隊資格 → 座位／票種鎖定。
+        // 排隊模式且未入場、分區也不一致，回 404 才證明成員比對同時先於分區與排隊資格。
+        var fixture = new Fixture();
+        var (@event, foreignEventSeat, ticketType) = fixture.SeedEventWithSeatFromAnotherSeatMap(foreignSeatZoneCode: "B", ticketTypeZoneCode: "A");
+        @event.EnableQueueMode();
+        fixture.EventRepository.GetByIdOverride = _ => null;
+        fixture.EventRepository.GetForUpdateOverride = _ => @event;
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(foreignEventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1);
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+        fixture.EventSeatRepository.GetForUpdateCallCount.Should().Be(0);
+        fixture.TicketTypeRepository.GetForUpdateCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenEventUnreadOutsideTransactionAndSeatZoneMismatches_ReturnsValidationErrorBeforeQueueCheckAndLocks()
+    {
+        // TP-ORDER-033：交易外讀不到活動就無法比對座位圖成員，分區比對隨之移到鎖內、排隊資格與任何鎖定之前。
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(seatZoneCode: "A", ticketTypeZoneCode: "B");
+        @event.EnableQueueMode();
+        fixture.EventRepository.GetByIdOverride = _ => null;
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1);
+        fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
+        fixture.EventSeatRepository.GetForUpdateCallCount.Should().Be(0);
+        fixture.TicketTypeRepository.GetForUpdateCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenMaxTicketsPerOrderAndSeatZoneBothViolated_ReturnsMaxTicketsErrorBeforeOpeningTransaction()
+    {
+        // TP-ORDER-032：搬移分區檢查不得改變既有的錯誤優先順序（限購先於分區）。
+        var fixture = new Fixture();
+        var seatMap = new SeatMap(Guid.NewGuid(), Guid.NewGuid());
+        seatMap.AddSeat("A", "1");
+        seatMap.AddSeat("A", "2");
+        seatMap.AddSeat("B", "1");
+        var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), seatMap.Id, Guid.NewGuid(), maxTicketsPerOrder: 1);
+        var zoneASeats = @event.CreateEventSeats(seatMap).Where(es => seatMap.Seats.Single(s => s.Id == es.SeatId).ZoneCode == "A").ToList();
+        var zoneBTicketType = @event.CreateTicketType("B", 500m, seatMap);
+        fixture.EventRepository.Data.Add(@event);
+        fixture.SeatMapRepository.Data.Add(seatMap);
+        fixture.EventSeatRepository.Data.AddRange(zoneASeats);
+        fixture.TicketTypeRepository.Data.Add(zoneBTicketType);
+        var request = new PlaceOrderRequest(zoneASeats.Select(es => new PlaceOrderSelectionRequest(es.Id, zoneBTicketType.Id)).ToList());
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.Message.Should().Be("This event allows at most 1 ticket(s) per order.");
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WithSeatSelection_ReadsOnlySelectedSeatTemplatesInsteadOfWholeSeatMap()
+    {
+        // 優化 C 的效能目的：鎖內不再重讀 Event、不再載入整張座位圖，只在交易前以 SeatId 批次讀樣板。
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, cancellationTokenSource.Token);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.SeatMapRepository.GetByIdCallCount.Should().Be(0);
+        fixture.SeatMapRepository.GetSeatsByIdsCallCount.Should().Be(1);
+        fixture.SeatMapRepository.LastGetSeatsByIdsIds.Should().Equal(eventSeat.SeatId);
+        fixture.SeatMapRepository.LastGetSeatsByIdsToken.Should().Be(cancellationTokenSource.Token, "新增的樣板查詢必須沿用呼叫端的取消權杖（hardener 第 4 節）");
+        fixture.EventRepository.GetByIdCallCount.Should().Be(1, "活動只在交易外讀一次，鎖內以 lockedEvent 為準");
     }
 
     [Fact]
@@ -771,6 +951,8 @@ public class OrderServiceTests
             new PlaceOrderSelectionRequest(null, ticketTypeA.Id, 2),
             new PlaceOrderSelectionRequest(null, ticketTypeB.Id, 5), // 超過可售量，觸發 Reserve 失敗、補償回滾
         ]);
+        // 交易外讀不到活動時跳過提早 409（order-placement-p95-optimization 決策 5），才走得到鎖內的補償回滾。
+        fixture.EventRepository.GetByIdOverride = _ => null;
 
         var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
 
@@ -1258,5 +1440,326 @@ public class OrderServiceTests
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(OrderStatus.Cancelled);
+    }
+
+    // ---- PlaceOrderAsync：分段耗時 Debug log（order-placement-p95-optimization LT-MEASURE-*）----
+
+    // ---- 交易前提早回 409（order-placement-p95-optimization 優化 A） ----
+    // 目的：注定 409 的請求（壓測中九成）不進 Event 列鎖佇列、不占連線；鎖內判斷仍是唯一權威，提早判斷只拒絕不放行。
+
+    private static void MarkSeatSold(EventSeat eventSeat)
+    {
+        var otherOrderId = Guid.NewGuid();
+        eventSeat.Hold(otherOrderId, Now.AddMinutes(10), Now);
+        eventSeat.ConfirmSold(otherOrderId, Now);
+    }
+
+    private static PurchaseQueueEntry AddAdmittedQueueEntry(Fixture fixture, Event @event, Guid buyerId)
+    {
+        var entry = new PurchaseQueueEntry(Guid.NewGuid(), @event.Id, buyerId, Now.AddMinutes(-10));
+        entry.Admit(Now.AddMinutes(-5), Now.AddMinutes(5));
+        fixture.PurchaseQueueRepository.Data.Add(entry);
+        return entry;
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatAlreadySold_ReturnsConflictBeforeOpeningTransaction()
+    {
+        // TP-ORDER-017
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        MarkSeatSold(eventSeat);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error.Should().BeEquivalentTo(PlaceOrderConflictErrors.SeatNoLongerAvailable(eventSeat.Id));
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatHeldByAnotherUnexpiredOrder_ReturnsConflictBeforeOpeningTransaction()
+    {
+        // TP-ORDER-018
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        eventSeat.Hold(Guid.NewGuid(), Now.AddMinutes(5), Now);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Conflict);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatHoldAlreadyExpired_IsNotRejectedEarlyAndSucceeds()
+    {
+        // TP-ORDER-019：逾時的暫扣視同可售，提早判斷不得以內部欄位（_heldByOrderId 非 null）誤判。
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        eventSeat.Hold(Guid.NewGuid(), Now.AddMinutes(-1), Now.AddMinutes(-11));
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1);
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenCountTicketTypeInventoryInsufficient_ReturnsConflictBeforeOpeningTransaction()
+    {
+        // TP-ORDER-020
+        var fixture = new Fixture();
+        var (_, countTicketType) = fixture.SeedEventWithCountBasedTicketType(availableQuantity: 1);
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, countTicketType.Id, 2)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error.Should().BeEquivalentTo(PlaceOrderConflictErrors.TicketTypeInventoryInsufficient(countTicketType.Id));
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        countTicketType.AvailableQuantity.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatSoldAndCountInventoryInsufficient_ReturnsSeatConflictLikeInLockHandler()
+    {
+        // 兩種衝突同時成立時，提早判斷必須與 CreateOrderHandler 一樣先報座位（即使計數項目排在請求前面），
+        // 否則同一個請求的 409 訊息會因被拒在哪一層而不同（design.md 決策 5）。
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, seatTicketType) = fixture.SeedEventWithSeatAndTicketType();
+        var countTicketType = @event.CreateCountBasedTicketType("站票", 300m, 1);
+        fixture.TicketTypeRepository.Data.Add(countTicketType);
+        MarkSeatSold(eventSeat);
+        var request = new PlaceOrderRequest([
+            new PlaceOrderSelectionRequest(null, countTicketType.Id, 2),
+            new PlaceOrderSelectionRequest(eventSeat.Id, seatTicketType.Id)
+        ]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error.Should().BeEquivalentTo(PlaceOrderConflictErrors.SeatNoLongerAvailable(eventSeat.Id));
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeReadOutsideTransactionAndNotAdmittedAndSeatSold_ReturnsQueueAdmissionRequired()
+    {
+        // TP-ORDER-022：交易外讀到排隊模式就跳過提早判斷，403 仍以鎖內重讀為準，不被 409 取代。
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        @event.EnableQueueMode();
+        MarkSeatSold(eventSeat);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.QueueAdmissionRequired);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenEventUnreadOutsideTransactionAndSeatSold_OpensTransactionAndReturnsConflictFromLock()
+    {
+        // TP-ORDER-024：讀不到活動就不知道是否排隊模式，提早判斷跳過，交給鎖內。
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        fixture.EventRepository.GetByIdOverride = _ => null;
+        MarkSeatSold(eventSeat);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error.Should().BeEquivalentTo(PlaceOrderConflictErrors.SeatNoLongerAvailable(eventSeat.Id));
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1);
+        fixture.EventSeatRepository.GetForUpdateCallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeOffOutsideButOnUnderLockAndSeatSold_ReturnsConflictBecauseEarlyCheckUsesOutsideFlag()
+    {
+        // TP-ORDER-025：不是並發測試。驗證的是「提早判斷以交易外讀到的旗標為準」——
+        // 交易外未開排隊，即使鎖內已開，已售座位仍在交易前回 409（spec delta 記錄的已知時間差）。
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        var queueModeEventUnderLock = new Event(@event.Id, @event.Title, @event.StartAtUtc, @event.VenueId, @event.SeatMapId, @event.OrganizerId);
+        queueModeEventUnderLock.EnableQueueMode();
+        fixture.EventRepository.GetForUpdateOverride = _ => queueModeEventUnderLock;
+        MarkSeatSold(eventSeat);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Conflict);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenOneOfThreeSeatsSold_ReturnsConflictForSoldSeatAndHoldsNothing()
+    {
+        // TP-ORDER-027
+        var fixture = new Fixture();
+        var (_, ticketType, eventSeats) = fixture.SeedEventWithMultipleSeats(seatCount: 3, maxTicketsPerOrder: null);
+        MarkSeatSold(eventSeats[1]);
+        var request = new PlaceOrderRequest(eventSeats.Select(es => new PlaceOrderSelectionRequest(es.Id, ticketType.Id)).ToList());
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error.Should().BeEquivalentTo(PlaceOrderConflictErrors.SeatNoLongerAvailable(eventSeats[1].Id));
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        eventSeats[0].GetStatus(Now).Should().Be(EventSeatStatus.Available);
+        eventSeats[2].GetStatus(Now).Should().Be(EventSeatStatus.Available);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatAvailableButCountInventoryInsufficient_ReturnsConflictAndHoldsNothing()
+    {
+        // TP-ORDER-028
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, seatTicketType) = fixture.SeedEventWithSeatAndTicketType();
+        var countTicketType = @event.CreateCountBasedTicketType("站票", 300m, 1);
+        fixture.TicketTypeRepository.Data.Add(countTicketType);
+        var request = new PlaceOrderRequest(
+        [
+            new PlaceOrderSelectionRequest(eventSeat.Id, seatTicketType.Id),
+            new PlaceOrderSelectionRequest(null, countTicketType.Id, 2),
+        ]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.Error.Should().BeEquivalentTo(PlaceOrderConflictErrors.TicketTypeInventoryInsufficient(countTicketType.Id));
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        eventSeat.GetStatus(Now).Should().Be(EventSeatStatus.Available);
+        countTicketType.AvailableQuantity.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenRejectedEarlyOrUnderLock_ReturnsSameConflictMessage()
+    {
+        // 決策 5：同一個已售座位，交易前被拒與鎖內（CreateOrderHandler）被拒，呼叫端看到的訊息必須相同。
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        MarkSeatSold(eventSeat);
+        var buyerId = Guid.NewGuid();
+        var orderService = fixture.CreateOrderService();
+
+        var earlyResult = await orderService.PlaceOrderAsync(buyerId, CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0, "第一次應在交易前被拒");
+
+        // 排隊模式且已入場：提早判斷跳過，改由鎖內判斷。
+        @event.EnableQueueMode();
+        AddAdmittedQueueEntry(fixture, @event, buyerId);
+        var lockResult = await orderService.PlaceOrderAsync(buyerId, CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1, "第二次應進鎖後才被拒");
+
+        earlyResult.Error!.Type.Should().Be(ErrorType.Conflict);
+        lockResult.Error.Should().BeEquivalentTo(earlyResult.Error);
+    }
+
+    // LT-MEASURE-002：提早 409 的請求沒進交易，交易內分段必須是 null，量測才分得出「提早被拒」與「鎖內被拒」。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenDebugEnabledAndRejectedEarlyWithConflict_LogsConflictWithNullInTransactionPhases()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        MarkSeatSold(eventSeat);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Conflict);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        var entry = GetSinglePhaseTimingEntry(fixture);
+        entry.Properties["Outcome"].Should().Be("Conflict");
+        entry.Properties["PreTransactionMs"].Should().BeOfType<double>();
+        entry.Properties["TotalMs"].Should().BeOfType<double>();
+        foreach (var field in InTransactionPhaseFields)
+            entry.Properties[field].Should().BeNull($"提早 409 沒開交易，{field} 必須是 null");
+    }
+
+    private static readonly string[] PhaseTimingFields =
+        ["Outcome", "HasSeatItems", "PreTransactionMs", "BeginTransactionMs", "EventLockWaitMs", "InLockMs", "CommitMs", "TotalMs"];
+
+    private static readonly string[] InTransactionPhaseFields = ["BeginTransactionMs", "EventLockWaitMs", "InLockMs", "CommitMs"];
+
+    private static CapturedLogEntry GetSinglePhaseTimingEntry(Fixture fixture)
+    {
+        var entry = fixture.Logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Debug).Subject;
+        // 欄位集合固定：例外、提前 return 與成功路徑輸出同一組欄位，Seq 查詢才能用同一個範本統計。
+        entry.Properties.Keys.Except(["{OriginalFormat}"]).Should().BeEquivalentTo(PhaseTimingFields);
+        return entry;
+    }
+
+    // LT-MEASURE-001：量測只需要分布，不得帶買家 Id 回溯個別買家。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenDebugEnabledAndOrderSucceeds_LogsAllPhasesWithoutBuyerId()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        var buyerId = Guid.NewGuid();
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(buyerId, CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var entry = GetSinglePhaseTimingEntry(fixture);
+        entry.Properties["Outcome"].Should().Be("Success");
+        entry.Properties["HasSeatItems"].Should().Be(true);
+        foreach (var field in PhaseTimingFields.Skip(2))
+            entry.Properties[field].Should().BeOfType<double>($"成功路徑每個分段都有到達，{field} 不得為 null");
+        entry.Message.Should().NotContain(buyerId.ToString());
+        entry.Properties.Values.Should().NotContain(buyerId);
+        entry.Exception.Should().BeNull();
+    }
+
+    // LT-MEASURE-002 前置驗證：交易前就被拒絕時，交易內分段是「沒到達」而不是 0。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenDebugEnabledAndRejectedBeforeTransaction_LogsNullInTransactionPhases()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+        var (_, _, eventSeatFromEventA, _) = fixture.SeedEventWithSeatAndTicketType();
+        var (_, _, _, ticketTypeFromEventB) = fixture.SeedEventWithSeatAndTicketType();
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(
+            Guid.NewGuid(), CreateSingleSeatRequest(eventSeatFromEventA, ticketTypeFromEventB), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+        var entry = GetSinglePhaseTimingEntry(fixture);
+        entry.Properties["Outcome"].Should().Be("Validation");
+        entry.Properties["PreTransactionMs"].Should().BeOfType<double>();
+        entry.Properties["TotalMs"].Should().BeOfType<double>();
+        foreach (var field in InTransactionPhaseFields)
+            entry.Properties[field].Should().BeNull($"交易沒開始，{field} 必須是 null 而不是 0");
+    }
+
+    // LT-MEASURE-003：預設關閉時連 Log 都不呼叫，證明 IsEnabled 守門生效、不組裝參數。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenDebugDisabled_DoesNotCallLogAtDebug()
+    {
+        var fixture = new Fixture();
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.Logger.Entries.Should().BeEmpty();
+    }
+
+    // LT-MEASURE-004：例外路徑仍要輸出（否則量測筆數對不上），但例外訊息可能含 Id 與 SQL 參數，不得進 log。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenDebugEnabledAndExceptionThrown_LogsExceptionOutcomeAndRethrows()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        fixture.EventRepository.GetForUpdateOverride = _ => CopyWithRealNameRequired(@event, true);
+
+        var act = () => fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        var thrown = (await act.Should().ThrowAsync<InvalidOperationException>()).Which;
+        var entry = GetSinglePhaseTimingEntry(fixture);
+        entry.Properties["Outcome"].Should().Be("Exception");
+        entry.Exception.Should().BeNull();
+        entry.Message.Should().NotContain(thrown.Message);
+        entry.Properties.Values.OfType<string>().Should().NotContain(value => value.Contains(@event.Id.ToString()));
     }
 }
