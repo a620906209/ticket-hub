@@ -43,14 +43,14 @@
   - 行為影響：目前 `MinimumLevel.Default` 是 Information，`appsettings.Development.json` 沒有 Serilog 區段，現有 log 沒有低於 Information 而輸出到 Console 的，所以這行對現有輸出沒有影響；之後如果有人降低等級來除錯，Debug 只會進 Seq。Seq 斷線時分段 log 不會改由 Console 輸出，量測檢查會判為無效（見下）。
   - 結果：量測 override 只有上面那一個純量 key，不以環境變數修改 sink 陣列。
   - 自動化：新增設定測試讀取 `src/ProjectC.WebApi/appsettings.json`，斷言 Console sink 的 `Args.restrictedToMinimumLevel` 為 `Information`，避免日後被刪掉而只在量測時才發現。
-- **設定不生效時量測必須失敗，不可靜默**：新增 `loadtest/check-measure-logging.sh <起始時間> <結束時間> <預期下單數>`，每次量測執行後必跑，下列任一不符就以非 0 結束，該次量測無效、不得寫入報告：
+- **設定不生效時量測必須失敗，不可靜默**：新增 `loadtest/check-measure-logging.sh <起始時間> <結束時間> <k6 summary JSON>`（實作時由傳入預期數改為傳入 summary：預期數由腳本從 summary 的 `place_order_requests`／`place_order_rate_limited`／`place_order_no_response` counter 推算，讓 429 扣除與逾時判無效也能被自我測試涵蓋；counter 缺少即無效），每次量測執行後必跑，下列任一不符就以非 0 結束，該次量測無效、不得寫入報告：
   - Seq 在該時間範圍內的分段 log 筆數 = 預期下單數。筆數為 0 代表 Override 沒生效，少於或多於預期代表 Seq 掉事件或混入其他請求。
   - 預期下單數 = summary 中**有收到 HTTP 回應且不是 429** 的下單請求數：429 在 rate limiter 被擋下、沒有進入 `PlaceOrderAsync`，不會有分段 log；k6 逾時（沒有回應）無法判斷伺服器是否處理完，所以只要有任何逾時，該次量測直接判為無效，不嘗試推算筆數。
   - Seq 寫入是非同步批次：腳本在 k6 結束後輪詢 Seq，筆數達到預期或等滿 15 秒才判定，避免尚未 flush 就誤判；超過預期同樣判為無效。
   - `docker compose logs api --since <起始時間>` 中分段 log 的訊息範本出現 0 次（代表 Console 限制生效）。
   - 腳本以假資料自我測試（`loadtest/tests/check-measure-logging.test.sh`，涵蓋：全部符合、Seq 0 筆、Seq 少於預期、Seq 多於預期、輪詢期間筆數才補齊、有 429 時預期數扣除 429、有逾時即無效、Console 出現分段 log），不連開發用服務。
   - 時間範圍只用來篩選 log，不拿來相減算耗時。
-- **取出方式**：Seq 未掛 volume、容器重建後歷史清空，所以每次量測後立即以 Seq 查詢（依時間範圍與 log 範本過濾）算出各分段 p50／p95 與筆數，寫入 `loadtest/.output/measure-<tag>-phases-<scenario>.json`（Seq 匯出 JSON 或查詢結果），不依賴之後 Seq 仍保有資料。
+- **取出方式**：Seq 未掛 volume、容器重建後歷史清空，所以每次量測後立即以 Seq 查詢（依時間範圍與 log 範本過濾）算出各分段 p50／p95 與筆數，寫入 `loadtest/.output/measure-<tag>-phases-<scenario>.json`（Seq 匯出 JSON 或查詢結果），不依賴之後 Seq 仍保有資料。實作偏差（2026-10-06）：Seq SQL 的 `percentile()` 實測為近似值（50 筆 p95 誤差約 6%，且不同分段被算成同一值），改為以 Seq 查詢取出原始值、由 `loadtest/lib/phase-stats.jq` 精確計算，原始值一併寫入匯出檔。
 - **例外路徑**：log 不附帶 Exception 物件或訊息（例外訊息可能含 Id 與 SQL 參數），只記固定字串 `Exception` 作為結果；`finally` 內的 log 不得拋例外遮蔽原例外。
 - 為什麼不用時間戳相減：WSL2 牆上時鐘會倒退，Seq 時間戳相減會失真。`Stopwatch` 是單調時鐘。
 - 替代方案：OpenTelemetry tracing——需新增套件與 collector，超出量測需要，不採用。量測後移除——使用者決定保留，供後續回歸量測使用。
@@ -113,8 +113,8 @@
   - 交易外讀到活動時：樣板存在、座位圖成員、分區三項都在交易前比對，成員比對用該活動的 `SeatMapId`。
   - 交易外讀不到活動時（TP-ORDER-024 的時間差）：樣板存在仍在交易前檢查（不需要活動）；**成員與分區比對一起延到鎖內**，用 `GetForUpdateAsync` 回傳的鎖定 Event 比對（只比對記憶體中的值與交易前已取得的 `Seat`，不新增查詢）。分區不跟著留在交易前，是為了兩條路徑都維持同一個順序；這條路徑只在兩次讀取之間的時間差出現，延到鎖內的成本可忽略。
   - 鎖內位置（僅讀不到活動的路徑）：Event 鎖定 → 販售期間重檢 → 實名檢查（現行 `orderEvent is null` 分支）→ **成員比對（404）→ 分區比對（400）** → 排隊資格（403）→ 座位／票種 `FOR UPDATE`。放在排隊資格之前，與讀到活動的路徑「分區 400 優先於 403」一致；放在座位／票種鎖定之前，異常資料不會鎖到任何座位或票種。
-  - 比對順序兩條路徑皆為：座位樣板存在 → 座位圖成員 → 分區，與現行鎖內順序相同，所以異常資料一律回 404 而非 400。
-- 鎖內移除「重新讀 Event＋載入整張座位圖」，改用交易前比對的結果。安全性依據：`Seat.ZoneCode`、`EventSeat.SeatId`、`Event.SeatMapId` 皆不可變（見 Context），交易前讀取與鎖內讀取必然相同。若未來新增座位圖或分區的修改功能，必須把比對移回鎖內——在程式碼註解記錄此不變量，並以 Domain 測試鎖住「這些屬性沒有 setter」（TP-ORDER-031），新增 setter 時測試會失敗、迫使重新檢視。
+  - 比對順序兩條路徑皆為：座位樣板存在 → 座位圖成員 → 分區，所以異常資料一律回 404 而非 400。單一座位時與現行鎖內順序相同；多座位時改為「全部座位逐項檢查完一種再檢查下一種」，現行則是逐座位依序檢查三項，因此「座位 1 分區錯、座位 2 樣板不存在」以前回 400、現在回 404。`EventSeats.SeatId` 有 FK（Restrict），樣板不存在實際上不會發生，此差異不影響可觀察行為。
+- 鎖內移除「重新讀 Event＋載入整張座位圖」，改用交易前比對的結果。安全性依據：`Seat.ZoneCode`、`EventSeat.SeatId`、`Event.SeatMapId` 皆不可變（見 Context），交易前讀取與鎖內讀取必然相同。若未來新增座位圖或分區的修改功能，必須把比對移回鎖內——在程式碼註解記錄此不變量，並以 Domain 測試鎖住「這些屬性是 getter-only 自動屬性」（無 setter／init，且 backing field 為編譯器產生的 readonly 欄位，TP-ORDER-031），新增 setter 或改成可被方法修改的自訂欄位時測試會失敗、迫使重新檢視。
 - 實作時須確認 `GetSeatsByIdsAsync` 為 no-tracking；若不是，改用 no-tracking 版本，避免同一 context 追蹤大量實體。
 - 錯誤優先順序變化：分區不一致的 400 會早於交易內的販售期間重檢、排隊資格 403 與座位鎖定，排隊模式下未入場買家選錯分區也回 400（TP-ORDER-026）。這與既有「跨活動驗證在取得任何鎖之前完成」的 400 一致，屬於請求本身的驗證錯誤。交易外的既有檢查順序不變：販售期間 > 實名 > 限購 > 樣板存在 > 成員 > 分區，比對接在限購之後，所以同時違反限購與分區時仍回限購錯誤（TP-ORDER-032）。
 
