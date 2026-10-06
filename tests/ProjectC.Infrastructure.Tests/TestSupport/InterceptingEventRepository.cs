@@ -17,6 +17,9 @@ public sealed class InterceptingEventRepository : IEventRepository
 
     public Action? AfterGetForUpdate { get; init; }
 
+    /// <summary>非同步版本：持有列鎖期間等待測試放行，不必阻塞執行緒（order-placement-p95-optimization TP-ORDER-023）。</summary>
+    public Func<Task>? AfterGetForUpdateAsync { get; init; }
+
     public Action? OnUpdate { get; init; }
 
     public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
@@ -43,6 +46,11 @@ public sealed class InterceptingEventRepository : IEventRepository
     {
         var @event = await _inner.GetForUpdateAsync(eventId, cancellationToken);
         AfterGetForUpdate?.Invoke();
+        if (AfterGetForUpdateAsync is not null)
+        {
+            await AfterGetForUpdateAsync();
+        }
+
         return @event;
     }
 }

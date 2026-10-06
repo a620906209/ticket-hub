@@ -56,7 +56,7 @@ public sealed class CreateOrderHandler
                 foreach (var heldSeat in heldSeats)
                     heldSeat.ReleaseHold(orderId);
 
-                return Result<Order>.Failure(Error.Conflict($"Seat '{selection.EventSeat.Id}' is no longer available."));
+                return Result<Order>.Failure(PlaceOrderConflictErrors.SeatNoLongerAvailable(selection.EventSeat.Id));
             }
         }
 
@@ -76,7 +76,7 @@ public sealed class CreateOrderHandler
                 foreach (var (ticketType, quantity) in reservedQuantities)
                     ticketType.Release(quantity);
 
-                return Result<Order>.Failure(Error.Conflict($"Ticket type '{selection.TicketType.Id}' does not have enough inventory."));
+                return Result<Order>.Failure(PlaceOrderConflictErrors.TicketTypeInventoryInsufficient(selection.TicketType.Id));
             }
         }
 
