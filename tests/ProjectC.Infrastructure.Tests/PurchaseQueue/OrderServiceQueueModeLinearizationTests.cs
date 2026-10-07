@@ -60,6 +60,8 @@ public class OrderServiceQueueModeLinearizationTests
         public void Update(Event @event) => _inner.Update(@event);
 
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForUpdateAsync(eventId, cancellationToken);
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForShareAsync(eventId, cancellationToken);
     }
 
     /// <summary>純計數票種，確保 OrderService.PlaceOrderAsync 只呼叫一次 GetByIdAsync（座位選購迴圈裡的

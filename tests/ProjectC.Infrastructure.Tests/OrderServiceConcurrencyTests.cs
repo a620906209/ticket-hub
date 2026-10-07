@@ -5,6 +5,7 @@ using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Domain.Members;
 using ProjectC.Domain.Orders;
 using ProjectC.Infrastructure.Persistence;
+using ProjectC.Infrastructure.Persistence.Repositories;
 using ProjectC.Infrastructure.Tests.TestSupport;
 
 namespace ProjectC.Infrastructure.Tests;
@@ -14,6 +15,8 @@ namespace ProjectC.Infrastructure.Tests;
 [Collection(PostgresCollection.Name)]
 public class OrderServiceConcurrencyTests
 {
+    private static readonly TimeSpan WaitTimeout = TimeSpan.FromSeconds(15);
+
     private readonly PostgresFixture _fixture;
 
     public OrderServiceConcurrencyTests(PostgresFixture fixture)
@@ -98,5 +101,65 @@ public class OrderServiceConcurrencyTests
         ticketCount.Should().Be(confirmWon ? 1 : 0, confirmWon
             ? "確認訂單贏得競態時 MUST 出票"
             : "取消訂單贏得競態時，確認訂單那側必然失敗，MUST NOT 建立任何 Ticket");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_TwoOrdersHoldingEventShareLockCompeteForSameSeat_OnlyOneSucceedsAndSeatIsNotOversold()
+    {
+        // TP-ORDER-036（order-placement-p95-phase2 design.md 決策 4）：B1 前兩筆在 Event 鎖就序列化；B1 後兩者都持有共享鎖，
+        // 才會真正同時競爭座位列鎖。以掛點讓兩者都取得共享鎖後才同時放行。
+        await using var seedDbContext = _fixture.CreateDbContext();
+        var (eventId, eventSeatIds) = await TicketingTestData.SeedEventWithSeatsAsync(seedDbContext, seatCount: 1);
+        var ticketTypeId = await TicketingTestData.SeedTicketTypeAsync(seedDbContext, eventId);
+        var buyerIds = new List<Guid>();
+        for (var i = 0; i < 2; i++)
+        {
+            var buyer = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Test Buyer", "hash");
+            seedDbContext.Members.Add(buyer);
+            buyerIds.Add(buyer.Id);
+        }
+
+        await seedDbContext.SaveChangesAsync();
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeatIds[0], ticketTypeId)]);
+
+        var shareLocksAcquired = new[]
+        {
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var releaseBoth = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var dbContextA = _fixture.CreateDbContext();
+        await using var dbContextB = _fixture.CreateDbContext();
+        var tasks = new[] { dbContextA, dbContextB }.Select((dbContext, index) =>
+        {
+            var eventRepository = new InterceptingEventRepository(new EventRepository(dbContext))
+            {
+                AfterGetForShareAsync = async () =>
+                {
+                    shareLocksAcquired[index].TrySetResult();
+                    await releaseBoth.Task;
+                },
+            };
+            return OrderServiceTestFactory.Create(dbContext, eventRepository: eventRepository)
+                .PlaceOrderAsync(buyerIds[index], request, CancellationToken.None);
+        }).ToList();
+
+        try
+        {
+            await Task.WhenAll(shareLocksAcquired.Select(t => t.Task)).WaitAsync(WaitTimeout);
+            releaseBoth.SetResult();
+            var results = await Task.WhenAll(tasks).WaitAsync(WaitTimeout);
+
+            results.Count(r => r.IsSuccess).Should().Be(1, "同一座位只能有一筆下單成功");
+            results.Single(r => !r.IsSuccess).Error.Should().BeEquivalentTo(PlaceOrderConflictErrors.SeatNoLongerAvailable(eventSeatIds[0]),
+                "共享鎖不保護座位，座位列鎖內的判斷才是權威");
+            await using var readDbContext = _fixture.CreateDbContext();
+            (await readDbContext.OrderItems.AsNoTracking().CountAsync(i => i.EventSeatId == eventSeatIds[0]))
+                .Should().Be(1, "同一席座位只能被一筆訂單持有");
+        }
+        finally
+        {
+            releaseBoth.TrySetResult();
+        }
     }
 }

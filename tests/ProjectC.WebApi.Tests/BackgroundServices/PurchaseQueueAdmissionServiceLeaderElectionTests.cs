@@ -651,6 +651,9 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
 
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken)
             => _inner.GetForUpdateAsync(eventId, cancellationToken);
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken)
+            => _inner.GetForShareAsync(eventId, cancellationToken);
     }
 
     private sealed class BlockingServiceProvider : IServiceProvider

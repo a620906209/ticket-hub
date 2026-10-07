@@ -22,7 +22,7 @@ if [ -e "$OUTPUT_PATH" ]; then
   exit 1
 fi
 
-PHASE_COLUMNS='PreTransactionMs, BeginTransactionMs, EventLockWaitMs, InLockMs, CommitMs, TotalMs'
+PHASE_COLUMNS='ConnectionOpenMs, PreTransactionMs, BeginTransactionMs, EventLockWaitMs, InLockMs, CommitMs, TotalMs'
 WHERE="@MessageTemplate like 'PlaceOrder phase timings:%'"
 # 一次量測最多約 500 筆；上限遠大於此，取回筆數仍與 count(*) 比對，避免被截斷而不自知。
 ROW_LIMIT=100000

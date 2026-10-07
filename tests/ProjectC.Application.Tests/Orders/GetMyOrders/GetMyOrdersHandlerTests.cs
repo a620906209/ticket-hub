@@ -179,5 +179,7 @@ public class GetMyOrdersHandlerTests
         public void Update(Event @event) => inner.Update(@event);
 
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => inner.GetForUpdateAsync(eventId, cancellationToken);
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken) => inner.GetForShareAsync(eventId, cancellationToken);
     }
 }

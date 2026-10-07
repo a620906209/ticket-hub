@@ -11,6 +11,27 @@ public interface IUnitOfWork
 {
     /// <summary>開啟一筆新交易。若目前已有進行中的交易，MUST 拋出 <see cref="InvalidOperationException"/>。</summary>
     Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// 開啟資料庫連線並保持到 dispose，讓之後的查詢與交易都用同一條連線，不再每次查詢後歸還連線池、下次重新排隊
+    /// （order-placement-p95-phase2 design.md 決策 2：高併發時每次排隊都排到隊尾，尾端延遲被放大）。
+    /// <list type="bullet">
+    /// <item>MUST 在開啟交易之前呼叫，並以 <c>await using</c> 宣告在交易之前，讓例外與提早 return 時先回滾交易再關連線。</item>
+    /// <item>連線已開啟或已有進行中的交易時 MUST 拋出 <see cref="InvalidOperationException"/>，避免巢狀使用造成另一個呼叫端的連線被提早關閉。</item>
+    /// <item>持有期間連線不回連線池，不得在持有期間等待資料庫以外的慢速 I/O（例如 Redis），應先 dispose。</item>
+    /// <item>專案目前未啟用 <c>EnableRetryOnFailure</c>；若未來啟用，手動開連線加使用者交易必須包在
+    /// <c>CreateExecutionStrategy().ExecuteAsync</c> 內，否則 EF Core 會拋例外。</item>
+    /// </list>
+    /// </summary>
+    Task<IUnitOfWorkConnection> OpenConnectionAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// 代表 <see cref="IUnitOfWork.OpenConnectionAsync"/> 開啟的連線；<see cref="IAsyncDisposable.DisposeAsync"/> 關閉連線、歸還連線池，
+/// 重複 dispose 不做事。關閉失敗不拋出，避免蓋掉呼叫端原本的例外。
+/// </summary>
+public interface IUnitOfWorkConnection : IAsyncDisposable
+{
 }
 
 /// <summary>

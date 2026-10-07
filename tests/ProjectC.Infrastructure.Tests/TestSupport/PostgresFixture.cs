@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using ProjectC.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 
@@ -52,10 +53,11 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async Task DisposeAsync() => await _container.DisposeAsync();
 
     /// <summary>每次呼叫都回傳新的 DbContext instance，模擬獨立的資料庫連線／交易。</summary>
-    public ApplicationDbContext CreateDbContext()
+    public ApplicationDbContext CreateDbContext(params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseNpgsql(ConnectionString)
+            .AddInterceptors(interceptors)
             .Options;
 
         return new ApplicationDbContext(options);

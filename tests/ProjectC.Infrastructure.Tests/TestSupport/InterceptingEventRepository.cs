@@ -53,4 +53,18 @@ public sealed class InterceptingEventRepository : IEventRepository
 
         return @event;
     }
+
+    /// <summary>持有共享鎖期間等待測試放行（order-placement-p95-phase2 TP-ORDER-034～036）。</summary>
+    public Func<Task>? AfterGetForShareAsync { get; init; }
+
+    public async Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken)
+    {
+        var @event = await _inner.GetForShareAsync(eventId, cancellationToken);
+        if (AfterGetForShareAsync is not null)
+        {
+            await AfterGetForShareAsync();
+        }
+
+        return @event;
+    }
 }

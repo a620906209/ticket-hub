@@ -53,4 +53,19 @@ public class EventRepository : IEventRepository
             .AsNoTracking()
             .SingleOrDefaultAsync(cancellationToken);
     }
+
+    // no-tracking 與 Raw SQL 的理由同 GetForUpdateAsync；{eventId} 由 EF 轉成 Npgsql 參數，不是字串拼接。
+    public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken)
+    {
+        _dbContext.EnsureActiveTransaction(nameof(GetForShareAsync));
+
+        return _dbContext.Events
+            .FromSqlInterpolated($"""
+                SELECT * FROM "Events"
+                WHERE "Id" = {eventId}
+                FOR SHARE
+                """)
+            .AsNoTracking()
+            .SingleOrDefaultAsync(cancellationToken);
+    }
 }

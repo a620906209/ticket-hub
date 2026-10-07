@@ -27,12 +27,13 @@ public static class OrderServiceTestFactory
         ILogger<OrderService>? logger = null,
         IQueryCache? queryCache = null,
         IDateTimeProvider? dateTimeProvider = null,
-        IPurchaseQueueAdmissionMirror? admissionMirror = null)
+        IPurchaseQueueAdmissionMirror? admissionMirror = null,
+        IEventSeatRepository? eventSeatRepository = null)
     {
         dateTimeProvider ??= new SystemDateTimeProvider();
         return new OrderService(
             new TicketTypeRepository(dbContext),
-            new EventSeatRepository(dbContext),
+            eventSeatRepository ?? new EventSeatRepository(dbContext),
             eventRepository ?? new EventRepository(dbContext),
             new SeatMapRepository(dbContext),
             new OrderRepository(dbContext),
