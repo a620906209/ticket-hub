@@ -90,10 +90,11 @@
 
 ## 5. 正式驗收（Release／Debug × 數量票／座位票各 3 次）
 
-2026-10-07 03:51～04:48 UTC 依 `loadtest/README.md` 執行，流程與第一階段相同：不帶 `LT_MEASURE_TAG`、不疊加量測 override（每次執行前確認 api 環境變數不含 `Serilog__MinimumLevel__Override__*`、PID 1 組態正確）、不取樣、每次前重跑 seeder、間隔至少 60 秒。先 force-recreate api 為 Release 跑 3 輪（每輪數量票、座位票各 1 次），再 force-recreate 回 Debug 跑 3 輪；**沒有捨棄用的暖身**（README 未要求，維持與第一階段同口徑）。開始前確認 api 容器內無外部 `dotnet test`、殘留的 Testcontainers 已清除。第一階段的 12 份 summary 與 `report-tables.md` 已移到 `loadtest/.output/p95-optimization-phase1/`。
+2026-10-07 03:51～04:48 UTC 依 `loadtest/README.md` 執行，流程與第一階段相同：不帶 `LT_MEASURE_TAG`、不疊加量測 override（每次執行前確認 api 環境變數不含 `Serilog__MinimumLevel__Override__*`、PID 1 組態正確）、不取樣、每次前重跑 seeder、間隔至少 60 秒。先 force-recreate api 為 Release 跑 3 輪（每輪數量票、座位票各 1 次），再 force-recreate 回 Debug 跑 3 輪；**沒有捨棄用的暖身**（README 未要求，維持與第一階段同口徑）。開始前確認 api 容器內無外部 `dotnet test`、殘留的 Testcontainers 已清除（手動確認，未留存紀錄）。第一階段的 12 份 summary 與 `report-tables.md` 已移到 `loadtest/.output/p95-optimization-phase1/`。
 
 - 12 次的 `place_order_unexpected` 皆為 0（無 401 等非預期狀態）、成功 50、409 450、5xx 0、QuantitySold 50、超賣 0。
-- seeder 除了 api 重建後的第一次以外，每次都因前一輪留下的連線占滿 `max_connections` 而失敗 4 次（`Routine: InitProcess`，共 40 次），每次間隔 30 秒；暫存腳本只記錄失敗、第 5 次的結果沒有記錄，因此無法直接證明每次 k6 都用到當次簽發的 token（README 要求不得沿用舊 token）。12 次皆無 401，只能證明 token 未過期。第一階段同樣重試（`p95-optimization-phase1/formal.log` 38 次）。
+- seeder 除了 api 重建後的第一次以外，每次都失敗 4 次（`Routine: InitProcess`，共 40 次；推測為前一輪留下的連線占滿 `max_connections`，見 README 第 1 步），每次間隔 30 秒。腳本會記錄每一次失敗（含第 5 次），log 中沒有 `try 5`，表示每次都在第 5 次成功（exit 0）後才執行 k6；成功輸出沒有逐次留存，只有最後一次的 `tokens.json`（04:45:52 UTC）可直接對照。第一階段同樣重試（`p95-optimization-phase1/formal.log` 38 次）。
+- 暫存腳本 `formal.log` 的 `k6exit=` 欄位取到的是 `date` 的結束碼，恆為 0，不能當作 k6 exit code（第一階段相同）。單次判定以 summary 的 `runVerdict` 為準；k6 log 中只有兩次未通過的執行出現 threshold 失敗。
 
 下表為 `aggregate.js` 輸出，未經修改。
 
@@ -153,7 +154,7 @@
 - 與第一階段（`docs/load-test/p95-optimization-report.md` 第 4 節）比較，Release P95 中位數：數量票 814.45 → 414.61ms，座位票 711.04 → 241.28ms。
 
 <!-- unmet-reason:count-ticket -->
-**數量票未達標原因**：判定要求 3 次都通過，第 1 次是 api 重建後的第一次執行（冷啟動），Release P95 918.34ms，第 2、3 次為 414.61、369.37ms。同版程式碼（B2）的冷、暖量測：`measure-after-b2-count-ticket-release-run1-summary.json`（重啟後第一次）k6 P95 733.89ms、Total p95 637.7ms、ConnectionOpen p95 519.7ms；`measure-after-b2-warm-count-ticket-release-run1-summary.json`（暖身後）k6 P95 380.78ms、Total p95 372.9ms、ConnectionOpen p95 286.1ms（分段見 `measure-after-b2-phases-count-ticket.json`、`measure-after-b2-warm-phases-count-ticket.json`）。冷啟動多出的時間大半落在 ConnectionOpen（含建立實體連線、連線池等待），推測與 JIT、連線池從零建立 100 條連線有關，**未驗證**。座位票的第 1 次排在數量票之後，已非冷啟動。暖機後的數量票 P95 已低於 500ms；要讓冷啟動的第一波也達標，需減少突發時占用的連線數或預先建立連線（候選：Redis 預扣閘門，先在 Redis 擋掉售完後的請求、不進資料庫；另開 change，見 `docs/project-scope.md` §8）。
+**數量票未達標原因**：判定要求 3 次都通過，第 1 次是 api 重建後的第一次執行（冷啟動），Release P95 918.34ms，第 2、3 次為 414.61、369.37ms。同版程式碼（B2）的冷、暖量測（量測組態，含 Serilog override，與正式驗收組態不同，僅供比較冷暖差距）：`measure-after-b2-count-ticket-release-run1-summary.json`（重啟後第一次）k6 P95 733.89ms、Total p95 637.7ms、ConnectionOpen p95 519.7ms；`measure-after-b2-warm-count-ticket-release-run1-summary.json`（暖身後）k6 P95 380.78ms、Total p95 372.9ms、ConnectionOpen p95 286.1ms（分段見 `measure-after-b2-phases-count-ticket.json`、`measure-after-b2-warm-phases-count-ticket.json`）。冷啟動多出的時間大半落在 ConnectionOpen（含建立實體連線、連線池等待），推測與 JIT、連線池從零建立 100 條連線有關，**未驗證**。座位票的第 1 次排在數量票之後，已非冷啟動。暖機後的數量票 P95 已低於 500ms；要讓冷啟動的第一波也達標，需減少突發時占用的連線數或預先建立連線（候選：Redis 預扣閘門，先在 Redis 擋掉售完後的請求、不進資料庫；另開 change，見 `docs/project-scope.md` §8）。
 
 **基準檔驗證（LT-REPORT-007）**：`bash loadtest/check-baseline-reports.sh verify`（exit 0）
 
@@ -169,10 +170,10 @@ OK: phase 1 reports unchanged since BASELINE (docs/load-test/report.md docs/load
 
 ## 6. 最終判定與限制
 
-- **座位票：達成** Release P95 < 500ms（3 次皆通過，中位數 241.28ms）。
+- **座位票：達成** Release P95 < 500ms（3 次皆通過，中位數 241.28ms），**但達成依賴執行順序**：正式流程固定先跑數量票，座位票從未在 api 重建後的第一次（冷啟動）驗收。量測組態下 B2 的座位票作為重建後第一次執行時，k6 P95 為 496.84～593.96ms，5 次中 4 次 ≥ 500ms（`measure-after-b2-warm-warmup-seat-ticket-release-run1-summary.json` 527.79ms、`measure-after-b2-probe-warmup-…` 593.96ms、`probe2` 580.81ms、`probe3` 573.92ms、`probe4` 496.84ms）。
 - **數量票：未達成**（依 3 次皆須通過的判定）。暖機後 2 次為 414.61、369.37ms，冷啟動第 1 次 918.34ms，原因見第 5 節。
 - B1、B2 皆採用；12 次無超賣、無 5xx。
 - 限制：
   - 切換排隊模式只在突發流量下探測 1 次（第 4 節，222ms），寫入者飢餓本次未觀測到但無法排除；持續流量下加入排隊與共享鎖重疊的情況沒有壓測場景，**已接受**，記入 `docs/project-scope.md` §8。
-  - 正式驗收不含暖身，冷啟動對數量票的影響大於 B1／B2 之間的差距；冷啟動原因未驗證。
+  - 正式驗收不含暖身。冷啟動影響的是 api 重建後的第一個 scenario（數量票、座位票皆然），影響大於 B1／B2 之間的差距；冷啟動原因未驗證。
   - 環境為單機 Docker Desktop（WSL2），Release 仍以 `ASPNETCORE_ENVIRONMENT=Development` 執行。

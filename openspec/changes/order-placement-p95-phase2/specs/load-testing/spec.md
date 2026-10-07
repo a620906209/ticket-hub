@@ -45,5 +45,5 @@
   - 工作樹與 index 也沒有修改兩份報告
 
 #### Scenario: LT-REPORT-008 第二階段未達標時說明原因
-- **WHEN** 重跑後 Release 任一 scenario 的 P95 仍 ≥ 500ms
+- **WHEN** 重跑後 Release 任一 scenario 有任一次執行的 P95 ≥ 500ms（與 LT-REPEAT 的單次判定相同）
 - **THEN** 報告判定未達成，`check-report-tables.sh` 對每個未達標 scenario 檢查到 `<!-- unmet-reason:<scenario> -->` 區段，且區段引用至少一個 `measure-` 開頭的量測檔名與一個毫秒數值；門檻與口徑不變
