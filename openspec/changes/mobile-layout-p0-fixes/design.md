@@ -44,7 +44,7 @@
 jsdom 不做版面計算（`scrollWidth`、grid 軌道寬度恆為 0），無法用 Vitest 驗證溢出。專案目前也沒有 Playwright 等 E2E 框架，只為這一條需求引入新框架，不符合 Rule 2（最小解法）。
 
 因此：
-- **溢出**：以固定的量測腳本（同源 iframe 設定 320／390／720／721／800／1280px 寬，其中 720 與 721 是 media query 斷點兩側、等待載入、讀取 `scrollWidth` 與資訊欄寬度）在瀏覽器實測，每個 Scenario 對應一項量測，並把數值記錄在 tasks.md。修改前先量一次基準值，必須重現 470 的失敗；修改後再量，用以證明這個檢查真的能抓到問題。
+- **溢出**：以固定的量測腳本（同源 iframe 設定 320／390／720／721／800／1280px 寬，其中 720 與 721 是 media query 斷點兩側、等待載入、讀取 `scrollWidth` 與資訊欄寬度）在瀏覽器實測。量測基準一律是 W：iframe 加高到不會產生垂直捲軸，使 `clientWidth` 等於 W，與 spec 的「視窗寬度」一致，也符合手機覆蓋式捲軸不佔寬度的實際情境；`clientWidth` 不等於 W 時該次量測無效。每個 Scenario 對應一項量測，並把數值記錄在 tasks.md。修改前先量一次基準值，必須重現 470 的失敗；修改後再量，用以證明這個檢查真的能抓到問題。
 - **`lang`**：Vitest 以 `import indexHtml from '../index.html?raw'` 取得檔案內容，用 jsdom 的 `DOMParser` 解析後，斷言 `documentElement.lang === 'zh-Hant-TW'`。這是對建置輸入的直接斷言，有人改回去就會失敗。不使用 `node:fs` 讀檔，因為 `tsconfig.app.json` 涵蓋 `src/**/*.ts`，而 `types` 只有 `vite/client`，沒有 node 型別，`npm run build` 的 `vue-tsc -b` 會失敗。`?raw` 的型別已經由 `vite/client` 宣告，不需要修改型別設定。
 
 **不採用**：用 Vitest 讀取 `.vue` 的 `<style>` 字串，斷言其中含有 `minmax(0` 或 `flex-wrap`。這只能驗證寫法，不能驗證行為：換一種同樣有效的寫法會誤報失敗，加入新的不換行元件造成溢出時卻抓不到（違反 Rule 9）。
