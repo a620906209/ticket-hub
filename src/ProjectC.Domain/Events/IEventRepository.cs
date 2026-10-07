@@ -22,4 +22,11 @@ public interface IEventRepository
 
     /// <summary>以 FOR UPDATE 鎖定並讀取活動，MUST 為 no-tracking（見 rate-limiting-queue design.md 決策 4）。</summary>
     Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken);
+
+    /// <summary>以 FOR SHARE 鎖定並讀取活動，MUST 為 no-tracking，MUST 在進行中的交易內呼叫。
+    /// 供只讀 <c>IsQueueModeEnabled</c> 的建立訂單使用：共享鎖彼此相容，同一活動的下單不再逐筆通過；
+    /// 與 <see cref="GetForUpdateAsync"/>（切換排隊模式的寫入者）互斥，因此下單與切換的線性化不變
+    /// （order-placement-p95-phase2 design.md 決策 1）。<see cref="GetForUpdateAsync"/> 不改：切換排隊模式、
+    /// 加入排隊、入場推進仍需要與下單互斥的排他鎖。</summary>
+    Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken);
 }

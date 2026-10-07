@@ -18,6 +18,7 @@
 - **ORM**：Entity Framework Core（主力）；Dapper 僅用於效能敏感場景（須說明理由）
 
 ---
+
 ## 執行環境（強制前提）
 
 > 本專案所有服務跑在 Docker Compose 容器內，本機不安裝 .NET SDK / PostgreSQL。
@@ -56,7 +57,7 @@
 - `Infrastructure`：EF Core 實作、外部 API 串接、檔案/快取/信件等技術細節，實作 `Domain` 定義的介面。reference `Domain` + `Application`。
 - `WebApi`：Controller、DI 註冊、middleware。reference 全部。
 
-### 強制規則
+### 架構強制規則
 
 - `Domain.csproj` 禁止 `<ProjectReference>` 指向任何其他專案；PR review 時檢查此點。
 - Repository / 外部服務介面一律定義在 `Domain`，實作放 `Infrastructure`——不得將介面與實作放在同一專案。
@@ -67,7 +68,9 @@
 
 - Entity 數量少（< 5 個）時，Application 可直接注入 `DbContext`，不必每個 Entity 都建 Repository 介面；出現重複查詢邏輯時才抽出。
 - Value Object、Domain Event 非必要不用，出現「同一驗證邏輯在多處重複」時才導入 Value Object。
+
 ---
+
 ## 禁止行為
 
 - 禁止在未確認 spec 對應關係的情況下開始實作
@@ -201,6 +204,7 @@
 - 若不確定該選哪個 lifetime，預設用 **Scoped**，並在 PR 說明中標注理由待確認
 
 ---
+
 ## 前端規範（Vue 3 為主）
 
 ### 命名
@@ -254,6 +258,13 @@
 1. 這個 task 對應哪一條 spec？（必須能指向具體文件與段落）
 2. Acceptance Criteria 是否已定義且可測量？每一條是否已對應至少一項測試任務（xUnit / NUnit 單元測試或整合測試）？未對應者禁止進入實作階段。
 3. 這個 task 完成後，哪些 spec 文件需要同步更新？
+
+### Spec Review 與 Implementation Review 邊界
+
+- **Spec review 階段**只審查 `proposal.md`、`design.md`、`specs/**`、`tasks.md` 的完整性、可測量性、AC 與測試任務的雙向映射，以及與既有規格的一致性。
+- Spec review 階段**不得將尚未依 tasks 實作的程式碼、測試檔案或腳本不存在視為 blocker**；這些檔案尚未建立是正常的提案狀態。
+- **Implementation / strict review 階段**才檢查實際檔案是否已建立、程式碼是否符合 spec、測試是否存在且通過，以及實作與規格是否一致。
+- 若 spec 已列出自動化測試 task，但測試檔案尚未建立，Spec review 應檢查 task 的測試目標、驗證步驟與失敗分支是否清楚，不要求提前建立測試檔案。
 
 ### Change 顆粒度（建立 proposal 時檢查）
 

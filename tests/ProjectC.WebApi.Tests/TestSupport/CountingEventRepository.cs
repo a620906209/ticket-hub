@@ -49,4 +49,7 @@ public sealed class CountingEventRepository : IEventRepository
 
     public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken)
         => _inner.GetForUpdateAsync(eventId, cancellationToken);
+
+    public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken)
+        => _inner.GetForShareAsync(eventId, cancellationToken);
 }

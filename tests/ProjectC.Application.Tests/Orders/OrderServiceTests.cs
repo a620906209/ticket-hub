@@ -275,7 +275,7 @@ public class OrderServiceTests
         var (@event, foreignEventSeat, ticketType) = fixture.SeedEventWithSeatFromAnotherSeatMap(foreignSeatZoneCode: "B", ticketTypeZoneCode: "A");
         @event.EnableQueueMode();
         fixture.EventRepository.GetByIdOverride = _ => null;
-        fixture.EventRepository.GetForUpdateOverride = _ => @event;
+        fixture.EventRepository.GetForShareOverride = _ => @event;
         var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(foreignEventSeat.Id, ticketType.Id)]);
 
         var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
@@ -1196,7 +1196,7 @@ public class OrderServiceTests
         var buyerId = Guid.NewGuid();
         if (isBuyerRegistered)
             fixture.MemberRealNameRepository.Data[buyerId] = new MemberRealName("王小明", "1234");
-        fixture.EventRepository.GetForUpdateOverride = _ => CopyWithRealNameRequired(@event, true);
+        fixture.EventRepository.GetForShareOverride = _ => CopyWithRealNameRequired(@event, true);
         var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
 
         var act = () => fixture.CreateOrderService().PlaceOrderAsync(buyerId, request, CancellationToken.None);
@@ -1214,7 +1214,7 @@ public class OrderServiceTests
         var availableQuantityBefore = ticketType.AvailableQuantity;
         var buyerId = Guid.NewGuid();
         fixture.MemberRealNameRepository.Data[buyerId] = new MemberRealName("王小明", "1234");
-        fixture.EventRepository.GetForUpdateOverride = _ => CopyWithRealNameRequired(@event, false);
+        fixture.EventRepository.GetForShareOverride = _ => CopyWithRealNameRequired(@event, false);
         var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id)]);
 
         var act = () => fixture.CreateOrderService().PlaceOrderAsync(buyerId, request, CancellationToken.None);
@@ -1339,7 +1339,7 @@ public class OrderServiceTests
         var fixture = new Fixture();
         var salesEndAtUtc = Now.AddMinutes(1);
         var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(salesEndAtUtc: salesEndAtUtc);
-        fixture.EventRepository.GetForUpdateOverride = _ =>
+        fixture.EventRepository.GetForShareOverride = _ =>
         {
             fixture.DateTimeProvider.UtcNow = salesEndAtUtc;
             return @event;
@@ -1582,7 +1582,7 @@ public class OrderServiceTests
         var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
         var queueModeEventUnderLock = new Event(@event.Id, @event.Title, @event.StartAtUtc, @event.VenueId, @event.SeatMapId, @event.OrganizerId);
         queueModeEventUnderLock.EnableQueueMode();
-        fixture.EventRepository.GetForUpdateOverride = _ => queueModeEventUnderLock;
+        fixture.EventRepository.GetForShareOverride = _ => queueModeEventUnderLock;
         MarkSeatSold(eventSeat);
 
         var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
@@ -1668,14 +1668,55 @@ public class OrderServiceTests
         fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
         var entry = GetSinglePhaseTimingEntry(fixture);
         entry.Properties["Outcome"].Should().Be("Conflict");
+        entry.Properties["ConnectionOpenMs"].Should().BeOfType<double>("提早 409 前已查過資料庫，連線已開啟");
         entry.Properties["PreTransactionMs"].Should().BeOfType<double>();
         entry.Properties["TotalMs"].Should().BeOfType<double>();
         foreach (var field in InTransactionPhaseFields)
             entry.Properties[field].Should().BeNull($"提早 409 沒開交易，{field} 必須是 null");
     }
 
+    // LT-MEASURE-002（order-placement-p95-phase2）：開啟連線後、開交易前的拒絕，ConnectionOpenMs 有值、交易內分段為 null。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenDebugEnabledAndTicketTypeNotFound_LogsConnectionOpenWithNullInTransactionPhases()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(
+            Guid.NewGuid(), new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, Guid.NewGuid())]), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        AssertRejectedAfterConnectionOpened(GetSinglePhaseTimingEntry(fixture), "NotFound");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenDebugEnabledAndItemsSpanEvents_LogsConnectionOpenWithNullInTransactionPhases()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+        var (_, _, eventSeatFromEventA, _) = fixture.SeedEventWithSeatAndTicketType();
+        var (_, _, _, ticketTypeFromEventB) = fixture.SeedEventWithSeatAndTicketType();
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(
+            Guid.NewGuid(), CreateSingleSeatRequest(eventSeatFromEventA, ticketTypeFromEventB), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.Message.Should().Contain("same event", "必須是跨活動檢查擋下，不是 validator");
+        AssertRejectedAfterConnectionOpened(GetSinglePhaseTimingEntry(fixture), "Validation");
+    }
+
+    private static void AssertRejectedAfterConnectionOpened(CapturedLogEntry entry, string expectedOutcome)
+    {
+        entry.Properties["Outcome"].Should().Be(expectedOutcome);
+        entry.Properties["ConnectionOpenMs"].Should().BeOfType<double>();
+        entry.Properties["PreTransactionMs"].Should().BeOfType<double>();
+        entry.Properties["TotalMs"].Should().BeOfType<double>();
+        foreach (var field in InTransactionPhaseFields)
+            entry.Properties[field].Should().BeNull($"交易沒開始，{field} 必須是 null 而不是 0");
+    }
+
     private static readonly string[] PhaseTimingFields =
-        ["Outcome", "HasSeatItems", "PreTransactionMs", "BeginTransactionMs", "EventLockWaitMs", "InLockMs", "CommitMs", "TotalMs"];
+        ["Outcome", "HasSeatItems", "ConnectionOpenMs", "PreTransactionMs", "BeginTransactionMs", "EventLockWaitMs", "InLockMs", "CommitMs", "TotalMs"];
 
     private static readonly string[] InTransactionPhaseFields = ["BeginTransactionMs", "EventLockWaitMs", "InLockMs", "CommitMs"];
 
@@ -1709,22 +1750,21 @@ public class OrderServiceTests
         entry.Exception.Should().BeNull();
     }
 
-    // LT-MEASURE-002 前置驗證：交易前就被拒絕時，交易內分段是「沒到達」而不是 0。
+    // LT-MEASURE-002 前置驗證：validator 擋下時沒開連線也沒開交易，這些分段是「沒到達」而不是 0。
     [Fact]
     public async Task PlaceOrderAsync_WhenDebugEnabledAndRejectedBeforeTransaction_LogsNullInTransactionPhases()
     {
         var fixture = new Fixture();
         fixture.Logger.IsDebugEnabled = true;
-        var (_, _, eventSeatFromEventA, _) = fixture.SeedEventWithSeatAndTicketType();
-        var (_, _, _, ticketTypeFromEventB) = fixture.SeedEventWithSeatAndTicketType();
 
-        var result = await fixture.CreateOrderService().PlaceOrderAsync(
-            Guid.NewGuid(), CreateSingleSeatRequest(eventSeatFromEventA, ticketTypeFromEventB), CancellationToken.None);
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), new PlaceOrderRequest([]), CancellationToken.None);
 
         result.Error!.Type.Should().Be(ErrorType.Validation);
+        fixture.UnitOfWork.OpenConnectionCallCount.Should().Be(0);
         fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
         var entry = GetSinglePhaseTimingEntry(fixture);
         entry.Properties["Outcome"].Should().Be("Validation");
+        entry.Properties["ConnectionOpenMs"].Should().BeNull("validator 失敗不開連線");
         entry.Properties["PreTransactionMs"].Should().BeOfType<double>();
         entry.Properties["TotalMs"].Should().BeOfType<double>();
         foreach (var field in InTransactionPhaseFields)
@@ -1751,15 +1791,57 @@ public class OrderServiceTests
         var fixture = new Fixture();
         fixture.Logger.IsDebugEnabled = true;
         var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
-        fixture.EventRepository.GetForUpdateOverride = _ => CopyWithRealNameRequired(@event, true);
+        fixture.EventRepository.GetForShareOverride = _ => CopyWithRealNameRequired(@event, true);
 
         var act = () => fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
 
         var thrown = (await act.Should().ThrowAsync<InvalidOperationException>()).Which;
         var entry = GetSinglePhaseTimingEntry(fixture);
         entry.Properties["Outcome"].Should().Be("Exception");
+        entry.Properties["ConnectionOpenMs"].Should().BeOfType<double>();
         entry.Exception.Should().BeNull();
         entry.Message.Should().NotContain(thrown.Message);
         entry.Properties.Values.OfType<string>().Should().NotContain(value => value.Contains(@event.Id.ToString()));
+    }
+
+    // 分段以 Stopwatch 單調時鐘量測：WSL2 牆上時鐘會跳動，若任一時間點改讀 IDateTimeProvider，該分段會多出約 1 小時。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenWallClockJumpsDuringOrder_PhaseTimingsUnaffected()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        fixture.EventRepository.GetForShareOverride = _ =>
+        {
+            fixture.DateTimeProvider.UtcNow = fixture.DateTimeProvider.UtcNow.AddHours(1);
+            return @event;
+        };
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), CreateSingleSeatRequest(eventSeat, ticketType), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("活動開始於一天後，推進一小時仍在販售期間");
+        var entry = GetSinglePhaseTimingEntry(fixture);
+        foreach (var field in PhaseTimingFields.Skip(2))
+            entry.Properties[field].Should().BeOfType<double>().Which.Should().BeInRange(0, 10_000, $"{field} 不得受牆上時鐘跳動影響（跳動一小時）");
+    }
+
+    // 上一個測試抓不到「所有時間點一致改用 DateTime.UtcNow」；以 IL 檢查不受註解與 using static 影響。
+    // 只掃 OrderService 與其巢狀型別（含 async 狀態機與 closure），不追進其他類別；把計時搬到其他類別要靠審查把關。
+    // Application 層的業務時間一律走 IDateTimeProvider，所以整個 OrderService 都不該直接讀牆上時鐘。
+    [Fact]
+    public void OrderService_DoesNotReadWallClockDirectly()
+    {
+        var calledMethods = IlMethodCallReader.GetCalledMethodsIncludingNestedTypes(typeof(OrderService));
+
+        calledMethods.Should().NotContain(
+            m => (m.DeclaringType == typeof(DateTime) || m.DeclaringType == typeof(DateTimeOffset)) && (m.Name == "get_Now" || m.Name == "get_UtcNow" || m.Name == "get_Today"),
+            "分段耗時必須用 Stopwatch，業務時間必須用 IDateTimeProvider");
+        // TimeProvider.GetTimestamp 是單調時鐘，不在禁止之列；只擋讀牆上時鐘的兩個方法。
+        calledMethods.Should().NotContain(
+            m => m.DeclaringType != null && typeof(TimeProvider).IsAssignableFrom(m.DeclaringType) && (m.Name == nameof(TimeProvider.GetUtcNow) || m.Name == nameof(TimeProvider.GetLocalNow)),
+            "業務時間必須用 IDateTimeProvider，fake 才控制得到");
+        calledMethods.Should().Contain(
+            m => m.DeclaringType == typeof(System.Diagnostics.Stopwatch) && m.Name == nameof(System.Diagnostics.Stopwatch.GetTimestamp),
+            "確認 IL 讀取有涵蓋到分段量測的程式碼，避免因讀不到而空洞通過");
     }
 }

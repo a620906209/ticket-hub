@@ -643,6 +643,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
             => eventId == _throwingEventId
                 ? throw new InvalidOperationException("Simulated per-activity connection failure for test.")
                 : _inner.GetForUpdateAsync(eventId, cancellationToken);
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForShareAsync(eventId, cancellationToken);
     }
 
     private sealed class EventRepositoryInterceptingScopeFactory : IServiceScopeFactory
@@ -829,6 +831,8 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
 
             return _inner.GetForUpdateAsync(eventId, cancellationToken);
         }
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForShareAsync(eventId, cancellationToken);
     }
 
     private sealed class CancelOnTargetEventScopeFactory : IServiceScopeFactory

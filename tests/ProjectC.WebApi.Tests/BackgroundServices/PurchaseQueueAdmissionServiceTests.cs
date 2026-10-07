@@ -574,6 +574,8 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
             await _onGetForUpdateReturned();
             return result;
         }
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForShareAsync(eventId, cancellationToken);
     }
 
     private sealed class DisablingServiceProvider : IServiceProvider

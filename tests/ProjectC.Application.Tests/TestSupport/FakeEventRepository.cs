@@ -15,10 +15,11 @@ public sealed class FakeEventRepository : IEventRepository
     public IReadOnlyList<Guid>? LastGetByIdsIds { get; private set; }
     public CancellationToken? LastGetByIdsToken { get; private set; }
 
-    // 分別覆寫交易外 GetByIdAsync 與交易內 GetForUpdateAsync 的回傳，模擬兩次讀取結果不同
+    // 分別覆寫交易外 GetByIdAsync 與交易內 GetForUpdateAsync／GetForShareAsync 的回傳，模擬兩次讀取結果不同
     // （real-name-verification TP-RN-ORDER-007～009、PQ-RN-JOIN-007／008）。
     public Func<Guid, Event?>? GetByIdOverride { get; set; }
     public Func<Guid, Event?>? GetForUpdateOverride { get; set; }
+    public Func<Guid, Event?>? GetForShareOverride { get; set; }
 
     public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
@@ -49,6 +50,9 @@ public sealed class FakeEventRepository : IEventRepository
     // 比照 FakeTicketTypeRepository：Fake 不需要真的模擬鎖定，只回傳實際存在的實體。
     public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken)
         => Task.FromResult(GetForUpdateOverride is null ? Data.FirstOrDefault(e => e.Id == eventId) : GetForUpdateOverride(eventId));
+
+    public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken)
+        => Task.FromResult(GetForShareOverride is null ? Data.FirstOrDefault(e => e.Id == eventId) : GetForShareOverride(eventId));
 
     // Event 是 reference type，Data 已持有同一實例，呼叫端對取得的實體所做的修改本來就反映在 Data 中；
     // 這裡不需要另外做任何事（比照 in-memory fake 對「標記為已修改」語意的既定簡化）。

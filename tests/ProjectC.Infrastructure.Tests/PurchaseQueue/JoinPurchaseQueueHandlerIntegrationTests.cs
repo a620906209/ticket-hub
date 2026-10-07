@@ -77,6 +77,8 @@ public class JoinPurchaseQueueHandlerIntegrationTests
         public void Update(Event @event) => _inner.Update(@event);
 
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForUpdateAsync(eventId, cancellationToken);
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForShareAsync(eventId, cancellationToken);
     }
 
     private async Task<(Guid EventId, Guid MemberId)> SeedEventAndMemberAsync(ApplicationDbContext dbContext, bool isQueueModeEnabled = true)

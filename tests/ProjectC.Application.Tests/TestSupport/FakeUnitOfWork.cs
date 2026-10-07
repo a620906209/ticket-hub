@@ -13,6 +13,27 @@ public sealed class FakeUnitOfWork : IUnitOfWork
         LastTransaction = new FakeUnitOfWorkTransaction();
         return Task.FromResult<IUnitOfWorkTransaction>(LastTransaction);
     }
+
+    public int OpenConnectionCallCount { get; private set; }
+    public FakeUnitOfWorkConnection? LastConnection { get; private set; }
+
+    public Task<IUnitOfWorkConnection> OpenConnectionAsync(CancellationToken cancellationToken)
+    {
+        OpenConnectionCallCount++;
+        LastConnection = new FakeUnitOfWorkConnection();
+        return Task.FromResult<IUnitOfWorkConnection>(LastConnection);
+    }
+}
+
+public sealed class FakeUnitOfWorkConnection : IUnitOfWorkConnection
+{
+    public bool IsDisposed { get; private set; }
+
+    public ValueTask DisposeAsync()
+    {
+        IsDisposed = true;
+        return ValueTask.CompletedTask;
+    }
 }
 
 public sealed class FakeUnitOfWorkTransaction : IUnitOfWorkTransaction

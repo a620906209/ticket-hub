@@ -46,6 +46,8 @@ public class QueryCacheTtlSafetyNetTests
         public void Add(Event @event) => throw new NotSupportedException();
         public void Update(Event @event) => throw new NotSupportedException();
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class AlwaysThrowingTicketTypeRepository : ITicketTypeRepository
@@ -702,6 +704,8 @@ public class QueryCacheTtlSafetyNetTests
         public void Add(Event @event) => _inner.Add(@event);
         public void Update(Event @event) => _inner.Update(@event);
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForUpdateAsync(eventId, cancellationToken);
+
+        public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForShareAsync(eventId, cancellationToken);
     }
 
     private sealed class CountingTicketTypeRepository : ITicketTypeRepository

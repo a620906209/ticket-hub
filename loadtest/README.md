@@ -124,7 +124,8 @@ docker compose up -d --no-deps api
 ```
 
 - `docker-compose.loadtest-measure.yml` 只把 `OrderService` 降到 Debug。Console sink 在 `appsettings.json` 限制為 Information，分段 log 只進 Seq（`http://localhost:8081`）。
-- 每筆下單一行：`PlaceOrder phase timings: Outcome=… HasSeatItems=… PreTransactionMs=… BeginTransactionMs=… EventLockWaitMs=… InLockMs=… CommitMs=… TotalMs=…`（未走到的分段為 null）。
+- 每筆下單一行：`PlaceOrder phase timings: Outcome=… HasSeatItems=… ConnectionOpenMs=… PreTransactionMs=… BeginTransactionMs=… EventLockWaitMs=… InLockMs=… CommitMs=… TotalMs=…`（未走到的分段為 null）。
+- `ConnectionOpenMs`：開始到下單連線開啟完成（含連線池等待），屬於 PreTransaction 的一部分；validator 失敗不開連線，為 null。order-placement-p95-phase2 起整筆下單只借一次連線，連線池等待從 BeginTransaction 移到這一段，與第一階段比較分段時須註明口徑差異，以 Total 與 k6 P95 為主。
 - 切換後依「Release 組態對照」確認 PID 1，並確認環境變數：`docker compose exec api printenv | grep Serilog__`。
 
 ### 無競爭基準（`baseline.js`）
@@ -163,7 +164,7 @@ bash loadtest/export-measure-phases.sh <start-utc> <end-utc> loadtest/.output/me
 - 匯出內容：全部樣本與依 `Outcome` 分組的各分段筆數（非 null）、p50、p95、max（毫秒），以及原始值（`raw`）。以 Seq 的 `/api/data` 取出原始值，再由 `lib/phase-stats.jq` 精確計算（排序後線性內插，與 k6 的 `p(N)` 同定義）：
 
   ```sql
-  select Outcome, PreTransactionMs, BeginTransactionMs, EventLockWaitMs, InLockMs, CommitMs, TotalMs
+  select Outcome, ConnectionOpenMs, PreTransactionMs, BeginTransactionMs, EventLockWaitMs, InLockMs, CommitMs, TotalMs
   from stream where @MessageTemplate like 'PlaceOrder phase timings:%' limit 100000
   ```
 

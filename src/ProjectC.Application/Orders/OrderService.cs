@@ -106,10 +106,11 @@ public sealed class OrderService
         // 鎖內被拒絕（壓測九成樣本是鎖內 409）沒有 commit，InLock 以結束時間收尾，否則最主要的樣本量不到鎖內耗時；
         // 此時 InLock 含交易 dispose 的回滾時間。
         _logger.LogDebug(
-            "PlaceOrder phase timings: Outcome={Outcome} HasSeatItems={HasSeatItems} PreTransactionMs={PreTransactionMs} " +
+            "PlaceOrder phase timings: Outcome={Outcome} HasSeatItems={HasSeatItems} ConnectionOpenMs={ConnectionOpenMs} PreTransactionMs={PreTransactionMs} " +
             "BeginTransactionMs={BeginTransactionMs} EventLockWaitMs={EventLockWaitMs} InLockMs={InLockMs} CommitMs={CommitMs} TotalMs={TotalMs}",
             outcome,
             hasSeatItems,
+            PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.Start, timings.ConnectionOpened),
             PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.Start, timings.TransactionStarting ?? endTimestamp),
             PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.TransactionStarting, timings.TransactionBegun),
             PlaceOrderPhaseTimings.GetElapsedMilliseconds(timings.TransactionBegun, timings.EventLocked),
@@ -123,6 +124,7 @@ public sealed class OrderService
     private sealed class PlaceOrderPhaseTimings(long start)
     {
         public long Start { get; } = start;
+        public long? ConnectionOpened { get; set; }
         public long? TransactionStarting { get; set; }
         public long? TransactionBegun { get; set; }
         public long? EventLocked { get; set; }
@@ -141,6 +143,11 @@ public sealed class OrderService
         {
             return Result<Guid>.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
         }
+
+        // 整筆下單只向連線池借一次連線，避免每次查詢後歸還、下次重新排到隊尾（order-placement-p95-phase2 design.md 決策 2）。
+        // 宣告在交易之前，離開方法時先回滾交易再關連線。
+        await using var connection = await _unitOfWork.OpenConnectionAsync(cancellationToken);
+        timings.ConnectionOpened = Stopwatch.GetTimestamp();
 
         // no-tracking 查詢，純粹用於存在性／RequiresSeat 交叉驗證，MUST NOT 對這裡取得的實例呼叫
         // TicketType.Reserve()（design.md 決策 3——之後的 GetForUpdateAsync 才是鎖定後的版本）。
@@ -281,7 +288,7 @@ public sealed class OrderService
             return Result<Guid>.Failure(seatPlacementError);
         }
 
-        // 提早 409：以交易前的 no-tracking 資料判斷注定失敗的請求，不進 Event 列鎖佇列、不占連線（design.md 決策 5）。
+        // 提早 409：以交易前的 no-tracking 資料判斷注定失敗的請求，不開交易、不等鎖（design.md 決策 5）。
         // 只拒絕不放行，鎖內 CreateOrderHandler 仍是唯一權威。交易外讀不到活動或讀到排隊模式時跳過：
         // 排隊模式的 403 必須以鎖內重讀為準，不得被這裡的 409 取代。
         if (orderEvent is { IsQueueModeEnabled: false } &&
@@ -298,14 +305,17 @@ public sealed class OrderService
         // 採信依據，不得沿用上面交易前、未加鎖的 orderEvent（rate-limiting-queue design.md 決策 4）。
         // 這個鎖定對每筆訂單都會執行，不論該活動是否曾被判斷為未開啟排隊。鎖定順序固定為
         // Event → PurchaseQueueEntry → EventSeat → TicketType。
-        var lockedEvent = await _eventRepository.GetForUpdateAsync(distinctEventIds[0], cancellationToken);
+        // 用共享鎖就足夠（order-placement-p95-phase2 design.md 決策 1）：下單只讀不改 Event，共享鎖彼此相容，同一活動的下單
+        // 不再逐筆通過；切換排隊模式的 FOR UPDATE 與共享鎖互斥，持有期間切換無法提交，切換先提交時這裡讀到新值。
+        // 超賣由下面座位／票種各自的 FOR UPDATE 保護，從來不依賴 Event 鎖。
+        var lockedEvent = await _eventRepository.GetForShareAsync(distinctEventIds[0], cancellationToken);
         timings.EventLocked = Stopwatch.GetTimestamp();
         if (lockedEvent is null)
         {
             return Result<Guid>.Failure(Error.NotFound($"Event '{distinctEventIds[0]}' was not found."));
         }
 
-        // now 必須在 GetForUpdateAsync 返回之後取得：等鎖期間可能跨過開賣／停售時點，用等鎖前的時間會誤判。
+        // now 必須在 GetForShareAsync 返回之後取得：等鎖期間可能跨過開賣／停售時點，用等鎖前的時間會誤判。
         // 失敗時直接返回，交易未 commit 即在 dispose 時回滾（IUnitOfWorkTransaction 契約）。
         if (EventSalesWindowErrors.GetErrorOrNull(lockedEvent, _dateTimeProvider.UtcNow) is { } salesError)
         {
@@ -432,6 +442,8 @@ public sealed class OrderService
         timings.CommitStarting = Stopwatch.GetTimestamp();
         await transaction.CommitAsync(cancellationToken);
         timings.Committed = Stopwatch.GetTimestamp();
+        // 之後的 Redis 呼叫與資料庫無關，先歸還連線，不讓 Redis 延遲占住連線池。
+        await connection.DisposeAsync();
 
         // 訂單完成同步移除 Redis admitted 鏡像，交易 commit 後才執行、非同一交易，best-effort
         // （purchase-queue-redis-admission design.md Decision 8）。
