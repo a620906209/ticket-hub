@@ -76,11 +76,11 @@ text 按鈕（專案在後台與訂單明細使用，含 primary、danger）不�
 
 ### 決策 3：只調整輸入類邊框，並補上 hover 邊框
 
-- `--el-border-color`：`#dcd5c9` → 約 `#8f897e`（白底 3.47、頁面底 3.05）。
+- `--el-border-color`：`#dcd5c9` → 約 `#8f897e`（白底 3.47、頁面底 3.05）。實作時統一套用 0.1 的餘裕，結果為 `#8e877c`（白底 3.56、頁面底 3.13），見 tasks.md 2.1。
 - `--el-border-color-hover`：新增覆寫，約 `#7a746b`（頁面底 4.07），比一般邊框深。
 - `--el-border-color-light`／`lighter`：不變。表格與分隔線屬於裝飾性邊界，不受 WCAG 1.4.11 規範，維持輕盈的版面。
 
-`--el-border-color` 也會讓預設按鈕的邊框與 `el-divider` 變深，這兩者同樣可以接受。
+`--el-border-color` 也會讓預設按鈕的邊框與 `el-divider` 變深，這兩者同樣可以接受。另外，後台活動列表「售票狀況」欄的座位狀態條（`EventListPage.vue` 的 `.seat-status-segment`，可售／保留／已售分別使用 success／warning／danger base）調暗後明顯變重；task 3.3 截圖時發現，已經使用者確認接受。
 
 ### 決策 4：次要文字與 placeholder 調暗到 4.5
 
@@ -95,7 +95,7 @@ text 按鈕（專案在後台與訂單明細使用，含 primary、danger）不�
 
 ### 決策 5：Vitest 直接解析 `morandi.css` 計算對比度
 
-測試以 `import morandiCss from './morandi.css?raw'` 取得原始字串（沿用 `mobile-layout-p0-fixes` 的做法：`?raw` 的型別由 `vite/client` 宣告，不需要 node 型別），解析 `:root` 與 `.el-button`、`.el-button--<語意色>` 區塊的自訂屬性，遞迴展開 `var()`，再以 WCAG 相對亮度公式計算 spec 列出的每一組對比。`color-scheme` 同樣以 `?raw` 讀取 `style.css` 驗證。
+測試以 `import morandiCss from './morandi.css?raw'` 取得原始字串（`?raw` 的型別由 `vite/client` 宣告，不需要 node 型別）。Vitest 預設會把 CSS 模組（含 `?raw`）換成空字串，所以 `web/vite.config.ts` 的 `test.css.include` 只放行 `src/styles/morandi.css` 與 `src/style.css`；`mobile-layout-p0-fixes` 讀的是 `index.html`，不受這項限制，因此不能直接沿用。測試解析 `:root` 與 `.el-button`、`.el-button--<語意色>` 區塊的自訂屬性，遞迴展開 `var()`，再以 WCAG 相對亮度公式計算 spec 列出的每一組對比。`color-scheme` 同樣以 `?raw` 讀取 `style.css` 驗證。
 
 這是對建置輸入的直接斷言：任何人把顏色改回不合格的值、刪掉 hover 覆寫，或讓 `var()` 指向不存在的 token，測試就會失敗。task 1.2 要求先用**修改前**的 `morandi.css` 跑一次，必須失敗，證明測試抓得到問題（Rule 9）。
 
