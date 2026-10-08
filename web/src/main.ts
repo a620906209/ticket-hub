@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
+// Element Plus 的元件 JS 由 vite.config.ts 的 unplugin-vue-components 按需引入；樣式維持全量，且須在 morandi.css 之前
 import 'element-plus/dist/index.css'
 import './styles/morandi.css'
 import './style.css'
@@ -11,7 +11,6 @@ import { useAuthStore } from './stores/auth'
 const app = createApp(App)
 
 app.use(createPinia())
-app.use(ElementPlus)
 
 // 查證後發現（真的用瀏覽器跑過才抓到）：Vue Router 在 app.use(router) 當下就會非同步開始
 // 解析初始路由，不是等 app.mount() 才開始——如果這裡在 bootstrap 完成前就 app.use(router)，

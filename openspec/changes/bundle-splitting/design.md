@@ -64,12 +64,14 @@
 - `main.ts` 保留 `import 'element-plus/dist/index.css'`，且在 `morandi.css` 之前。
 - 理由：按需 CSS 會在延遲載入的 chunk 中後注入，同權重的 `:root` 變數與 `.el-button--<色>` 覆寫會被元件樣式蓋掉，`web-color-contrast` 會退化。
 - 以 BS-007 驗證首屏 CSS 中 morandi 覆寫在 cascade 中勝出。不能只比對「同選擇器的最後一次宣告」：Element Plus 本身就有權重更高、同樣設定按鈕變數的選擇器（例如 `.el-button--primary.is-plain`／`.is-text`／`.is-link`／`.is-dashed`，權重 0,2,0，高於 morandi 的 0,1,0；2026-10-09 於 `element-plus/dist/index.css` 核對）。BS-007 改為對 7 個目標元素（根元素、`.el-button`、5 個 `.el-button--<色>` 實心按鈕）以 class 集合做保守的選擇器比對，再依 `!important`／specificity／順序決定勝出值。`.is-plain` 這類規則因目標元素沒有該 class 而不納入，這符合實際：plain／text／link／dashed 變體本來就不在 `web-color-contrast` 的覆寫範圍。
+- 實作補充（2026-10-09）：選擇器最右側含偽元素（`::before` 等）時也不納入。偽元素的宣告只作用在偽元素上，不改變目標元素本身的變數值，納入會誤判勝出值。類別名稱解析支援 CSS 跳脫序列，含跳脫字元的類名不會被截斷成另一個類名而誤判套用。
 - 這是靜態近似，不處理祖先元素重新定義變數後再繼承的情況，例如某容器重設 `--el-color-primary`。因此 tasks 4.3 另在瀏覽器以 `getComputedStyle(按鈕).getPropertyValue('--el-button-hover-bg-color')` 等讀取實際 cascade 結果，作為補充驗證。以 BS-006 驗證沒有任何 chunk 引入 theme-chalk 的元件樣式模組，防止之後有人把 `importStyle` 改回預設值卻沒處理 cascade。
 
 ### 決策 4：bundle 報告外掛（只在 `BUNDLE_REPORT=1` 時啟用）
 - `vite.config.ts` 內聯一個小外掛。它在 `generateBundle` 把每個 chunk 寫成 JSON：
-  - 每個 chunk 的欄位：`fileName`、`isEntry`、`isDynamicEntry`、`facadeModuleId`、`moduleIds`、`imports`、`dynamicImports`、`code` 的 gzip 位元組數。
-  - CSS asset 另外記錄 `fileName`、`source` 的 gzip 位元組數，以及被哪些 chunk 引用（`viteMetadata.importedCss`）。
+  - 每個 chunk 的欄位：`fileName`、`isEntry`、`isDynamicEntry`、`facadeModuleId`、`moduleIds`、`imports`、`dynamicImports`、`importedCss`（取自 `viteMetadata.importedCss`）、`code` 的 gzip 位元組數。
+  - CSS asset 另外記錄 `fileName` 與 `source` 的 gzip 位元組數。
+  - 實作偏差（2026-10-09）：原寫法把「被哪些 chunk 引用」記在 CSS asset 上，實作改記在 chunk 的 `importedCss`。`viteMetadata.importedCss` 本來就掛在 chunk 上，照原樣存最直接；要查某 CSS 被誰引用時反查即可。CSS 原文不寫進報告，BS-007 直接讀 `dist/` 中的檔案。
   - 輸出位置是 `web/node_modules/.tmp/bundle-report.json`。
 - 報告另記錄 entry chunk 的 `fileName`，供驗證測試判定報告與 `dist/` 屬於同一次 build（決策 5）。
 - 不寫進 `dist/`：避免模組路徑隨靜態檔外流。
@@ -104,8 +106,11 @@
 - BS-012 新增 `web/src/pages/elementPlusOnDemand.test.ts`：不安裝 `ElementPlus` plugin，掛載買家首頁與後台活動列表頁，涵蓋條件渲染的元件：後台用 deferred promise 在 resolve 前驗 loading mask，resolve 後（資料含需實名活動以渲染 tag）驗 table／select／switch／input／input-number／form／button／tag，另以 API reject 驗 alert；買家首頁的 alert／empty／loading 三者互斥，分三次掛載。斷言沒有 `Failed to resolve component/directive` warning，且元件根 class 有渲染。這證明 resolver 真的在編譯期轉換。既有 21 個測試全域安裝 plugin，會掩蓋漏轉換，所以需要這個測試。
 - BS-006 的「未使用元件」不再只檢查 6 個列舉元件，而是檢查完整清單：bundle 中出現的元件目錄必須屬於「允許集合」，也就是從使用集合沿 Element Plus ES 原始碼的相對 import 遞迴可到達的目錄。不能直接用「124 個目錄扣掉使用集合」，因為被使用元件內部會依賴其他元件（例如 select 依賴 tag、tooltip、scrollbar），直接扣除會誤判失敗。2026-10-09 在 web 容器內用原型腳本實測：從 19 個使用目錄（含 `loading`、`message`、`message-box`）出發，可到達 33 個目錄；6 個列舉元件都不在其中。允許集合是靜態 import 的上限估計（tree-shaking 只會讓實際更少），所以「bundle ⊆ 允許集合」不會因 tree-shaking 誤判；它能抓到的是「與使用元件完全無關的元件被帶進來」。6 個列舉元件保留為前提檢查。
 - 同一次實測發現：Element Plus 2.14.4 的 `table-column`、`option`、`form-item`、`dropdown-item`、`menu-item` 等目錄只有樣式，沒有 `index.mjs`，元件 JS 在 `table`、`select`、`form`、`dropdown`、`menu` 內。BS-011 的對照表必須對到含 JS 的目錄。
+- 實作補充（2026-10-09）：BS-012 的 DOM 檢查用 `expect.soft`，單次執行就列出所有缺漏；resolve warning 清單用一般 `expect`。
+- 實作補充（2026-10-09）：BS-007 需要的 CSS 區塊解析與 `morandi.contrast.test.ts` 相同，因此把 `parseCssBlocks` 從該測試抽到 `web/src/styles/cssBlocks.ts`，兩邊共用，不複製一份。
 - BS-011（bundle 層級）補上正向檢查：src 中出現的每種 `<el-*>`／`v-loading` 都必須在某個 chunk 中找到對應元件目錄的模組；對照表沒有的新標籤直接失敗。
-- 既有守衛與導航測試（`router/index.test.ts`、`App.test.ts`、兩個 layout 測試）不改，作為守衛行為不變的回歸（BS-010）。
+- 既有守衛與導航測試（`router/index.test.ts`、`App.test.ts`、兩個 layout 測試）的斷言不改，作為守衛行為不變的回歸（BS-010）。
+  - 實作偏差（2026-10-09，屬 Risks 預先允許的「只改等待方式」）：延遲載入後，第一次導航要在容器內轉換並載入頁面 chunk（含 inline 的 Element Plus），完整套件下會超過 Vitest 預設 5 秒。上述 4 個檔案的 `describe` 改設 `timeout: 30_000`；`App.test.ts` 第一個案例在 LoginPage chunk 載入前就斷言，改用 `vi.waitFor`（20 秒）包住原斷言。`lazyRoutes.test.ts` 的 BS-005／BS-014 因首次 import 全部頁面，也設 30 秒。
 - 既有守衛測試只涵蓋部分路由的 meta，改動 path、name、redirect 或其他路由的 meta 不一定會讓它失敗。因此另以 BS-014 用寫死的預期路由樹（path／name／meta／redirect／子 route 順序與父子關係）對 `router.options.routes` 做深度相等比對，並逐筆確認 route 對到正確的元件檔案。預期樹在改動前依現行 `index.ts` 抄寫並先確認通過，作為基準。BS-004 只確認「有 19 個動態 import」，不確認哪個 route 對到哪個檔案，元件對應由 BS-014 負責。
 
 ### 決策 7：集合型斷言不得 vacuous 通過
@@ -115,8 +120,10 @@
 ## Risks / Trade-offs
 
 - **[真實 router 測試在延遲載入後變成非同步解析元件]**：`router.push` 會等 lazy component 載入完成才 resolve，既有 `await router.push` 寫法仍成立。影響範圍是 4 個使用真實 router 單例的測試檔。若有測試假設同步，tasks 3.2 修正；只能改等待方式，不得放寬斷言。
-- **[200 kB 門檻是估計值]**：首頁用到的 Element Plus 元件有 dropdown（popper）、alert、empty、button、tag、loading，估計首屏約 120–160 kB gzip。實測若超過，停下回報並更新 spec，不自行調高門檻。
+- **[200 kB 門檻是估計值]**：首頁用到的 Element Plus 元件有 dropdown（popper）、alert、empty、button、tag、loading，估計首屏約 120–160 kB gzip。實測若超過，停下回報並更新 spec，不自行調高門檻。實測（tasks 4.1）：JS 102,346 B、JS＋CSS 151,517 B。
 - **[CSS 未切]**：首屏仍下載全量 Element Plus CSS（gzip 約 50 kB）。這是使用者接受的取捨，換取 `web-color-contrast` 零退化。
 - **[resolver 漏轉換的元件]**：template 若用了 resolver 不認得的寫法（例如動態 `<component :is="'el-x'">`），會變成未註冊元件、只在執行時出 warning。tasks 4.x 在瀏覽器實測主要頁面，並檢查 console 沒有 `Failed to resolve component`。目前 grep 沒有字串形式的動態元件。
 - **[新增 devDependency]**：`unplugin-vue-components` 32.1.0（npm 2026-05-20 更新，peer `vue ^3.0.0`）。只在 build／dev 期使用，不進 runtime bundle。
+- **[使用集合靠原始碼掃描]**：BS-006／BS-011 的使用集合由 regex 掃 `<el-*>`、`v-loading` 與 `from 'element-plus'` 的具名 import 而來。日後若改用 `<component :is>`、`resolveComponent` 或動態 import 使用 Element Plus，掃描會漏掉，允許集合可能過窄。對照表沒有的標籤會直接失敗，所以不會 vacuous 通過；引入這類寫法時須同步擴充掃描。
+- **[允許集合隨 Element Plus 版本變動]**：BS-006 的允許集合沿 `element-plus/es` 內所有相對 import 遞迴（含 hooks、utils）。若升級後 utils 反向 import 某個元件，允許集合會悄悄變大，「bundle ⊆ 允許集合」的約束跟著變鬆。6 個無關元件的前提檢查會抓到其中涉及這 6 個元件的情況；升級 Element Plus 時應重看允許集合的大小（2026-10-09 為 33 個目錄）。
 - **[報告外掛依賴 rolldown 內部欄位]**：`viteMetadata` 是 Vite 擴充欄位，升級時可能變動。外掛缺欄位就 throw（決策 4），不會靜默通過。

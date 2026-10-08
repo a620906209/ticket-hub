@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:bundle": "BUNDLE_REPORT=1 vite build && vitest run --config vitest.bundle.config.ts",
     "generate:api-types": "openapi-typescript http://api:8080/openapi/v1.json -o src/types/api.generated.ts"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "jsdom": "^30.0.1",
     "openapi-typescript": "^7.13.0",
     "typescript": "~6.0.2",
+    "unplugin-vue-components": "^32.1.0",
     "vite": "^8.2.0",
     "vitest": "^4.1.10",
     "vue-tsc": "^3.3.8"

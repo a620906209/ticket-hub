@@ -75,7 +75,7 @@ Element Plus 的元件與指令 MUST 由編譯期按需 import，不得在 runti
   - class 為 `el-button el-button--<語意色>` 的 5 個實心按鈕，比對對應的 `.el-button--<語意色>` 區塊
 - 跨 CSS asset 的來源順序：先 entry chunk 的 `importedCss`（依其陣列順序），再依首屏集合的走訪順序（entry 閉包在前、首頁 chunk 閉包在後，各自依 `imports` 陣列順序深度優先）加入其餘 chunk 的 `importedCss`，重複的 asset 只算第一次出現
 - `@media`、`@supports` 等條件規則內的宣告一律視為可能套用（保守）
-- 「可能套用」採保守判定：選擇器最右側的複合選擇器中，每個 class 都在目標元素的 class 內，type 選擇器只允許 `html`（僅根元素）或 `*`，且不含 id 或屬性選擇器；pseudo-class（如 `:hover`、`:not()`）一律視為可能成立；最右側以外的祖先條件一律視為可能成立
+- 「可能套用」採保守判定：選擇器最右側的複合選擇器中，每個 class 都在目標元素的 class 內，type 選擇器只允許 `html`（僅根元素）或 `*`，且不含 id 或屬性選擇器，也不含 pseudo-element（如 `::before`；其宣告只作用在偽元素上，不改變目標元素本身的變數值）；pseudo-class（如 `:hover`、`:not()`）一律視為可能成立；最右側以外的祖先條件一律視為可能成立
 - **THEN** 
   - 首屏 CSS 至少一個且非空；
   - 每個目標元素對應的 morandi 待比對 property 集合非空；

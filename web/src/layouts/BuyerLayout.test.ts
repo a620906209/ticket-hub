@@ -45,7 +45,8 @@ function findMenuItem(text: string): HTMLElement | undefined {
   )
 }
 
-describe('BuyerLayout 會員下拉選單的主辦方審核入口', () => {
+// 頁面改為延遲載入後，第一次導航到某頁要先轉換並載入該頁（含 Element Plus），整套測試並行時可能超過預設 5 秒
+describe('BuyerLayout 會員下拉選單的主辦方審核入口', { timeout: 30_000 }, () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.mocked(eventsApi.getEvents).mockReset().mockResolvedValue([])
