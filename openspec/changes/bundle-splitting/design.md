@@ -34,6 +34,7 @@
 - Element Plus CSS 按需（使用者決定延後；見決策 3）。
 - 手動 `manualChunks`／vendor 拆分策略調校。
 - 部署後舊 chunk 失效（`Failed to fetch dynamically imported module`）的重新載入處理。目前沒有 production 站台；之後有部署 change 時再處理。
+- 一般網路中斷造成 chunk 載入失敗時的使用者提示（例如 `router.onError`）。延遲載入後，導航會在 chunk 下載失敗時 reject，畫面停在原頁、沒有提示；行動網路下比部署失效更常見。本 change 不處理，與上一項一起留給之後的 change：兩者用同一個 `router.onError`，處理方式（顯示訊息或自動重新載入）應一起設計（使用者 2026-10-09 決定延後）。
 - 報告 §5.1 以外的效能項目（海報 aspect-ratio、index.html spinner 等）。
 - Element Plus template 型別（`components.d.ts`）。現況就沒有，不在本 change 新增。
 
@@ -53,6 +54,10 @@
 - 已存在的 `ElMessage`／`ElMessageBox` 具名 import 不動：`element-plus` 的 ES 版可 tree-shake。
 - `dts: false`：現況沒有元件型別，產生 `components.d.ts` 會讓 vue-tsc 開始檢查所有 template。這是另一件事，不混入本 change。
 - 選項名稱與預設值以安裝後的套件型別定義為準（tasks 1.1 核對），不依賴文件。
+- 相依套件治理（tasks 1.1 核對並記錄）：
+  - `package-lock.json` 中 `unplugin-vue-components` 的解析版本為 32.1.0，記下 `integrity` 與 `license`；新增的傳遞相依也逐一列出授權，非寬鬆授權（非 MIT／ISC／BSD／Apache-2.0）時停下回報。
+  - 比對安裝前後的 lockfile：除新增套件及其傳遞相依外，既有套件的解析版本不得變動，特別是 `vite`、`vue`、`vue-router`、`element-plus`、`vitest`；有變動就停下回報，不得接受連帶升級。
+  - `npm ls unplugin-vue-components` 沒有 peer 衝突或 deprecated 警告。
 - 測試沿用 `vite.config.ts` 的 plugins，所以測試中 template 也會被轉換。既有測試仍安裝 `ElementPlus` plugin：區域 import 優先於全域註冊，兩者並存無害，不需修改 21 個測試。
 
 ### 決策 3：Element Plus CSS 維持全量，順序不變
@@ -69,7 +74,9 @@
 - 報告另記錄 entry chunk 的 `fileName`，供驗證測試判定報告與 `dist/` 屬於同一次 build（決策 5）。
 - 不寫進 `dist/`：避免模組路徑隨靜態檔外流。
 - 只有 `BUNDLE_REPORT` 恰為 `'1'` 時才註冊外掛；未設定或為其他值時不註冊，一般 `npm run build` 與 dev server 完全不受影響（BS-013 以子行程實際 build 驗證）。
-- 輸出路徑可由 `BUNDLE_REPORT_PATH` 覆寫，讓 BS-013 在暫存目錄驗證，不刪除、不覆蓋預設報告；其他測試讀取的仍是預設路徑的報告。
+- 輸出路徑可由 `BUNDLE_REPORT_PATH` 覆寫，讓 BS-013 在暫存目錄驗證，不刪除、不覆蓋預設報告；其他測試讀取的仍是預設路徑的報告。寫檔前以 `mkdirSync(..., { recursive: true })` 建立上層目錄。
+- 信任假設：`BUNDLE_REPORT` 與 `BUNDLE_REPORT_PATH` 只由開發者在容器內的本機 build（或之後受信任的 CI）設定，不接受外部輸入；在此前提下可指定任意路徑（BS-013 需要指向系統暫存目錄的絕對路徑），不構成風險。若未來讓外部輸入（例如 PR 觸發的 CI 參數）控制這兩個變數，必須改為限制輸出位置：只接受相對於 `web/node_modules/.tmp/` 的檔名，拒絕絕對路徑與含 `..` 的路徑。
+- 報告檔位於 `node_modules` 的 named volume（容器內 `/app/node_modules/.tmp/`），Windows 宿主機的 `web/node_modules` 看不到，只能在容器內讀取。
 - gzip 用 Node `zlib.gzipSync` 預設等級。數字會與 Vite reporter 略有差異；門檻 200 kB 留有餘裕，以本報告為準。
 - 如果 rolldown 的 chunk 物件缺少上述任一欄位（例如 `viteMetadata`），外掛直接 throw，不輸出不完整的報告（tasks 1.1 核對）。
 
@@ -78,6 +85,10 @@
 - 主設定 `test.exclude` 設為 `[...configDefaults.exclude, 'build-checks/**']`，保留 Vitest 預設排除。
 - `package.json` 新增 `"test:bundle": "BUNDLE_REPORT=1 vite build && vitest run --config vitest.bundle.config.ts"`。
 - 理由：必須先 build 才有報告，build 約數秒，不適合每次單元測試都跑；放進一般 `test` 也會在沒有報告時失敗。
+- `test:bundle` 的 `BUNDLE_REPORT=1 vite build` 是 POSIX shell 語法，只在容器內（alpine `sh`）執行；本專案不在 Windows 宿主機跑 npm script，不另做跨平台處理。
+- BS-013 會連跑三次完整 build，超過 Vitest 預設的 5 秒 timeout，該測試案例明確設定 timeout（120 秒）。
+- rolldown 回報的模組 id 可能是容器內絕對路徑（`/app/...`）。測試比對 `src/...`、`element-plus/es/components/...` 前，先轉成相對於 `web` 目錄、以 `/` 分隔的路徑再比對，不寫死 Windows 路徑。
+- 前端守衛與 chunk 隔離只是體驗層，不是存取控制：chunk 是公開靜態檔，任何人都能直接請求後台 chunk。這與現況單一 bundle 相同，後台權限由後端 API 授權負責；不得把 BS-002／BS-003 的隔離當成保護機制。
 - 報告檔不存在，或報告記錄的 entry `fileName` 沒有出現在 `dist/index.html` 中，測試直接失敗並提示先跑 `test:bundle`，不 skip。不用 mtime 判定：`generateBundle` 在檔案寫入磁碟之前執行，報告的 mtime 必然早於或等於 `dist/index.html`，用先後比較會讓每次正常執行都誤判過期。entry 檔名含內容雜湊，程式碼有變動就會不同，足以判定是否同一次 build。
 - 這仍是 Vitest 自動化測試（讀真實 build 產出的整合測試），不是替代驗證，不需要 CLAUDE.md 的測試種類例外。
 - 「首屏集合」定義：

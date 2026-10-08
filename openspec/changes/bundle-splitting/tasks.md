@@ -1,9 +1,14 @@
 ## 1. 相依套件與 bundle 報告
 
-- [ ] 1.1 `docker compose exec -T web npm install -D unplugin-vue-components@32.1.0`。核對安裝後的型別定義：`ElementPlusResolver` 的 `importStyle: false`、`directives` 預設值、`Components` 的 `dts` 選項。核對 Vite 8／rolldown 的 `generateBundle` chunk 物件確實有 `moduleIds`、`isDynamicEntry`、`facadeModuleId`、`imports`、`dynamicImports`、`viteMetadata.importedCss`，並確認 `moduleIds` 是否包含被完全 tree-shake 掉的模組（若包含，BS-006／BS-011 改用 `modules[id].renderedLength > 0` 判定，同步更新 design 決策 4）。結果記錄在本 task 下方；任何一項不符就停下回報，並更新 design 決策 2／4。
+- [ ] 1.1 `docker compose exec -T web npm install -D unplugin-vue-components@32.1.0`。核對安裝後的型別定義：`ElementPlusResolver` 的 `importStyle: false`、`directives` 預設值、`Components` 的 `dts` 選項。核對 Vite 8／rolldown 的 `generateBundle` chunk 物件確實有 `moduleIds`、`isDynamicEntry`、`facadeModuleId`、`imports`、`dynamicImports`、`viteMetadata.importedCss`，並確認 `moduleIds` 是否包含被完全 tree-shake 掉的模組（若包含，BS-006／BS-011 改用 `modules[id].renderedLength > 0` 判定，同步更新 design 決策 4）。同時依 design 決策 2「相依套件治理」核對：
+  - 安裝前先複製一份 `package-lock.json` 到暫存位置；
+  - 安裝後記錄 `unplugin-vue-components` 的解析版本、`integrity`、`license`，以及新增傳遞相依的授權；
+  - 比對前後 lockfile，確認既有套件的解析版本沒有變動；
+  - `npm ls unplugin-vue-components` 沒有 peer 衝突或 deprecated 警告。
+  結果記錄在本 task 下方；任何一項不符就停下回報，並更新 design 決策 2／4。
 - [ ] 1.2 在 `web/vite.config.ts` 內聯 bundle 報告外掛（design 決策 4）：
   - 只在 `process.env.BUNDLE_REPORT === '1'` 時註冊；
-  - 預設輸出 `web/node_modules/.tmp/bundle-report.json`，`BUNDLE_REPORT_PATH` 有值時改寫到該路徑；
+  - 預設輸出 `web/node_modules/.tmp/bundle-report.json`，`BUNDLE_REPORT_PATH` 有值時改寫到該路徑；寫檔前先遞迴建立上層目錄；
   - 缺欄位就 throw。
 - [ ] 1.3 先寫失敗測試：
   - 新增 `web/vitest.bundle.config.ts`（node 環境，`include: ['build-checks/**/*.test.ts']`）。
@@ -15,7 +20,12 @@
   - helper `collectStaticClosure(report, startChunks)`；
   - BS-001、BS-002、BS-003、BS-004、BS-006、BS-007、BS-008、BS-009、BS-011、BS-013。
     - BS-006 實作使用集合掃描（與 BS-011 共用標籤對照表，另加具名 import 對照表）與允許集合遞迴走訪（讀 `node_modules/element-plus/es` 的相對 `.mjs` import）；spec 列出的子項目各自寫成獨立的 `it`。
-    - BS-013 以 `child_process` 在暫存目錄跑三次 `vite build`（移除變數、`0`、`1`），不碰預設報告與 `dist/`。
+    - BS-013 以 `child_process` 在暫存目錄跑三次 `vite build`（移除變數、`0`、`1`），不碰預設報告與 `dist/`：
+      - 用 `execFile`／`spawn` 搭配參數陣列呼叫 `node_modules/.bin/vite build --outDir <tmp>/dist --emptyOutDir`，`cwd` 設為 `web` 目錄，不拼接 shell 字串；
+      - 暫存目錄以 `fs.mkdtempSync(path.join(os.tmpdir(), ...))` 建立，`afterAll` 刪除；
+      - 該 `it` 明確設定 timeout 120 秒；
+      - 子行程 exit code 非 0 時，把 stderr 放進失敗訊息。
+    - 報告中的模組 id 先正規化成相對於 `web` 目錄、以 `/` 分隔的路徑再比對（design 決策 5），路徑一律用 `path.resolve` 與 `import.meta.dirname` 組出。
     - 所有「對集合每個元素成立」的斷言先斷言查找成功與集合非空（spec 各 scenario 已列出的數量條件），查找失敗即 throw，不得 vacuous 通過。
     - BS-007 實作 specificity 計算（id／class＋屬性＋pseudo-class／type；`:not()` 取參數權重、`:where()` 為 0）與保守的「可能套用」判定，並以小型合成 CSS 單元測試確認：
       - 權重較高的 `.el-button--primary.x` 規則在目標元素含 `x` 時勝出、不含時不納入；
