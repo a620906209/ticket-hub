@@ -773,13 +773,15 @@ onUnmounted(() => {
 }
 .layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px minmax(0, 1fr);
   gap: 32px;
   align-items: start;
+  /* 標題、描述與分區名稱是主辦方輸入，可能含無斷點的長網址或英數字串，必須允許任意處斷行才不會撐出視窗 */
+  overflow-wrap: anywhere;
 }
 @media (max-width: 720px) {
   .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 .info-column h1 {
@@ -810,6 +812,7 @@ onUnmounted(() => {
 }
 .quick-pick {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-bottom: 20px;
@@ -827,6 +830,7 @@ onUnmounted(() => {
 }
 .count-ticket-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 8px 0;
