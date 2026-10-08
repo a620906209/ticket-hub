@@ -1,50 +1,51 @@
 /* 莫蘭迪色系（低飽和、灰調）。覆蓋 Element Plus 的 CSS variables，同時提供給自訂元件用的 token。
-   這個檔案要在 element-plus/dist/index.css 之後 import，才會覆蓋掉 Element Plus 自己的預設值。 */
+   這個檔案要在 element-plus/dist/index.css 之後 import，才會覆蓋掉 Element Plus 自己的預設值。
+   語意色保留原本的 OKLCH 色相與彩度、只調暗明度到 WCAG AA，由 morandi.contrast.test.ts 把關，改色前先跑該測試。 */
 
 :root {
   /* 自訂 token，給非 Element Plus 的手刻樣式用 */
   --color-bg: #f3f0ea;
   --color-bg-elevated: #ffffff;
   --color-text: #4a4643;
-  --color-text-secondary: #8b8378;
+  --color-text-secondary: #736b61;
   --color-border: #dcd5c9;
-  --color-primary: #8c9a9e;
+  --color-primary: #616f72;
 
   /* Element Plus：primary（塵霧藍灰） */
-  --el-color-primary: #8c9a9e;
-  --el-color-primary-light-3: #a9b4b7;
-  --el-color-primary-light-5: #c0c8ca;
-  --el-color-primary-light-7: #d7dcdd;
-  --el-color-primary-light-8: #e2e6e7;
-  --el-color-primary-light-9: #edeff0;
-  --el-color-primary-dark-2: #707b7e;
+  --el-color-primary: #616f72;
+  --el-color-primary-light-3: #909a9c;
+  --el-color-primary-light-5: #b0b7b9;
+  --el-color-primary-light-7: #d0d4d5;
+  --el-color-primary-light-8: #dfe2e3;
+  --el-color-primary-light-9: #eff1f1;
+  --el-color-primary-dark-2: #4e595b;
 
   /* success（灰綠） */
-  --el-color-success: #96a87f;
-  --el-color-success-light-3: #b2c0a2;
-  --el-color-success-light-5: #c7d1bc;
-  --el-color-success-light-7: #dce2d5;
-  --el-color-success-light-8: #e5eade;
-  --el-color-success-light-9: #eef1e8;
-  --el-color-success-dark-2: #78876a;
+  --el-color-success: #61714b;
+  --el-color-success-light-3: #909c81;
+  --el-color-success-light-5: #b0b8a5;
+  --el-color-success-light-7: #d0d4c9;
+  --el-color-success-light-8: #dfe3db;
+  --el-color-success-light-9: #eff1ed;
+  --el-color-success-dark-2: #4e5a3c;
 
   /* warning（灰芥末） */
-  --el-color-warning: #c9a66c;
-  --el-color-warning-light-3: #d8be93;
-  --el-color-warning-light-5: #e3d0af;
-  --el-color-warning-light-7: #ede1cb;
-  --el-color-warning-light-8: #f1e8d8;
-  --el-color-warning-light-9: #f6f0e5;
-  --el-color-warning-dark-2: #a28556;
+  --el-color-warning: #87672d;
+  --el-color-warning-light-3: #ab956c;
+  --el-color-warning-light-5: #c3b396;
+  --el-color-warning-light-7: #dbd1c0;
+  --el-color-warning-light-8: #e7e1d5;
+  --el-color-warning-light-9: #f3f0ea;
+  --el-color-warning-dark-2: #6c5224;
 
   /* danger（灰赭紅） */
-  --el-color-danger: #b97c6d;
-  --el-color-danger-light-3: #cb9f93;
-  --el-color-danger-light-5: #d9b8af;
-  --el-color-danger-light-7: #e7d1cb;
-  --el-color-danger-light-8: #eddbd7;
-  --el-color-danger-light-9: #f3e7e4;
-  --el-color-danger-dark-2: #946357;
+  --el-color-danger: #975d4f;
+  --el-color-danger-light-3: #b68e84;
+  --el-color-danger-light-5: #cbaea7;
+  --el-color-danger-light-7: #e0ceca;
+  --el-color-danger-light-8: #eadfdc;
+  --el-color-danger-light-9: #f5efed;
+  --el-color-danger-dark-2: #794a3f;
   /* error 是 danger 的別名，Element Plus 兩個都有用到 */
   --el-color-error: var(--el-color-danger);
   --el-color-error-light-3: var(--el-color-danger-light-3);
@@ -55,22 +56,70 @@
   --el-color-error-dark-2: var(--el-color-danger-dark-2);
 
   /* info（暖灰） */
-  --el-color-info: #a39c93;
-  --el-color-info-light-3: #bab4ad;
-  --el-color-info-light-5: #ccc7c1;
-  --el-color-info-light-7: #dddad5;
-  --el-color-info-light-8: #e5e2de;
-  --el-color-info-light-9: #eeece9;
-  --el-color-info-dark-2: #837d75;
+  --el-color-info: #726b63;
+  --el-color-info-light-3: #9c9792;
+  --el-color-info-light-5: #b9b5b1;
+  --el-color-info-light-7: #d5d3d0;
+  --el-color-info-light-8: #e3e1e0;
+  --el-color-info-light-9: #f1f0ef;
+  --el-color-info-dark-2: #5b564f;
 
   --el-text-color-primary: #4a4643;
   --el-text-color-regular: #5c5750;
-  --el-text-color-secondary: #8b8378;
-  --el-text-color-placeholder: #b3ab9e;
-  --el-border-color: #dcd5c9;
+  --el-text-color-secondary: #736b61;
+  --el-text-color-placeholder: #7c7468;
+  --el-border-color: #8e877c;
+  /* Element Plus 預設的 hover 邊框是冷灰色，比上面調暗後的邊框還淺，hover 時會變淡 */
+  --el-border-color-hover: #797369;
   --el-border-color-light: #e5dfd5;
   --el-border-color-lighter: #ede8df;
   --el-bg-color: #ffffff;
   --el-bg-color-page: #f3f0ea;
   --el-fill-color-light: #f3f0ea;
+}
+
+/* Element Plus 預設焦點框是 primary-light-5，對白底不到 3:1；必須排在語意色區塊之前，否則會蓋掉它們的焦點框 */
+.el-button {
+  --el-button-outline-color: var(--el-color-primary);
+}
+
+/* 實心語意色按鈕：Element Plus 的 hover 是變淡（light-3），白字不到 4.5:1，改為 hover 變深（dark-2）、active 再深一階（混 35% 黑，Element Plus 沒有對應 token） */
+.el-button--primary {
+  --el-button-hover-bg-color: var(--el-color-primary-dark-2);
+  --el-button-hover-border-color: var(--el-color-primary-dark-2);
+  --el-button-active-bg-color: #3f484a;
+  --el-button-active-border-color: #3f484a;
+  --el-button-outline-color: var(--el-color-primary);
+}
+
+.el-button--success {
+  --el-button-hover-bg-color: var(--el-color-success-dark-2);
+  --el-button-hover-border-color: var(--el-color-success-dark-2);
+  --el-button-active-bg-color: #3f4931;
+  --el-button-active-border-color: #3f4931;
+  --el-button-outline-color: var(--el-color-success);
+}
+
+.el-button--warning {
+  --el-button-hover-bg-color: var(--el-color-warning-dark-2);
+  --el-button-hover-border-color: var(--el-color-warning-dark-2);
+  --el-button-active-bg-color: #58431d;
+  --el-button-active-border-color: #58431d;
+  --el-button-outline-color: var(--el-color-warning);
+}
+
+.el-button--danger {
+  --el-button-hover-bg-color: var(--el-color-danger-dark-2);
+  --el-button-hover-border-color: var(--el-color-danger-dark-2);
+  --el-button-active-bg-color: #623c33;
+  --el-button-active-border-color: #623c33;
+  --el-button-outline-color: var(--el-color-danger);
+}
+
+.el-button--info {
+  --el-button-hover-bg-color: var(--el-color-info-dark-2);
+  --el-button-hover-border-color: var(--el-color-info-dark-2);
+  --el-button-active-bg-color: #4a4640;
+  --el-button-active-border-color: #4a4640;
+  --el-button-outline-color: var(--el-color-info);
 }

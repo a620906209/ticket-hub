@@ -39,5 +39,7 @@ export default defineConfig({
     // element-plus 若以 Node 原生 ESM 載入，其 default import 的 async-validator 會拿到 CJS 物件而非 class，
     // el-form 的 rules 在測試中整個失效（validate() 恆通過）；交給 Vite 轉換才會正確處理 interop。
     server: { deps: { inline: ['element-plus'] } },
+    // Vitest 預設把 CSS 模組（含 ?raw）換成空字串；色票對比度測試需要讀取原始內容
+    css: { include: [/src\/styles\/morandi\.css/, /src\/style\.css/] },
   },
 })
