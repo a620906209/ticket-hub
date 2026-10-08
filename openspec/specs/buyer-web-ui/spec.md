@@ -612,7 +612,7 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 ### Requirement: 活動詳情頁在窄螢幕不產生頁面橫向捲動
 活動詳情頁在視窗寬度 320px 至 720px 之間時，頁面文件寬度（`document.documentElement.scrollWidth`）MUST NOT 大於視窗寬度，也就是不得出現頁面層級的橫向捲動。資訊欄（活動標題、時間、販售期間、票價表）與購票欄（區域隨選列、座位區塊、計數購票列、送出訂單區塊）SHALL 完整顯示在視窗寬度內。區域隨選列（分區選單、張數輸入、「自動選位並送出訂單」按鈕）與計數購票列（區域、價格、可售數量、張數輸入）在一行放不下時 SHALL 換行顯示，不得把所在欄位或頁面撐寬。視窗寬度大於 720px 時，SHALL 維持既有的雙欄版面（資訊欄固定 320px、購票欄佔剩餘寬度），且同樣不得出現頁面層級的橫向捲動。
 
-本需求不涵蓋排隊中的驗證碼畫面、資料載入失敗與找不到活動的空狀態（見 design.md Non-Goals）。
+本需求不涵蓋排隊中的驗證碼畫面、資料載入失敗與找不到活動的空狀態（見 `openspec/changes/archive/2026-10-08-mobile-layout-p0-fixes/design.md` 的 Non-Goals）。
 
 #### Scenario: 390px 寬未登入瀏覽活動詳情頁
 - **WHEN** 未登入的使用者以 390px 寬的視窗開啟一個含座位制票種的活動詳情頁，並等待資料載入完成
