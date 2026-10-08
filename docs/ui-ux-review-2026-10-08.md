@@ -138,7 +138,7 @@
 ### 4.2 文字大小可讀性
 
 - 根字級 16px，正常。但座位編號 12px、提示文字 13px，再搭配不到 AA 的次要文字色，在小螢幕上可讀性差（V1、4.1）。
-- **P1**：`index.html` 設為 `lang="en"`，但內容全是繁體中文。螢幕閱讀器會用英文語音唸中文，瀏覽器的自動翻譯也會誤判。改成 `lang="zh-Hant-TW"`，一行即可修正。
+- ✅ **已修正（mobile-layout-p0-fixes）** **P1**：`index.html` 設為 `lang="en"`，但內容全是繁體中文。螢幕閱讀器會用英文語音唸中文，瀏覽器的自動翻譯也會誤判。改成 `lang="zh-Hant-TW"`，一行即可修正。
 
 ### 4.3 鍵盤導航
 
@@ -192,7 +192,7 @@ Vite 本身已對超過 500 kB 的 chunk 發出警告。成因：
 | --- | --- | --- | --- |
 | R1 | **P0** | 後台導覽是 `el-menu mode="horizontal"` 搭配 `:ellipsis="false"`，有 5 個選單項目、主辦方名稱與登出鈕，在手機寬度下**必然溢出**。偏偏**票券核銷頁是在手機上使用的**（相機掃描） | 手機寬度改用漢堡選單或開啟 `ellipsis`；核銷頁可以考慮做成精簡版型 |
 | R2 | P1 | 後台表格（活動列表 9 欄、訂單列表）在手機上沒有任何收合策略 | 窄螢幕改用卡片列表，或固定前兩欄並允許橫向捲動 |
-| R3 | **P0** | ✅ 實測：390px 寬時，**活動詳情頁整頁寬 470px，會橫向捲動**，連資訊欄的標題、票價表都被裁切。根因：`.quick-pick` 不換行，最小寬度約 452px；`.layout` 在 `@media (max-width:720px)` 下是 `grid-template-columns: 1fr`，而 `1fr` 等於 `minmax(auto, 1fr)`，不會縮到比內容最小寬度更窄，於是整個 grid 欄被撐到 454px | `.layout` 改為 `minmax(0, 1fr)`（桌面版的 `320px 1fr` 也一併改），`.quick-pick` 加 `flex-wrap: wrap` |
+| R3 | **P0**（✅ 已修正：mobile-layout-p0-fixes） | ✅ 實測：390px 寬時，**活動詳情頁整頁寬 470px，會橫向捲動**，連資訊欄的標題、票價表都被裁切。根因：`.quick-pick` 不換行，最小寬度約 452px；`.layout` 在 `@media (max-width:720px)` 下是 `grid-template-columns: 1fr`，而 `1fr` 等於 `minmax(auto, 1fr)`，不會縮到比內容最小寬度更窄，於是整個 grid 欄被撐到 454px | `.layout` 改為 `minmax(0, 1fr)`（桌面版的 `320px 1fr` 也一併改），`.quick-pick` 加 `flex-wrap: wrap` |
 | R4 | P2 | 座位按鈕 36×28px，**低於行動裝置建議的 44×44 觸控目標**（WCAG 2.5.8 AA 最低是 24×24，目前合格，但容易誤觸） | 手機寬度下放大到 40×40 |
 | R5 | P2 | 登入／註冊表單 `label-width="80px"`，「驗證碼輸入」標籤在 360px 寬度下擠壓輸入框 | 手機寬度改用 `label-position="top"` |
 
@@ -214,6 +214,8 @@ Vite 本身已對超過 500 kB 的 chunk 發出警告。成因：
 仍未實測：
 - **A3**（會員下拉選單的鍵盤操作）、**R1**（後台導覽在手機上溢出）：都需要登入，而登入需要通過驗證碼，自動化工具不代為完成驗證碼，須由使用者登入後再測。
 - **2.2 深色模式**：擴充工具無法模擬 `prefers-color-scheme`，需要手動切換 OS 深色模式後檢查。
+- **排隊驗證碼畫面（`.captcha-row`，含固定 160px 輸入框）的窄螢幕量測**：要進入排隊才會出現，mobile-layout-p0-fixes 未涵蓋，留給買家探索頁改版 change 處理。
+- **買家頁面即使內容很短也會出現垂直捲動**（mobile-layout-p0-fixes 量測時發現）：`BuyerLayout.vue` 的 `.buyer-content { min-height: calc(100svh - 56px) }` 沒有算到 header 的 1px 下框線（header 實高 57px）；頁面根元素的 `margin-top` 又摺疊到 `main` 外。EventList／EventDetail 的 margin 是 32px，所以多出約 33px；Login／Register／MyOrders／OrderDetail／OrderResult 是 64px，多出約 65px。只改 calc 只能消掉 1px。另案處理。
 - **Core Web Vitals 實際數值**：建議用 Chrome DevTools 的 Lighthouse（Mobile、Slow 4G），在前景分頁跑活動列表與活動詳情兩頁，作為基準值。
 
 ## 8. 瀏覽器實測紀錄（2026-10-08）

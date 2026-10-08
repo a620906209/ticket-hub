@@ -24,12 +24,13 @@
 
 ## Decisions
 
-### 決策 1：grid 軌道改用 `minmax(0, 1fr)`，同時讓 `.quick-pick` 與 `.count-ticket-row` 換行
+### 決策 1：grid 軌道改用 `minmax(0, 1fr)`，同時讓 `.quick-pick` 與 `.count-ticket-row` 換行，長字串允許任意斷行
 
-三處都要改，各自負責不同的事：
+四處都要改，各自負責不同的事：
 - `.quick-pick` 加 `flex-wrap: wrap`：消除這次溢出的來源。
-- `.count-ticket-row` 加 `flex-wrap: wrap`：計數購票列同樣是不換行的 flex 列（價格與可售數量 `white-space: nowrap`，加上固定 110px 的張數輸入與三個 12px gap），在 320px 視窗（扣除頁面左右 padding 後可用 288px）可能放不下。這列只有已登入才會出現，修改前的實測沒有量到，但條件相同，一併處理。
+- `.count-ticket-row` 加 `flex-wrap: wrap`：計數購票列同樣是不換行的 flex 列（價格與可售數量 `white-space: nowrap`，加上固定 110px 的張數輸入與三個 12px gap），在 320px 視窗（扣除頁面左右 padding 後可用 288px）可能放不下。這列在活動有計數票種時就會渲染，與登入無關（登入只影響提示與販售鎖定狀態）。修改前的溢出由 `.quick-pick` 主導，無法單獨看出計數列是否放不下，但條件相同，一併處理。
 - `.layout` 的 `1fr` 改成 `minmax(0, 1fr)`（桌面 `320px minmax(0, 1fr)`、窄螢幕 `minmax(0, 1fr)`）：讓軌道不再被任何子元素的最小寬度撐開。之後若有其他不換行的內容，溢出只會局限在該元素本身，不會把整欄連同資訊區一起撐寬。
+- `.layout` 加 `overflow-wrap: anywhere`（第二輪審查追加）：標題、描述（`white-space: pre-wrap`）、分區名稱都是主辦方輸入，後端只限制長度（zoneCode 上限 50 字元），不限制字元。無斷點的長網址或英數字串無法斷行，`flex-wrap` 也救不了（單一項目本身就比整列寬）。實測 390px 寬時，長網址標題會把頁面撐到 653px，50 字元的 zoneCode 會撐到 522px。這個屬性會繼承，所以設在 `.layout` 一處就能涵蓋兩欄。只有在一行放不下時才斷字，實測短文字的版面不變（見 tasks.md 3.7 紀錄）。
 
 **替代方案**：
 - 只加 `flex-wrap`：可以修好這次的問題，但只要未來購票區再新增一個不換行的元件，同樣的問題就會再次出現。
@@ -44,7 +45,7 @@
 jsdom 不做版面計算（`scrollWidth`、grid 軌道寬度恆為 0），無法用 Vitest 驗證溢出。專案目前也沒有 Playwright 等 E2E 框架，只為這一條需求引入新框架，不符合 Rule 2（最小解法）。
 
 因此：
-- **溢出**：以固定的量測腳本（同源 iframe 設定 320／390／720／721／800／1280px 寬，其中 720 與 721 是 media query 斷點兩側、等待載入、讀取 `scrollWidth` 與資訊欄寬度）在瀏覽器實測。量測基準一律是 W：iframe 加高到不會產生垂直捲軸，使 `clientWidth` 等於 W，與 spec 的「視窗寬度」一致，也符合手機覆蓋式捲軸不佔寬度的實際情境；`clientWidth` 不等於 W 時該次量測無效。每個 Scenario 對應一項量測，並把數值記錄在 tasks.md。修改前先量一次基準值，必須重現 470 的失敗；修改後再量，用以證明這個檢查真的能抓到問題。
+- **溢出**：以固定的量測腳本（同源 iframe 設定 320／390／720／721／800／1280px 寬，其中 720 與 721 是 media query 斷點兩側、等待載入、讀取 `scrollWidth` 與資訊欄寬度）在瀏覽器實測。量測基準一律是 W：頁面永遠比視窗高約 33px（header 實高 57px，比 `BuyerLayout.vue` 的 `calc(100svh - 56px)` 多 1px 邊框；另外 32px 是 `.event-detail-page` 的 `margin-top` 摺疊到 `main` 外），加高 iframe 無法消除垂直捲軸，因此腳本以 `scrollbar-width: none` 隱藏 iframe 的捲軸（仍可捲動），使 `clientWidth` 等於 W，與 spec 的「視窗寬度」一致，也符合手機覆蓋式捲軸不佔寬度的實際情境；`clientWidth` 不等於 W 時該次量測無效。每個 Scenario 對應一項量測，並把數值記錄在 tasks.md。修改前先量一次基準值，必須重現 470 的失敗；修改後再量，用以證明這個檢查真的能抓到問題。block 元素的外框寬度永遠等於欄寬，所以腳本以 `left + scrollWidth` 取內容右緣，並檢查每個元素的 `scrollWidth > clientWidth`，避免文字溢出時外框沒變而假通過。測試資料不含無斷點長字串，腳本以 `INJECT_LONG_TEXT` 在 DOM 注入這類內容來驗證。**已知偏差**：隱藏捲軸驗證的是覆蓋式捲軸的情境；桌面瀏覽器的傳統捲軸佔 15px，W = 721～735 時實際內容寬度比 media query 判定的寬度少 15px，這個區間沒有實測。
 - **`lang`**：Vitest 以 `import indexHtml from '../index.html?raw'` 取得檔案內容，用 jsdom 的 `DOMParser` 解析後，斷言 `documentElement.lang === 'zh-Hant-TW'`。這是對建置輸入的直接斷言，有人改回去就會失敗。不使用 `node:fs` 讀檔，因為 `tsconfig.app.json` 涵蓋 `src/**/*.ts`，而 `types` 只有 `vite/client`，沒有 node 型別，`npm run build` 的 `vue-tsc -b` 會失敗。`?raw` 的型別已經由 `vite/client` 宣告，不需要修改型別設定。
 
 **不採用**：用 Vitest 讀取 `.vue` 的 `<style>` 字串，斷言其中含有 `minmax(0` 或 `flex-wrap`。這只能驗證寫法，不能驗證行為：換一種同樣有效的寫法會誤報失敗，加入新的不換行元件造成溢出時卻抓不到（違反 Rule 9）。
