@@ -24,7 +24,8 @@ function fakeAccessTokenWithOrganizerId(organizerId: string): string {
   return `header.${base64url}.signature`
 }
 
-describe('AdminLayout', () => {
+// 頁面改為延遲載入後，第一次導航到某頁要先轉換並載入該頁（含 Element Plus），整套測試並行時可能超過預設 5 秒
+describe('AdminLayout', { timeout: 30_000 }, () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
     vi.mocked(organizersApi.getMyOrganizers).mockReset()
@@ -59,7 +60,7 @@ describe('AdminLayout', () => {
 })
 
 // AWU-LIST-002：切換成功（OrganizerId claim 更新）後，導覽列依 claim 中的 GUID 比對出並顯示對應名稱。
-describe('AdminLayout 導覽列目前 Organizer 名稱顯示', () => {
+describe('AdminLayout 導覽列目前 Organizer 名稱顯示', { timeout: 30_000 }, () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
     vi.mocked(organizersApi.getMyOrganizers).mockReset()
@@ -98,7 +99,7 @@ describe('AdminLayout 導覽列目前 Organizer 名稱顯示', () => {
 
 // 訂單、核銷頁面與場館、活動相同，只要求已切換 Organizer（AWU-GUARD-007），選單對所有人顯示；
 // 審核頁仍要求 Admin 角色（AWU-GUARD-004），只對 Admin 顯示。
-describe('AdminLayout 導覽選單依角色顯示', () => {
+describe('AdminLayout 導覽選單依角色顯示', { timeout: 30_000 }, () => {
   const generalMenuLabels = ['場館管理', '活動管理', '訂單管理', '票券核銷']
 
   beforeEach(async () => {

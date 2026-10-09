@@ -1,26 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import morandiCss from './morandi.css?raw'
 import styleCss from '../style.css?raw'
+import { parseCssBlocks, type CssBlock } from './cssBlocks'
 
-type CssBlock = { selector: string; properties: Map<string, string>; offset: number }
 type Rgb = [number, number, number]
 
 const SEMANTIC_COLORS = ['primary', 'success', 'warning', 'danger', 'info'] as const
-
-function parseCssBlocks(css: string): CssBlock[] {
-  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, (comment) => ' '.repeat(comment.length))
-  const blocks: CssBlock[] = []
-  for (const match of withoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const properties = new Map<string, string>()
-    for (const declaration of match[2].split(';')) {
-      const separatorIndex = declaration.indexOf(':')
-      if (separatorIndex < 0) continue
-      properties.set(declaration.slice(0, separatorIndex).trim(), declaration.slice(separatorIndex + 1).trim())
-    }
-    blocks.push({ selector: match[1].trim(), properties, offset: match.index })
-  }
-  return blocks
-}
 
 function findBlock(blocks: CssBlock[], selector: string): CssBlock {
   const block = blocks.find((candidate) => candidate.selector === selector)

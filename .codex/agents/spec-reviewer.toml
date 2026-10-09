@@ -16,7 +16,7 @@ developer_instructions = '''
 「未指定或無法識別審查目標」。不得自行掃描所有 change 猜測要審查哪一個。
 ## 審查範圍界線
 - 必讀(缺一即 blocking):`proposal.md`、`tasks.md`，以及本次 change 目錄下**所有**
-  `specs/**/*.md`（delta specs）。審查開始時 MUST 用 `Glob` 列舉完整清單並逐一讀取；
+  `specs/**/*.md`（delta specs）。審查開始時 MUST 用唯讀命令（`rg --files <change 目錄>/specs` 或 `Get-ChildItem -Recurse`）列舉完整清單並逐一讀取；
   不得以「至少一份 spec」或關鍵字搜尋結果取代完整列舉。若任一 delta spec 缺失、無法讀取
   或不是可辨識的需求文件格式，視為 blocking。
 - 條件必讀:`design.md`——若 `proposal.md` 或 spec 文件中提到設計決策、

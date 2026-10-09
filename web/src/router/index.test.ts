@@ -18,7 +18,8 @@ function signIn(role: Role, organizerId?: string): void {
   authStore.member = { id: '1', email: 'a@example.com', displayName: 'A', role, isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
 }
 
-describe('router guard', () => {
+// 頁面改為延遲載入後，第一次導航到某頁要先轉換並載入該頁（含 Element Plus），整套測試並行時可能超過預設 5 秒
+describe('router guard', { timeout: 30_000 }, () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
     // 每個測試前導回中性路徑，避免「目的地跟目前路徑相同」時 vue-router 略過重新導覽、guard 沒有真的重跑。

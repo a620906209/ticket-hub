@@ -26,7 +26,7 @@
 前三優先（建議先開一個 change 處理）：
 
 1. **P0 色彩對比度**：主色按鈕、連結與所有狀態色都未達 AA（第 4 節）。
-2. **P0 Bundle 切割**：路由 lazy-load，Element Plus 改為按需引入，`jsqr` 移出買家端 bundle（第 5 節）。
+2. ✅ **已修正（bundle-splitting）** **P0 Bundle 切割**：路由 lazy-load，Element Plus 改為按需引入，`jsqr` 移出買家端 bundle（第 5 節）。首屏 gzip 由 390,894 B 降為 151,517 B；CSS 仍為全量（延後處理）。
 3. **P0 手機版活動詳情頁會整頁橫向捲動**（✅ 實測，R3）：一行 CSS 就能修好，應最先處理。
 4. **P1 購票頁動線**：錯誤訊息貼近操作位置、加上座位圖例、固定在底部的結帳列（第 1 節）。
 
@@ -166,6 +166,8 @@
 ## 5. 效率指標
 
 ### 5.1 首屏載入與資源順序（`vite build` 實測）
+
+> ✅ **已修正（bundle-splitting，2026-10-09）**：18 個頁面與 `AdminLayout` 改為 `() => import()`，Element Plus 元件 JS 改由 `unplugin-vue-components` 按需引入，`jsqr` 只隨驗票頁 chunk 載入。實測首屏（entry 靜態閉包 ∪ 首頁 chunk 閉包）gzip **151,517 B**（JS 102,346＋CSS 49,171），修正前同口徑為 390,894 B（約 −61%），build 共 61 個 chunk，由 `npm run test:bundle` 持續檢查（≤ 200 kB）。**CSS 仍為 `element-plus/dist/index.css` 全量引入**：按需樣式會在延遲載入的 chunk 裡較晚注入，蓋掉 morandi.css 的色票覆寫，因此使用者決定延後處理。下表與成因為修正前的紀錄。
 
 | 產出物 | 原始 | gzip |
 | --- | --- | --- |
