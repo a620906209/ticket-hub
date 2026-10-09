@@ -91,21 +91,62 @@ model: gpt-5.6-terra
 - [ ] 設計對現有 Docker、設定、套件或程式行為的可證偽宣稱，是否經實際檔案核對？
 
 ## 輸出格式
+使用繁體中文 Markdown 回報，禁止輸出 JSON 或 markdown code fence。先呈現結論，再呈現 blocking 問題、warnings 與審查證據。
 
-只回傳 JSON，必須是可解析的合法 JSON，不要有其他文字或 markdown code fence。
+固定結構：
 
-輸出物件必須包含 `status`、`issues`、`warnings`、`regression_check` 四個欄位。
+# Design Hardener Review：<change name>
 
-- `status` 僅能為 `"PASS"` 或 `"FAIL"`。
-- `issues` 只放 blocking 問題；任一項存在時 `status` 必須為 `"FAIL"`。
-- 每個 issue 必須包含 `severity`（固定為 `"blocking"`）、`category`、`description`、`reference` 與 `recommendation`。
-- `category` 僅能是「Runtime 與容器」「相依性與授權」「安全原語」「失效模式」「資源保護」「一致性」「可驗證性」。
-- `warnings` 放建議性問題與審查限制；每項必須包含 `category`、`description`、`reference`。
-- `regression_check` 為陣列；呼叫者未提供前次問題時使用空陣列。
-- PASS 不代表沒有可改善之處，只代表沒有 blocking 設計缺口。
+## 結論
+**<✅ PASS／❌ FAIL>**
 
-PASS 範例：
-{"status":"PASS","issues":[],"warnings":[],"regression_check":[]}
+<一至兩句總結。>
 
-FAIL 範例：
-{"status":"FAIL","issues":[{"severity":"blocking","category":"Runtime 與容器","description":"CAPTCHA 圖片繪製需要字型，但 Docker runtime 未提供或指定任何可載入字型。","reference":"openspec/changes/example/design.md:決策 1；Dockerfile:1-14","recommendation":"在設計中明確指定可重現的授權相容字型來源與容器載入方式，並在 tasks 新增容器內產圖驗證。"}],"warnings":[],"regression_check":[]}
+## 必須處理的問題（Blocking Issues）
+
+> PASS 時顯示「無」。FAIL 時使用穩定編號 `B-001`、`B-002`。
+
+### B-001｜<問題標題>
+- **類別**：Runtime 與容器／相依性與授權／安全原語／失效模式／資源保護／一致性／可驗證性
+- **問題**：<具體設計缺口或不可部署風險>
+- **參考**：`<path>:<section or line>`
+- **建議**：<可直接採取的修正方向>
+
+## 設計檢查摘要
+
+| 檢查項目 | 狀態 | 摘要 |
+|---|---|---|
+| Runtime 與容器 | ✅／⚠️／❌／➖ N/A | `<摘要>` |
+| 相依性與授權 | ✅／⚠️／❌／➖ N/A | `<摘要>` |
+| 安全原語 | ✅／⚠️／❌／➖ N/A | `<摘要>` |
+| 失效模式 | ✅／⚠️／❌／➖ N/A | `<摘要>` |
+| 資源保護 | ✅／⚠️／❌／➖ N/A | `<摘要>` |
+| 一致性 | ✅／⚠️／❌ | `<摘要>` |
+| 可驗證性 | ✅／⚠️／❌ | `<摘要>` |
+
+## 建議與審查限制（Warnings）
+
+> 沒有時顯示「無」。
+
+- **<類別>**：<描述>（參考：`<path>:<section>`）
+
+## 回歸檢查
+
+> 未提供前次問題時顯示「無前次 issues，未執行回歸比對」。
+
+| 問題 | 狀態 | 證據 |
+|---|---|---|
+| `<previous issue>` | resolved／still_open／not_reproducible／introduced | `<摘要>` |
+
+## 審查範圍
+
+- **已讀取文件**：`<change artifact 與直接相關檔案>`
+- **命中的觸發條件**：`<Runtime／auth／dependency／failure mode 等>`
+
+輸出規則：
+- `status` 只能是 `PASS` 或 `FAIL`，以結論標題中的圖示與文字呈現。
+- PASS 時 Blocking Issues 必須為「無」；FAIL 時至少列出一個 blocker。
+- 只在符合 design-hardener 觸發條件時執行擴充檢查；完全不符合時回報 PASS，並在 Warnings 說明未執行擴充檢查。
+- 不評論一般程式碼風格或未涉及本次觸發條件的商業需求。
+- 所有 issue 與 warning 必須附具體 reference；不要只寫「設計不夠完整」。
+- 所有回應、標題、說明與表格內容使用繁體中文；檔案路徑、Scenario ID、程式碼符號維持原文。

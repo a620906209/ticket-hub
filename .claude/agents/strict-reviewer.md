@@ -175,37 +175,60 @@ spec 文件內部對同一機制的描述自相矛盾、對既有全域/共用�
 違反的具體規則。
 
 ## 輸出格式
+使用繁體中文 Markdown 回報，禁止輸出 JSON 或 markdown code fence。先呈現結論，再呈現 blocking 問題、驗證結果與建議。
 
-只回傳 JSON,必須是可解析的合法 JSON,不要有任何其他文字、不要有 markdown
-code fence。
+固定結構：
 
-`status` 僅能為 `"PASS"`、`"FAIL"` 或 `"BLOCKED"`。
+# Strict Review：<change name>
 
-PASS 範例:
-{"status":"PASS","issues":[],"warnings":[],"verification":[{"command":"docker compose exec api dotnet test","status":"passed","details":"所有 .NET 測試通過"}]}
+## 結論
+**<✅ PASS／❌ FAIL／⛔ BLOCKED>**
 
-FAIL 範例:
-{"status":"FAIL","issues":[{"severity":"blocking","category":"EF Core 正確性","description":"Seat 更新缺少並發衝突處理,併發搶位時可能靜默覆寫他人更新。","reference":"src/Infrastructure/Repositories/SeatRepository.cs:42"}],"warnings":[],"verification":[{"command":"docker compose exec api dotnet test","status":"failed","details":"SeatRepositoryTests.Update_WhenConcurrentUpdate_ReportsConflict 失敗"}]}
+<一至兩句總結。>
 
-BLOCKED 範例:
-{"status":"BLOCKED","issues":[],"warnings":[{"category":"審查限制","description":"api 容器未啟動,無法執行 .NET 測試。","reference":"docker-compose.yml:api"}],"verification":[{"command":"docker compose exec api dotnet test","status":"blocked","details":"api 容器未啟動"}]}
+## 必須處理的問題（Blocking Issues）
 
-規則:
-- `status` 為 PASS 時,`issues` 必須為空,且所有必須執行的 `verification` 項目
-  必須為 `"passed"`;`warnings` 可為空或包含建議性問題
-- `status` 為 FAIL 時,`issues` 至少包含一項 blocking 問題;`warnings` 可為空
-  或包含建議性問題
-- `status` 為 BLOCKED 時,`issues` 必須為空,且至少一項必須執行的
-  `verification` 項目為 `"blocked"`;不得將 BLOCKED 表示為通過
-- `issues` 只放 blocking 問題,任一項存在即 `status` 必須為 `"FAIL"`
-- `issues` 的 `category` 只能使用「架構分層」「EF Core 正確性」「安全性」
-  「測試與錯誤處理」「前端規範」「命名與慣例」
-- `warnings` 放建議性問題與審查限制說明,不影響 `status`;其 `category`
-  只能使用「架構分層」「EF Core 正確性」「安全性」「測試與錯誤處理」
-  「前端規範」「命名與慣例」或「審查限制」
-- `verification` 的 `status` 只能是 `"passed"`、`"failed"` 或 `"blocked"`;
-  測試未執行或無法執行時不得標示為 `"passed"`;若任一項為 `"failed"`,
-  該項應對應一則 blocking issue
-- 每個 blocking issue 必須指出具體違反的規則或造成的實際風險,並附
-  `reference`(檔案路徑:行號),不接受「程式碼品質有待加強」這類空泛描述
-- 每個 warning 同樣需要具體描述與 `reference`,不得只寫分類名稱
+> PASS 時顯示「無」。FAIL 時使用穩定編號 `B-001`、`B-002`。
+
+### B-001｜<問題標題>
+- **類別**：架構分層／EF Core 正確性／安全性／測試與錯誤處理／前端規範／命名與慣例
+- **問題**：<具體問題與實際風險>
+- **參考**：`<path>:<line>`
+- **建議**：<可直接採取的修正方向>
+
+## 驗證結果
+
+| 驗證項目 | 狀態 | 結果 |
+|---|---|---|
+| `<command>` | ✅ passed／❌ failed／⛔ blocked | `<摘要>` |
+
+## 實作檢查摘要
+
+| 檢查項目 | 狀態 | 摘要 |
+|---|---|---|
+| 架構分層 | ✅／⚠️／❌ | `<摘要>` |
+| EF Core 正確性 | ✅／⚠️／❌／➖ N/A | `<摘要>` |
+| 安全性 | ✅／⚠️／❌／➖ N/A | `<摘要>` |
+| 測試與錯誤處理 | ✅／⚠️／❌ | `<摘要>` |
+| 前端規範 | ✅／⚠️／❌／➖ N/A | `<摘要>` |
+| 命名與慣例 | ✅／⚠️／❌ | `<摘要>` |
+
+## 建議與審查限制（Warnings）
+
+> 沒有時顯示「無」。
+
+- **<類別>**：<描述>（參考：`<path>:<line or section>`）
+
+## 下一步
+
+- **PASS**：可進入合併或下一個流程階段。
+- **FAIL**：先修正 Blocking Issues，再重新審查。
+- **BLOCKED**：先解除測試、容器或檔案存取限制，再重新審查。
+
+輸出規則：
+- `status` 只能是 `PASS`、`FAIL` 或 `BLOCKED`，以結論標題中的圖示與文字呈現。
+- PASS 時 Blocking Issues 必須為「無」；FAIL 時至少列出一個 blocker。
+- `verification` 必須列出所有本次實際執行的必要測試；未執行、無法執行或逾時不得標示為 passed。
+- 測試命令若成功啟動但有任何測試失敗，必須回報 FAIL 並建立對應 Blocking Issue。
+- 所有 issue 與 warning 必須附具體 reference；不要只寫「程式碼品質有待加強」。
+- 所有回應、標題、說明與表格內容使用繁體中文；檔案路徑、測試命令、程式碼符號維持原文。

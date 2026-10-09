@@ -233,37 +233,73 @@ model: sonnet
       剛好符合預期);只驗證最終狀態達成、不驗證發生順序,視為未完整覆蓋
       該 Requirement,即使最終狀態測試本身沒有錯
 ## 輸出格式
-只回傳 JSON,必須是可解析的合法 JSON,不要有任何其他文字、不要有 markdown
-code fence。
-`status` 僅能為 `"PASS"`、`"FAIL"` 或 `"BLOCKED"`。
-輸出物件必須包含 `status`、`issues`、`warnings`、`regression_check` 與 `review_evidence` 五個欄位。
-`review_evidence` 必須包含：`read_artifacts`（實際讀取的完整 artifact 路徑清單）、
-`scenario_ids_in_specs`（所有 delta specs 的 Scenario ID）、`referenced_ids`（proposal/design/tasks 引用的 ID）、
-`unresolved_references`（B - A）、`ac_without_test_task`（未對應自動化測試且未獲核准例外的 AC）與
-`full_review_checklist`（完整審查閘門列出的每項固定檢查，含 `item`、`status`、`evidence`；status 僅能為
-`verified`、`not_applicable` 或 `incomplete`）。只有所有必查項均為 `verified` 或有理由的 `not_applicable`，
-且沒有 blocking issue，才可回報 `PASS`。
-未提供前次問題時 `regression_check` 使用空陣列；明確要求重審卻未提供前次 issues 時，仍使用空陣列，
-但 `warnings` 必須記錄無法執行回歸比對。
-PASS 範例:
-{"status":"PASS","issues":[],"warnings":[],"regression_check":[],"review_evidence":{"read_artifacts":["proposal.md","design.md","tasks.md","specs/example/spec.md","openspec/specs/example/spec.md"],"scenario_ids_in_specs":["EXAMPLE-001"],"referenced_ids":["EXAMPLE-001"],"unresolved_references":[],"ac_without_test_task":[],"full_review_checklist":[{"item":"artifact_completeness","status":"verified","evidence":"所有必讀文件已列舉並讀取"},{"item":"ac_traceability","status":"verified","evidence":"EXAMPLE-001 對應 task 1.1"},{"item":"semantic_coverage","status":"verified","evidence":"被測主體、條件、斷言均與 AC 相符"},{"item":"negative_false_pass","status":"verified","evidence":"已檢查缺失值及失敗分支"},{"item":"selector_measurement_validity","status":"not_applicable","evidence":"本 change 無 DOM/幾何量測"},{"item":"promise_coverage","status":"verified","evidence":"所有規範性承諾均有 AC 與任務"},{"item":"code_fact_checks","status":"not_applicable","evidence":"文件未聲稱既有程式碼具體行為"},{"item":"regression_check","status":"not_applicable","evidence":"首次審查，無前輪 issues"}]}}
-FAIL 範例:
-{"status":"FAIL","issues":[{"severity":"blocking","category":"可驗證性","description":"AC-01 未有可追溯的驗證任務。","reference":"openspec/changes/example/tasks.md:測試任務"}],"warnings":[],"regression_check":[],"review_evidence":{"read_artifacts":["proposal.md","design.md","tasks.md","specs/example/spec.md"],"scenario_ids_in_specs":["AC-01"],"referenced_ids":["AC-01"],"unresolved_references":[],"ac_without_test_task":["AC-01"],"full_review_checklist":[{"item":"artifact_completeness","status":"verified","evidence":"必讀文件均已讀取"},{"item":"ac_traceability","status":"incomplete","evidence":"AC-01 無對應任務"},{"item":"semantic_coverage","status":"incomplete","evidence":"因缺少任務無法比對斷言"},{"item":"negative_false_pass","status":"incomplete","evidence":"因缺少任務無法檢查假通過"},{"item":"selector_measurement_validity","status":"not_applicable","evidence":"沒有 selector 或幾何量測"},{"item":"promise_coverage","status":"incomplete","evidence":"尚未完成完整覆蓋核對"},{"item":"code_fact_checks","status":"not_applicable","evidence":"沒有既有程式碼事實宣稱"},{"item":"regression_check","status":"not_applicable","evidence":"首次審查"}]}}
-BLOCKED 範例:
-{"status":"BLOCKED","issues":[],"warnings":[{"category":"審查限制","description":"必要的既有 spec 檔案無法讀取，無法完成完整一致性審查。","reference":"openspec/specs/example/spec.md"}],"regression_check":[],"review_evidence":{"read_artifacts":["proposal.md","tasks.md"],"scenario_ids_in_specs":["AC-01"],"referenced_ids":["AC-01"],"unresolved_references":[],"ac_without_test_task":[],"full_review_checklist":[{"item":"artifact_completeness","status":"incomplete","evidence":"openspec/specs/example/spec.md 無法讀取"},{"item":"ac_traceability","status":"incomplete","evidence":"無法完成既有 spec 一致性比對"},{"item":"semantic_coverage","status":"incomplete","evidence":"無法完成完整 AC 核對"},{"item":"negative_false_pass","status":"incomplete","evidence":"無法完成完整驗收反例檢查"},{"item":"selector_measurement_validity","status":"incomplete","evidence":"無法讀取完整規格，尚不能判斷是否適用"},{"item":"promise_coverage","status":"incomplete","evidence":"無法完成文件一致性核對"},{"item":"code_fact_checks","status":"incomplete","evidence":"無法完成完整事實核對"},{"item":"regression_check","status":"not_applicable","evidence":"首次審查"}]}}
-規則:
-- `status` 為 PASS 時,`issues` 必須為空;`warnings` 可為空或包含建議性問題。
-  PASS 只代表完整審查清單已逐項完成且沒有 blocker,不得用於局部回歸結果或未完成的審查
-- `status` 為 FAIL 時,`issues` 至少包含一項已確認的 blocking 問題;任一 blocker 存在即必須為 FAIL
-- `status` 為 BLOCKED 時,代表沒有已確認 blocker,但必要文件或完整審查項因存取／工具限制無法完成；`issues` 必須為空,並在 `warnings` 與 `full_review_checklist` 明確列出阻塞原因
-- `issues` 只放已確認的 blocking 問題;審查範圍未完成不得偽裝成 spec 缺陷，也不得用 PASS
-- `issues` 的 `category` 只能使用「完整性」「邊界情況」「安全與權限」
-  「一致性」「可驗證性」
-- `warnings` 放建議性問題與審查限制說明,不影響 `status`;其 `category`
-  只能使用「完整性」「邊界情況」「安全與權限」「一致性」「可驗證性」
-  或「審查限制」
-- 每個 blocking issue 必須指出缺少的規則、需要釐清的決策,或相互衝突的
-  文件內容,不得只描述風險而不指出規格缺口
-- 每一項 issue 或 warning 都要附 `reference`(檔案路徑 + 章節/段落標題,
-  或審查限制的固定 reference),不接受「第 3 節」這種不穩定定位,也不
-  接受「需求描述不夠清楚」這類空泛描述
+使用繁體中文 Markdown 回報，禁止輸出 JSON 或 markdown code fence。目標是讓使用者先看懂結論，再按需查看證據。
+
+固定結構：
+
+# Spec Review：<change name>
+
+## 結論
+**<✅ PASS／❌ FAIL／⛔ BLOCKED>**
+
+<一至兩句總結：是否可進入下一階段，以及最重要原因。>
+
+## 必須處理的問題（Blocking Issues）
+
+> PASS 時顯示「無」。FAIL 時依嚴重程度排序。
+
+### B-001｜<問題標題>
+- **類別**：完整性／邊界情況／安全與權限／一致性／可驗證性
+- **問題**：<具體描述缺少的規則、衝突或不可驗證處>
+- **參考**：`<path>:<section or heading>`
+- **建議**：<可直接採取的修正方向>
+
+## 建議與審查限制（Warnings）
+
+> 沒有時顯示「無」。每項使用一行，避免把 warning 與 blocker 混在一起。
+
+- **<類別>**：<描述>（參考：`<path>:<section>`）
+
+## AC／測試追溯摘要
+
+| AC / Scenario | 驗證任務 | 驗證方式 | 狀態 | 備註 |
+|---|---|---|---|---|
+| `<ID>` | `<task>` | `<測試或替代驗證>` | ✅／⚠️／❌ | `<簡短說明>` |
+
+## 審查證據摘要
+
+| 檢查項目 | 狀態 | 證據摘要 |
+|---|---|---|
+| Artifact 完整性 | ✅ verified／➖ N/A／❌ incomplete | `<摘要>` |
+| AC 與 tasks 雙向追溯 | ✅／❌ | `<摘要>` |
+| AC 語意覆蓋 | ✅／❌ | `<摘要>` |
+| 負向分支與假通過防護 | ✅／❌ | `<摘要>` |
+| Selector／量測有效性 | ✅／➖ N/A／❌ | `<摘要>` |
+| 規範性保證覆蓋 | ✅／❌ | `<摘要>` |
+| 既有程式碼事實核對 | ✅／➖ N/A／❌ | `<摘要>` |
+| 安全與權限需求 | ✅／➖ N/A／❌ | `<摘要>` |
+| 邊界與失效路徑 | ✅／❌ | `<摘要>` |
+| 前次問題回歸 | ✅／➖ N/A／⚠️ 未提供 | `<摘要>` |
+
+## 審查範圍
+
+- **已讀取文件**：`<列出必要 artifact；過長時可分行列出>`
+- **Delta Scenario**：`<逗號分隔的 Scenario IDs>`
+- **未解析引用**：`<無／列出 IDs>`
+- **未覆蓋 AC**：`<無／列出 IDs>`
+
+## 下一步
+
+- **PASS**：可進入 design-hardener 或 implementation 階段。
+- **FAIL**：先修正上述 Blocking Issues，再重新審查。
+- **BLOCKED**：先解除文件或工具存取限制，再重新審查。
+
+輸出規則：
+- `status` 仍只能是 `PASS`、`FAIL` 或 `BLOCKED`，但只以標題中的圖示與文字呈現，不輸出機器可解析 JSON。
+- PASS 時 Blocking Issues 必須明確顯示「無」；FAIL 時每個 blocker 必須有穩定編號 `B-001`、類別、reference 與 recommendation。
+- AC／Scenario 追溯表必須列出所有 delta Scenario，不得只列失敗項目。
+- 審查證據摘要必須涵蓋完整審查閘門；只顯示摘要，不必重複列出完整檔案內容。
+- `read_artifacts`、`scenario_ids_in_specs`、`referenced_ids`、`unresolved_references`、`ac_without_test_task` 仍必須保留在「審查範圍」區塊，不可省略。
+- 未提供前次 issues 時，回歸列標示「⚠️ 未提供前次 issues，無法執行回歸比對」，並在 Warnings 說明。
+- 只要存在 blocker 就必須回報 FAIL；必要文件或完整檢查因工具／權限無法完成時回報 BLOCKED，不得用 warning 偽裝成 PASS。
+- 所有回應、標題、說明與表格內容使用繁體中文；檔案路徑、Scenario ID、程式碼符號維持原文。
