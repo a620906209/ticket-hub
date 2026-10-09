@@ -41,6 +41,7 @@ const TAG_TO_COMPONENT_DIR: Record<string, string> = {
   'el-button': 'button',
   'el-checkbox': 'checkbox',
   'el-date-picker': 'date-picker',
+  'el-drawer': 'drawer',
   'el-dropdown': 'dropdown',
   'el-dropdown-item': 'dropdown',
   'el-dropdown-menu': 'dropdown',
