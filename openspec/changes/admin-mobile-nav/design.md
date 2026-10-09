@@ -14,7 +14,7 @@
 ## Goals / Non-Goals
 
 **Goals:**
-- 320px 至 1280px 寬時，後台導覽列沒有橫向溢出（含主辦方名稱為 100 字元長字串時）。
+- 320px 至 1280px 寬時，後台導覽列沒有橫向溢出（含主辦方名稱為 100 字元長字串時）。W < 320 與 W > 1280 不在保證與驗收範圍內。
 - 窄螢幕時所有選單項目仍可到達，且依角色顯示的規則與桌面版一致。
 - 抽屜可用鍵盤操作：Esc 關閉，關閉後焦點回到選單按鈕。
 
@@ -56,7 +56,7 @@
 - 抽屜 `title="後台選單"`，作為對話框的名稱。
 - **焦點還原不依賴 Element Plus 預設行為**：抽屜關閉後，由元件明確把焦點移回選單按鈕，不論開啟時按鈕是否取得過焦點（觸控、滑鼠、鍵盤都一樣）。這符合 WAI-ARIA 對話框模式「關閉後焦點回到觸發元素」的要求。Element Plus 的 focus trap 釋放時會 `tryFocus(lastFocusBeforeTrapped ?? document.body)`，自己的還原必須在它之後執行才不會被覆蓋。實作一律掛 `el-drawer` 的 `@closed`，在其中呼叫 `menuButton.focus()`：`trapped` 綁定抽屜的 `visible`，關閉時 focus trap 先釋放並執行預設還原，`closed` 在過場動畫的 after-leave 才觸發（`use-dialog.mjs` 的 `afterLeave`），焦點會晚到動畫結束，但不會被覆蓋。**不得**掛 `@close-auto-focus`：drawer 的 `onCloseAutoFocus` 是不帶參數的 `emit("closeAutoFocus")`（`drawer.d.ts`：`closeAutoFocus: () => boolean`），收不到 Event、無法 `preventDefault()`，而且它在 focus trap dispatch released 事件時觸發，早於同一函式中的預設還原（`focus-trap.vue_vue_type_script_lang.mjs` 的 `stopTrap`），在其中 `focus()` 會被覆蓋。同理不得掛 `@close` 或 `update:modelValue` 的 watch。2.3 的「不預先聚焦」測試能擋住這些實作。Vue Test Utils 預設把 `<transition>` 換成 stub，`closed` 是否會在 jsdom 觸發須由 2.3 實測；不觸發時依 2.3 的升級條款回報使用者。程式化聚焦在指標操作後不會顯示 `:focus-visible` 外框，觸控使用者不會看到多餘的框線。
   - **替代方案**：把 Scenario 限定為「以鍵盤開啟」。手機點擊正是這個功能的主要使用情境，限定後等於不保證主要情境，不採用。
-- 登出鈕放在抽屜內選單下方。主辦方名稱連結留在頂列，不在抽屜中重複。抽屜內的登出**先關閉抽屜，再呼叫既有的登出流程**：若先 `await authStore.logout()` 再關閉，`logout` 失敗或 `router.push` 被守衛擋下時，遮罩、body 捲動鎖與 focus trap 會一直蓋著畫面。
+- 登出鈕放在抽屜內選單下方。主辦方名稱連結留在頂列，不在抽屜中重複。抽屜內的登出**先關閉抽屜，再呼叫既有的登出流程**：`authStore.logout()` 會先清除本地登入狀態，再等待後端登出 API（失敗時吞掉例外，屬 best-effort，見 `stores/auth.ts`）；若先 await 再關閉，等待後端回應期間遮罩、body 捲動鎖與 focus trap 會一直蓋著畫面，`router.push` 被擋下時也會殘留。
 - 抽屜 Teleport 到 `body`，不會帶 `AdminLayout.vue` `<style scoped>` 的 data-v 屬性，寫在 scoped 區塊的抽屜樣式會靜默失效。抽屜內若需自訂樣式（例如直式選單的 `border-right`、登出鈕間距），另開不帶 scoped 的 `<style>` 區塊，選擇器一律以 `.admin-nav-drawer` 開頭限定範圍。
 - 選單按鈕使用 `el-button`（與既有登出鈕一致），內容為 inline SVG 三條線（`aria-hidden="true"`），`aria-label="開啟後台選單"`，`aria-expanded` 綁定抽屜開關狀態；觸控區至少 44×44px。不為一個圖示安裝 icons 套件。
 - 主辦方名稱在任何寬度都以 `text-overflow: ellipsis` 截斷（`min-width: 0`、`white-space: nowrap`、`overflow: hidden`；桌面另設 `max-width`），`title` 屬性帶完整名稱。
@@ -67,13 +67,13 @@
 - **版面**：沿用 mobile-layout-p0-fixes 的瀏覽器量測腳本做法。同源 iframe 設定 320／390／720／721／800／1280px 寬（720 與 721 是斷點兩側），以 `scrollbar-width: none` 隱藏 iframe 的捲軸，使 `clientWidth` 等於 W。量測使用 **Admin 角色**（5 個選單項目，最寬的情況）並已切換 Organizer，在 `/admin/redeem` 與 `/admin/venues` 量測；另外在 W = 320、390 時，以尚未切換 Organizer 的 Admin 開啟 `/admin/organizers`（頂列顯示「尚未切換主辦方」，對應既有 AWU-NAV-004 的情境）量測導覽列。量測項目：
   - `.admin-nav` 內每個元素的右緣（`left + scrollWidth`）≤ W，且沒有任何元素 `scrollWidth > clientWidth`（被截斷的主辦方名稱除外，它本來就以 `overflow: hidden` 截斷）；
   - 核銷頁的 `document.documentElement.scrollWidth` ≤ W；
-  - 窄螢幕時選單按鈕可見且外框 ≥ 44×44，水平選單 `display: none`；寬螢幕時相反；
+  - 窄螢幕時選單按鈕可見且外框 ≥ 44×44，水平選單與頂列登出鈕（`.admin-nav-logout`）`display: none`；寬螢幕時相反；
   - `INJECT_LONG_TEXT`：把主辦方名稱換成 100 字元的無斷點字串後重量一次。
 - **無效量測**：任一條件成立時，該次量測無效，視為未通過（不得當作通過，也不得略過不記錄）：
   - `clientWidth` ≠ W；
   - iframe 實際的 `location.pathname` 不等於目標路徑（例如未登入被導向 `/login`、未切換 Organizer 被導向選擇主辦方頁）；
   - `.admin-nav` 的命中數不是 1，或其中可量測的元素數為 0；
-  - 選單按鈕（`[aria-label="開啟後台選單"]`）、水平選單（`.admin-nav-menu`）或主辦方名稱入口（`.organizer-indicator`）的命中數不是 1，或主辦方名稱入口不可見（修改前的基準量測不檢查選單按鈕，因為它尚未存在）；
+  - 選單按鈕（`[aria-label="開啟後台選單"]`）、水平選單（`.admin-nav-menu`）或主辦方名稱入口（`.organizer-indicator`）的命中數不是 1，或主辦方名稱入口不可見；頂列登出鈕（`.admin-nav-logout`）的命中數不是 1（修改前的基準量測不檢查選單按鈕與 `.admin-nav-logout`，因為兩者尚未存在）；
   - 開啟 `INJECT_LONG_TEXT` 時，替換後的主辦方名稱元素命中數不是 1，或其文字長度不是 100；
   - 任何量測到的座標或尺寸不是有限數值，或可見元素的寬高 ≤ 0。
 - 修改前先量一次基準值，用以證明這個檢查真的能抓到問題：W = 390 時導覽列必須溢出（AWU-MOBILE-NAV-001 的失敗情境）；W = 721 且開啟 `INJECT_LONG_TEXT` 時導覽列必須溢出（AWU-MOBILE-NAV-002 的失敗情境，目前名稱沒有截斷）。任一項沒有重現時停止並回報使用者。若基準量測發現核銷頁的**內容本身**（不是導覽列）溢出，停下來回報使用者，不得自行擴大範圍。
@@ -84,10 +84,22 @@
 ## Risks / Trade-offs
 
 - [瀏覽器量測沒有自動化，之後的修改可能再次造成溢出] → 與 mobile-layout-p0-fixes 相同，暫時接受；量測腳本存為 `measure-admin-nav.js` 隨 change 歸檔、量測結果記錄在 tasks.md，方便重跑，引入 E2E 框架後再自動化。
-- [桌面瀏覽器的傳統捲軸佔 15px，W = 721～735 時實際內容寬度比 media query 判定的寬度少 15px] → 這個區間沒有實測，與 mobile-layout-p0-fixes 的已知偏差相同；721px 寬時水平選單的實際寬度遠小於 706px，預期不受影響，量測會記錄 721 的實際餘裕。
+- [桌面瀏覽器的傳統捲軸佔 15px，media query 寬度 721～735（版面寬度 W = 706～720）時已顯示寬版，但實際內容寬度比 media query 判定的寬度少 15px] → 這個區間沒有實測，與 mobile-layout-p0-fixes 的已知偏差相同；721px 寬時水平選單的實際寬度遠小於 706px，預期不受影響，量測會記錄 721 的實際餘裕。
 - [選單按鈕與水平選單同時存在 DOM，既有測試以 `.admin-nav-menu` 找選單項目] → 水平選單保留 `.admin-nav-menu`，抽屜內選單使用不同的 class，既有測試不受影響；抽屜首次開啟前不渲染，既有測試從未開啟抽屜，不會找到重複項目。
 - [Element Plus 升級後 focus trap 或 Esc 行為改變] → 由 Vitest 的焦點與 Esc 測試把關。
 - [瀏覽器量測取代自動化測試] → 見下方「AC 測試對應例外」。
+
+## 安全確認
+
+本 change 只修改前端版面，觸及 CLAUDE.md 安全強制規則中的「身份驗證／授權邏輯」（登出入口、依角色顯示選單）與「外部輸入」（主辦方名稱顯示）。逐項回答如下：
+
+- **輸入驗證**：本 change 不新增任何表單、API 參數或 URL query。唯一顯示的使用者輸入是主辦方名稱，長度上限與驗證沿用後端既有規則（`Organizer.cs`、`OrganizerConfiguration.cs`，上限 100 字元）。沒有拼接 SQL 或 shell 指令。
+- **資料庫**：不新增或修改任何後端程式碼、API 或查詢；前端仍沿用既有的 `GET /api/organizers/mine` 取得名稱，呼叫次數不變。沒有 raw SQL，也沒有新增 N+1 風險。
+- **權限**：抽屜選單不新增任何權限規則，選單項目與水平選單共用同一個 computed 清單（決策 2），「主辦方審核」只在 `authStore.isAdmin` 時出現。選單只決定顯示，不是權限邊界：直接輸入 URL 或點選選單都會經過既有的 `router.beforeEach`（`web/src/router/index.ts`，依 `requiresAdmin`／`requiresOrganizerContext` 導向），真正的授權邊界在後端 Authorization Policy（例如 `AdminOrganizersController` 的 `AdminOnly`、`AdminOrdersController` 的 `RequireOrganizerContext`），本 change 都不修改。未授權使用者即使看到或繞過選單，也無法觸發後端操作。
+- **登出**：抽屜內的登出呼叫既有的 `authStore.logout()`，不新增登出邏輯；只調整「先關抽屜」的順序。
+- **前端 XSS**：主辦方名稱以 Vue 文字插值與 `:title` 屬性綁定呈現，由 Vue 轉義，不使用 `v-html` 或字串拼接屬性。
+- **Auth Header**：本 change 不新增 API 呼叫；既有呼叫經 `web/src/api/httpClient.ts` 統一注入 `Authorization` Header。
+- **機敏資訊**：不新增設定、密碼或 API Key。
 
 ## AC 測試對應例外
 
