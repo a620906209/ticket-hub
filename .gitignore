@@ -489,3 +489,6 @@ $RECYCLE.BIN/
 
 # 壓測 seeder 產出的 token 檔與 k6 summary（含有效 JWT，不進版控；k6-load-test design.md 決策 4）
 loadtest/.output/
+
+# pi agent 本機設定（agent 定義為單次審查用、模型寫死），比照 .devin/ 不進版控
+/.pi/
