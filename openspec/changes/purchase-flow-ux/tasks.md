@@ -34,7 +34,7 @@
     - 失敗的執行同樣計入上限：fixture 中途 `fail()` 時，已建立的場館或活動不回滾，也不自動重試。
     - 達到上限時停止並回報使用者，不自動清理。產品沒有刪除 API，自動清理只能用原生 SQL，違反 CLAUDE.md 的禁令，而且要處理訂單、票券、座位、會員之間的關聯，誤刪風險高。清理由使用者依 `loadtest/README.md`「清理」段落的既有做法處理：用 pgAdmin 依 `[PurchaseFlowUx] ` 前綴與 `pfux-` Email 前綴辨識後手動處理，或重建 dev DB volume。清理後重跑 fixture，上限檢查會重新計數。
     - `pfux-*` 帳號沒有 API 可以計數。每輪只註冊 1 個，數量受活動上限間接限制，不另設上限。
-  - **輸出限制**：fixture 的 console 與 summary 只輸出 Id、數量與 HTTP 狀態碼，不得輸出 token、`Authorization` header 或完整的 request／response 本文。
+  - **輸出限制**：fixture 的 console 與 summary 只輸出 Id、數量與 HTTP 狀態碼；失敗時允許沿用 `loadtest/lib/http.js` 的 `describeFailure`（method、path、狀態碼與截斷至 300 字元的回應本文，不含 header）。不得輸出 token、`Authorization` header、request 本文或未截斷的回應本文。
   - **執行指令**（每次執行 1.2、4.2 前各跑一次）：
     1. `docker compose exec api dotnet run --project tools/ProjectC.LoadTest.Seeder -- --buyers 2`，必須 exit code 0；
     2. 依 `loadtest/README.md`「每一次執行的固定順序」第 2 步輪詢 api 就緒；
@@ -103,6 +103,12 @@
   - (f) 送出時回傳 429；
   - (g) 送出時回傳 `409 SalesNotOpen`；
   - (h) 送出時回傳一般失敗（例如 409 座位已被鎖定），而且 `loadData` 重新載入成功。
+
+  另加一組 [BW-FLOW-003]「前置檢查提早返回不清除錯誤」：先用 BW-FLOW-007 的方式讓 `.page-error` 與 `.action-error` 並存，再逐一觸發下列情境，每案都斷言兩則訊息仍在、`placeOrder` 未被呼叫：
+  - (i) 未登入時按「自動選位」：把 auth store 改為未登入（此時 `isSalesLocked` 為 false，按鈕可按），按下後斷言導向 `/login`（帶 `redirect`），兩則訊息仍在；
+  - (j) 已登入、`salesStatus` 不是 `Open` 時：「自動選位」按鈕帶 `disabled`（`isSalesLocked`），無法觸發；
+  - (k) 沒有已選內容時：「送出訂單」按鈕帶 `disabled`，無法觸發。
+  `handleQuickPick` 的 `quickPickCount <= 0` 分支被 `el-input-number` 的 `:min="1"` 擋住，排隊未放行的 `!canPurchase` 分支也無法觸發：後端 `GetMyQueueStatusHandler` 只回傳 NotJoined／Waiting／Admitted／Expired，已登入且排隊模式開啟時，Waiting 由等待畫面（`showQueueWaiting`）取代選位區；NotJoined／Expired／尚未查詢（null）在販售中由加入畫面（`showJoinPrompt`）取代，非販售中則按鈕因 `isSalesLocked` 停用（即 (j)），兩者都是防禦性分支、UI 無法觸發，不另寫測試。
 
   另加一案 [BW-FLOW-007]：一般失敗**而且**重新載入也失敗時，`.page-error` 顯示載入失敗訊息，`.action-error` 顯示下單失敗訊息，兩者並存（design.md 決策 1）；失敗後已選內容會被清空（`EventDetailPage.vue:570`），所以先重新點選一個座位，並斷言此時兩則訊息仍並存（選位不清除錯誤），再按一次「送出訂單」，`placeOrder` 回傳 429：`.page-error` 不存在，`.action-error` 只顯示 429 的訊息。只清除 `actionErrorMessage` 的實作會在這一步失敗。
 - [ ] 2.4 [BW-FLOW-004、006]
