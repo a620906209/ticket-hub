@@ -64,6 +64,17 @@ describe('OrderDetailPage 訂單明細', () => {
       expect(wrapper.text()).toContain('座位：A-12')
     })
 
+    // 2026-10-13 走查：電腦沒有相機時核銷頁只能手動輸入 Ticket ID，但整個系統都看不到這個值，票無法核銷。
+    it('[BW-MYORDER-TICKET-ID-001] 每張票券顯示完整 Ticket ID，供相機不可用時手動核銷', async () => {
+      const ticketId = '366d6241-3a79-421a-9534-75764fc4a7f5'
+      const order = buildPaidOrder()
+      order.items[0].tickets = [{ id: ticketId, status: 'Issued' }]
+      vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(order)
+      const { wrapper } = await mountDetailPage()
+
+      expect(wrapper.find('.ticket-id').text()).toBe(`Ticket ID：${ticketId}`)
+    })
+
     it('[BW-MYORDER-DISPLAY-001] 座位項目顯示票種與「分區-號碼」，計數項目的座位顯示「—」', async () => {
       vi.mocked(ordersApi.getMyOrderDetail).mockResolvedValue(
         buildPendingOrder({
