@@ -72,6 +72,8 @@ const EXPECTED_ROUTE_TREE: RouteShape[] = [
       child('organizers', 'admin-organizers', { requiresAdmin: true }),
     ],
   },
+  // bundle-splitting 之後新增（2026-10-13 走查：未知網址整頁空白），不屬於 BS-014 基準
+  child('/:pathMatch(.*)*', undefined, undefined, { name: 'events' }),
 ]
 
 // route name（頂層 layout 以 path）→ 元件模組

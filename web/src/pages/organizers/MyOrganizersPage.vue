@@ -94,6 +94,11 @@ async function handleSwitch(organizer: OrganizerSummary): Promise<void> {
 </template>
 
 <style scoped>
+.my-organizers-page {
+  max-width: 800px;
+  margin: 64px auto;
+  padding: 0 16px;
+}
 .empty-state {
   color: var(--el-text-color-secondary);
 }

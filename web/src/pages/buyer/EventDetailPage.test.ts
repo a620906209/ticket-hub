@@ -256,6 +256,25 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
 
   // 自動選位只填入已選清單、不直接下單（purchase-flow-ux 決策 3）：買家要先看到抽到哪些座位，
   // 由買家自己按「送出訂單」才建立訂單，避免抽到不想要的座位就被持有。
+  // 後端不保證座位順序（event-management spec）；2026-10-13 走查時同區座位亂序、找不到想要的位置。
+  // 刻意用 2／10 驗證是數字自然排序而不是字串排序（字串排序會得到 1、10、2）。
+  it('seatGrid_WhenApiReturnsSeatsUnordered_ShowsEachZoneInNaturalSeatOrder', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
+      buildSeat({ eventSeatId: 'a-10', seatNumber: '10', zoneCode: 'A' }),
+      buildSeat({ eventSeatId: 'b-2', seatNumber: '2', zoneCode: 'B' }),
+      buildSeat({ eventSeatId: 'a-2', seatNumber: '2', zoneCode: 'A' }),
+      buildSeat({ eventSeatId: 'a-1', seatNumber: '1', zoneCode: 'A' }),
+      buildSeat({ eventSeatId: 'b-1', seatNumber: '1', zoneCode: 'B' }),
+    ])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const renderedSeatIds = wrapper.findAll('.seat-btn').map((button) => button.attributes('data-seat-id'))
+    expect(renderedSeatIds).toEqual(['a-1', 'a-2', 'a-10', 'b-1', 'b-2'])
+  })
+
   it('[BW-QUICK-001] 區域隨選：維持預設「全部區域」，抽出座位填入已選清單，由買家送出訂單', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([

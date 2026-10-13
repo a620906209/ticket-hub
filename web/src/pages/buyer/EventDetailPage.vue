@@ -281,6 +281,10 @@ const seatsByZone = computed(() => {
       map.set(seat.zoneCode, [seat])
     }
   }
+  // 後端不保證座位順序（event-management spec），未排序時 A-10 會排在 A-2 前或整區亂序，改用自然排序
+  for (const zoneSeats of map.values()) {
+    zoneSeats.sort((a, b) => a.seatNumber.localeCompare(b.seatNumber, undefined, { numeric: true }))
+  }
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
 })
 

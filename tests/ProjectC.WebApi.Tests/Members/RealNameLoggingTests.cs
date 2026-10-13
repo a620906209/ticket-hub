@@ -24,11 +24,41 @@ public class RealNameLoggingTests : IClassFixture<LogCapturingWebApplicationFact
         _factory = factory;
     }
 
+    // 請求／EF 日誌的耗時（Elapsed／elapsed）是隨機小數，完整 double 有十幾位數字，偶爾含末四碼而誤判失敗
+    // （2026-10-13 完整測試實際發生，量測 40 筆日誌就有 91／10000 個 4 位數會撞到）。耗時不可能承載個資，
+    // 整個屬性移除後再渲染，訊息裡改留 {Elapsed} 佔位符；其他屬性照舊全部比對。
     private static string RenderFully(LogEvent logEvent)
-        => string.Join(
+    {
+        var withoutElapsed = new LogEvent(
+            logEvent.Timestamp,
+            logEvent.Level,
+            logEvent.Exception,
+            logEvent.MessageTemplate,
+            logEvent.Properties
+                .Where(p => !p.Key.Equals("Elapsed", StringComparison.OrdinalIgnoreCase))
+                .Select(p => new LogEventProperty(p.Key, p.Value)));
+        return string.Join(
             "\n",
-            new[] { logEvent.MessageTemplate.Text, logEvent.RenderMessage(), logEvent.Exception?.ToString() ?? string.Empty }
-                .Concat(logEvent.Properties.Select(p => $"{p.Key}={p.Value}")));
+            new[] { withoutElapsed.MessageTemplate.Text, withoutElapsed.RenderMessage(), withoutElapsed.Exception?.ToString() ?? string.Empty }
+                .Concat(withoutElapsed.Properties.Select(p => $"{p.Key}={p.Value}")));
+    }
+
+    // 耗時數字含末四碼不算外洩，同一筆日誌的其他屬性含末四碼仍須抓到。
+    [Fact]
+    public void RenderFully_WithLast4InsideElapsedOnly_IgnoresElapsedButKeepsOtherProperties()
+    {
+        var parser = new Serilog.Parsing.MessageTemplateParser();
+        LogEvent CreateEvent(params LogEventProperty[] properties) => new(
+            DateTimeOffset.UtcNow, LogEventLevel.Information, null,
+            parser.Parse("HTTP GET /x responded 200 in {Elapsed:0.0000} ms {Holder}"), properties);
+
+        var elapsedOnly = CreateEvent(new LogEventProperty("Elapsed", new ScalarValue(21.135712345)), new LogEventProperty("Holder", new ScalarValue("none")));
+        var leakingHolder = CreateEvent(new LogEventProperty("Elapsed", new ScalarValue(3.0)), new LogEventProperty("Holder", new ScalarValue("末四碼 1357")));
+
+        elapsedOnly.RenderMessage().Should().Contain("1357", "前提：未移除前耗時渲染後確實含末四碼");
+        ContainsPersonalData(RenderFully(elapsedOnly), "1357").Should().BeFalse();
+        ContainsPersonalData(RenderFully(leakingHolder), "1357").Should().BeTrue();
+    }
 
     // 日誌裡大量的 Guid／TraceId／SpanId 是隨機 hex，末四碼（如 2468）偶爾會出現在其中而誤判失敗
     // （2026-10-05 完整測試實際發生）。只遮掉這些格式固定的隨機識別碼再做子字串比對，

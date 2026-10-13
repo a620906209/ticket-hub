@@ -26,6 +26,24 @@ describe('router guard', { timeout: 30_000 }, () => {
     await router.push('/')
   })
 
+  // 2026-10-13 走查打錯網址時整頁空白，沒有任何導覽可以離開。
+  it('push_WhenPathUnknown_RedirectsToEventList', async () => {
+    // 先離開 events，否則導覽失敗留在原地也會通過斷言
+    await router.push('/login')
+    await router.push('/no-such-page/deep')
+
+    expect(router.currentRoute.value.name).toBe('events')
+  })
+
+  // 換頁沒回頁首時，從長列表點進詳情會停在頁面中段；上一頁則要還原原本的位置。
+  it('scrollBehavior_WithOrWithoutSavedPosition_RestoresSavedOrScrollsToTop', () => {
+    const scrollBehavior = router.options.scrollBehavior!
+    const route = router.currentRoute.value
+
+    expect(scrollBehavior(route, route, null)).toEqual({ top: 0 })
+    expect(scrollBehavior(route, route, { left: 0, top: 480 })).toEqual({ left: 0, top: 480 })
+  })
+
   it('未登入進入需登入頁面導向登入頁', async () => {
     await router.push('/orders')
 
