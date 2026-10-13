@@ -33,6 +33,8 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** 略過 Authorization Header（登入/註冊等不需要既有 token 的請求） */
   skipAuth?: boolean
+  /** 明確指定 Authorization 使用的 access token，優先於 store 內目前的 token（登出時 store 已先清空，見 stores/auth.ts） */
+  accessToken?: string
   /** 內部旗標：這個請求是不是「401 換發後的重試」，呼叫端不要自己設定，見 authorizedRequest() */
   _retriedAfterRefresh?: boolean
 }
@@ -53,7 +55,7 @@ async function fetchResponse(path: string, options: RequestOptions): Promise<Res
   const headers: Record<string, string> = { Accept: 'application/json' }
 
   if (!options.skipAuth) {
-    const token = getAccessToken()
+    const token = options.accessToken ?? getAccessToken()
     if (token) {
       headers.Authorization = `Bearer ${token}`
     }

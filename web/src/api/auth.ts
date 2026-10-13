@@ -34,9 +34,11 @@ export function refresh(refreshToken: string): Promise<AuthTokens> {
   })
 }
 
-export function logout(refreshToken: string): Promise<void> {
+// 後端 logout 端點需要 [Authorize]；呼叫端已先清空 store，所以由呼叫端帶入清空前的 access token。
+export function logout(refreshToken: string, accessToken: string | null): Promise<void> {
   return request('/auth/logout', {
     method: 'POST',
+    accessToken: accessToken ?? undefined,
     body: { refreshToken },
   })
 }

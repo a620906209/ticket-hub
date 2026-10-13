@@ -58,6 +58,18 @@ describe('httpClient request', () => {
     expect(headers.Authorization).toBeUndefined()
   })
 
+  // 登出時 store 已先清空，必須能以清空前的 token 呼叫需要 [Authorize] 的 logout 端點。
+  it('request_WithExplicitAccessToken_UsesItEvenWhenStoreTokenIsNull', async () => {
+    configureHttpClientAuth(() => null)
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await request('/auth/logout', { method: 'POST', accessToken: 'pre-clear-token', body: { refreshToken: 'r' } })
+
+    const [, init] = vi.mocked(fetch).mock.calls[0]
+    const headers = init?.headers as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer pre-clear-token')
+  })
+
   it('非 2xx 回應時，把 ProblemDetails 轉成 ApiError', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       jsonResponse(400, { status: 400, title: 'Validation', detail: 'Email 為必填。' }),

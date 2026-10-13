@@ -53,6 +53,42 @@ describe('auth store', () => {
     expect(localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBeNull()
   })
 
+  // 後端 logout 是 [Authorize]：只帶 refresh token 會 401，伺服器端 refresh token 永遠不會被撤銷。
+  it('logout_WhenLoggedIn_SendsPreClearAccessTokenAfterClearingLocalState', async () => {
+    vi.mocked(authApi.login).mockResolvedValue({ accessToken: 'access-1', refreshToken: 'refresh-1' })
+    vi.mocked(authApi.getMyProfile).mockResolvedValue(member)
+    const store = useAuthStore()
+    let stateAtCall: { accessToken: string | null; storedRefreshToken: string | null } | null = null
+    vi.mocked(authApi.logout).mockImplementation(async () => {
+      stateAtCall = { accessToken: store.accessToken, storedRefreshToken: localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) }
+    })
+
+    await store.login('a@example.com', 'password123', 'token-1', 'TEST')
+    await store.logout()
+
+    expect(authApi.logout).toHaveBeenCalledTimes(1)
+    expect(authApi.logout).toHaveBeenCalledWith('refresh-1', 'access-1')
+    // 本地狀態清空優先（ticketing-web-ui design.md）：呼叫 API 時 store 與 localStorage 已清空。
+    expect(stateAtCall).toEqual({ accessToken: null, storedRefreshToken: null })
+  })
+
+  // 已知殘餘風險：access token 已過期時後端回 401，refresh token 已先從本地清空、也不重新換發，
+  // 伺服器端的 refresh token 不會被撤銷，只能等它自然過期。這裡鎖定「仍完成本地登出、不拋錯、不換發」。
+  it('logout_WhenLogoutApiRejectsWithExpiredAccessToken_StillClearsLocalStateWithoutRefreshing', async () => {
+    vi.mocked(authApi.login).mockResolvedValue({ accessToken: 'access-1', refreshToken: 'refresh-1' })
+    vi.mocked(authApi.getMyProfile).mockResolvedValue(member)
+    vi.mocked(authApi.logout).mockRejectedValue(new Error('401 Unauthorized'))
+    const store = useAuthStore()
+    await store.login('a@example.com', 'password123', 'token-1', 'TEST')
+    vi.mocked(authApi.refresh).mockClear()
+
+    await expect(store.logout()).resolves.toBeUndefined()
+
+    expect(store.isAuthenticated).toBe(false)
+    expect(localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBeNull()
+    expect(authApi.refresh).not.toHaveBeenCalled()
+  })
+
   it('refreshSession 成功更新 access token', async () => {
     localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, 'old-refresh')
     vi.mocked(authApi.refresh).mockResolvedValue({ accessToken: 'access-2', refreshToken: 'refresh-2' })
