@@ -117,6 +117,8 @@ onBeforeUnmount(discardQrCode)
         <ul v-else class="ticket-list">
           <li v-for="ticket in item.tickets" :key="ticket.id">
             <span>票券狀態：<TicketStatusTag :status="ticket.status" /></span>
+            <!-- 現場相機不可用時，核銷頁只能手動輸入 Ticket ID，買家必須能看到並出示這個值 -->
+            <p class="ticket-id">Ticket ID：{{ ticket.id }}</p>
             <template v-if="canShowQrCode(ticket.status)">
               <el-button text type="primary" @click="showQrCode(ticket.id)">查看 QR Code</el-button>
               <img
@@ -160,6 +162,11 @@ onBeforeUnmount(discardQrCode)
 
 .ticket-list {
   padding-left: 20px;
+}
+
+.ticket-id {
+  margin: 4px 0;
+  word-break: break-all;
 }
 
 .qr-code {

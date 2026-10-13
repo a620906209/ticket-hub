@@ -126,6 +126,20 @@ describe('RedemptionScannerPage', () => {
     expect(new Set(reasonTexts).size).toBe(3)
   })
 
+  // 2026-10-13 走查：登入成同名但不同的主辦方時，別家的票只會看到「查無此票券」，操作者誤以為票不存在。
+  // 後端刻意不區分（RDM-AUTHZ-004），所以提示文字必須同時點出「切換的主辦方不對」這個可能。
+  it('[ADMIN-REDEEM-NOT-FOUND-HINT] 查無票券結果同時提示可能是目前切換的主辦方不對', async () => {
+    const fake = createFakeScanner('scanning')
+    const wrapper = mountPage()
+
+    fake.scanResult.value = 'not-found'
+    await flushPromises()
+
+    const bannerText = wrapper.find('.result-banner').text()
+    expect(bannerText).toContain('查無此票券')
+    expect(bannerText).toContain('不屬於目前切換的主辦方')
+  })
+
   // 8.7a：防止日後在核銷頁內部重新加入依 isAdmin 的隱藏或阻擋——這種退化路由守衛測試抓不到。
   // 使用真實 composable（只把相機能力設為不可用，讓手動輸入成為主體），mock 最底層的 redeemTicket。
   it('非 Admin 但已切換 Organizer 的操作人員可送出手動核銷', async () => {
