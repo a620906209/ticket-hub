@@ -53,8 +53,9 @@ describe('auth store', () => {
     expect(localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBeNull()
   })
 
-  // 後端 logout 是 [Authorize]：只帶 refresh token 會 401，伺服器端 refresh token 永遠不會被撤銷。
-  it('logout_WhenLoggedIn_SendsPreClearAccessTokenAfterClearingLocalState', async () => {
+  // 後端只憑 refresh token 撤銷（logout-revoke-by-refresh-token），store 只需要帶 refresh token；
+  // 呼叫當下本地狀態必須已清空（本地狀態清空優先，ticketing-web-ui design.md）。
+  it('logout_WhenLoggedIn_CallsApiWithRefreshTokenOnlyAfterClearingLocalState', async () => {
     vi.mocked(authApi.login).mockResolvedValue({ accessToken: 'access-1', refreshToken: 'refresh-1' })
     vi.mocked(authApi.getMyProfile).mockResolvedValue(member)
     const store = useAuthStore()
@@ -67,17 +68,16 @@ describe('auth store', () => {
     await store.logout()
 
     expect(authApi.logout).toHaveBeenCalledTimes(1)
-    expect(authApi.logout).toHaveBeenCalledWith('refresh-1', 'access-1')
-    // 本地狀態清空優先（ticketing-web-ui design.md）：呼叫 API 時 store 與 localStorage 已清空。
+    expect(authApi.logout).toHaveBeenCalledWith('refresh-1')
     expect(stateAtCall).toEqual({ accessToken: null, storedRefreshToken: null })
   })
 
-  // 已知殘餘風險：access token 已過期時後端回 401，refresh token 已先從本地清空、也不重新換發，
-  // 伺服器端的 refresh token 不會被撤銷，只能等它自然過期。這裡鎖定「仍完成本地登出、不拋錯、不換發」。
-  it('logout_WhenLogoutApiRejectsWithExpiredAccessToken_StillClearsLocalStateWithoutRefreshing', async () => {
+  // 登出 API 是 best-effort：失敗（例如併發衝突 409、網路中斷）時仍完成本地登出、不拋錯，
+  // 也不能為了重試而換發——refresh token 已從本地清空，換發只會把剛放棄的工作階段延續下去。
+  it('logout_WhenLogoutApiRejects_StillClearsLocalStateWithoutRefreshing', async () => {
     vi.mocked(authApi.login).mockResolvedValue({ accessToken: 'access-1', refreshToken: 'refresh-1' })
     vi.mocked(authApi.getMyProfile).mockResolvedValue(member)
-    vi.mocked(authApi.logout).mockRejectedValue(new Error('401 Unauthorized'))
+    vi.mocked(authApi.logout).mockRejectedValue(new ApiError(409, { status: 409, detail: '登出時 Token 狀態已變更' }))
     const store = useAuthStore()
     await store.login('a@example.com', 'password123', 'token-1', 'TEST')
     vi.mocked(authApi.refresh).mockClear()

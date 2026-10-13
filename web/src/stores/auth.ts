@@ -54,19 +54,13 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function logout(): Promise<void> {
     const refreshToken = getStoredRefreshToken()
-    // 本地狀態清空優先（ticketing-web-ui design.md），但後端 logout 需要 [Authorize]，
-    // 先保留清空前的 access token 帶給 API，否則請求不帶 Authorization、必定 401，refresh token 不會被撤銷。
-    const currentAccessToken = accessToken.value
     clearSession()
     clearStoredRefreshToken()
     if (refreshToken) {
       try {
-        await authApi.logout(refreshToken, currentAccessToken)
+        await authApi.logout(refreshToken)
       } catch {
-        // best-effort：本地登入狀態已經清空，後端登出呼叫失敗不阻擋導向登入頁（見設計文件決策 5）。
-        // 已知殘餘風險：access token 已過期時會 401，此時不重新換發（refresh token 已清空），
-        // 伺服器端的 refresh token 不會被撤銷，只能等它自然過期。
-        // TODO(2026-10-13)：後端 logout 改為只憑 refresh token 撤銷（拿掉 [Authorize] 與 MemberId 條件，比照 RFC 7009），需另開 change。
+        // best-effort：本地登入狀態已經清空，後端登出呼叫失敗（網路中斷、併發衝突 409 等）不阻擋導向登入頁（見設計文件決策 5）。
       }
     }
   }
