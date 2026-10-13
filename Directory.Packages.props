@@ -51,4 +51,13 @@
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="9.18.0.83559" />
     <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.400" />
   </ItemGroup>
+  <!-- 已接受風險的 advisory，理由與解除條件見 .security/vulnerability-allowlist.txt（以該檔為準，兩邊須同步）。
+       這裡只消除 build 的 NU190x 警告；pre-commit 的 dotnet list package 漏洞檢查不受影響，仍以白名單比對。 -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-gwg2-r3hj-4w44" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j3p4-wp97-rph4" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j9gm-c75j-xc9q" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jjfr-hcj7-qf5w" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wmxv-xphr-5c9g" />
+  </ItemGroup>
 </Project>
