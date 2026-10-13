@@ -34,11 +34,12 @@ export function refresh(refreshToken: string): Promise<AuthTokens> {
   })
 }
 
-// 後端 logout 端點需要 [Authorize]；呼叫端已先清空 store，所以由呼叫端帶入清空前的 access token。
-export function logout(refreshToken: string, accessToken: string | null): Promise<void> {
+// 後端只憑 refresh token 撤銷、不需要 access token（logout-revoke-by-refresh-token），呼叫時 store 也已清空，
+// 比照 refresh() 用 skipAuth，不帶 Authorization。
+export function logout(refreshToken: string): Promise<void> {
   return request('/auth/logout', {
     method: 'POST',
-    accessToken: accessToken ?? undefined,
+    skipAuth: true,
     body: { refreshToken },
   })
 }

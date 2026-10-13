@@ -151,13 +151,96 @@ public class AuthControllerTests : IClassFixture<CustomWebApplicationFactory>
         refreshResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    // AUTH-LOGOUT-002：前端登出時 store 已清空、不帶 Authorization；過去端點要求 [Authorize] 會 401，
+    // 伺服器端 Refresh Token 永遠不會被撤銷。這裡用「之後換發 401」證明撤銷真的發生，而非只看 204。
     [Fact]
-    public async Task Logout_WithoutAccessToken_Returns401()
+    public async Task Logout_WithoutAccessToken_RevokesTokenAndReturns204()
     {
-        var response = await _client.PostAsJsonAsync("/api/auth/logout", new LogoutRequest("does-not-matter"));
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(_factory.CreateClient());
+        var anonymousClient = _factory.CreateClient();
 
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var logoutResponse = await anonymousClient.PostAsJsonAsync("/api/auth/logout", new LogoutRequest(tokens.RefreshToken));
+        logoutResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var refreshResponse = await anonymousClient.PostAsJsonAsync("/api/auth/refresh", new RefreshTokenRequest(tokens.RefreshToken));
+        refreshResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
+
+    [Fact]
+    public async Task Logout_WithInvalidAccessToken_RevokesTokenAndReturns204()
+    {
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(_factory.CreateClient());
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "not-a-valid-jwt");
+
+        var logoutResponse = await client.PostAsJsonAsync("/api/auth/logout", new LogoutRequest(tokens.RefreshToken));
+        logoutResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var refreshResponse = await _factory.CreateClient().PostAsJsonAsync("/api/auth/refresh", new RefreshTokenRequest(tokens.RefreshToken));
+        refreshResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    // AUTH-LOGOUT-002 的核心情境（Access Token 預設 15 分鐘過期）。過期與簽章無效在 JwtBearer 走不同失敗路徑，
+    // 不能互相代表。對照組：同 claim 未過期的 Token 呼叫受保護端點成功、過期 Token 呼叫同端點 401，
+    // 證明這個 Token 只差在過期，且確實會被 JwtBearer 拒絕。
+    [Fact]
+    public async Task Logout_WithExpiredAccessToken_RevokesTokenAndReturns204()
+    {
+        var email = AuthTestHelper.NewEmail();
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(_factory.CreateClient(), email);
+        var memberId = await GetMemberIdAsync(tokens.AccessToken);
+
+        var validClient = CreateClientWithBearer(SignedAccessTokenFactory.CreateSignedAccessToken(
+            _factory.Services, memberId, email, organizerId: null, expiresAtUtc: DateTime.UtcNow.AddMinutes(5)));
+        var expiredClient = CreateClientWithBearer(SignedAccessTokenFactory.CreateSignedAccessToken(
+            _factory.Services, memberId, email, organizerId: null, expiresAtUtc: DateTime.UtcNow.AddMinutes(-5)));
+
+        (await validClient.GetAsync("/api/members/me")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await expiredClient.GetAsync("/api/members/me")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var logoutResponse = await expiredClient.PostAsJsonAsync("/api/auth/logout", new LogoutRequest(tokens.RefreshToken));
+        logoutResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var refreshResponse = await _factory.CreateClient().PostAsJsonAsync("/api/auth/refresh", new RefreshTokenRequest(tokens.RefreshToken));
+        refreshResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    // AUTH-LOGOUT-003：查無 Token 與成功回應相同，不提供存在性探測。
+    [Fact]
+    public async Task Logout_WithUnknownToken_Returns204()
+    {
+        var response = await _factory.CreateClient().PostAsJsonAsync("/api/auth/logout", new LogoutRequest("does-not-exist"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    // AUTH-LOGOUT-006：缺欄位與 null 都靠 [ApiController] 的 nullable 模型驗證擋下，沒有另設 Validator（design.md 決策 5）。
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"refreshToken\":null}")]
+    public async Task Logout_WithoutRefreshTokenField_Returns400(string body)
+    {
+        using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+
+        var response = await _factory.CreateClient().PostAsync("/api/auth/logout", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    private HttpClient CreateClientWithBearer(string accessToken)
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        return client;
+    }
+
+    private async Task<Guid> GetMemberIdAsync(string accessToken)
+    {
+        var profile = await CreateClientWithBearer(accessToken).GetFromJsonAsync<MemberIdResponse>("/api/members/me");
+        return profile!.Id;
+    }
+
+    private sealed record MemberIdResponse(Guid Id);
 
     [Fact]
     public async Task PasswordReset_RequestThenConfirmWithValidToken_AllowsLoginWithNewPassword()

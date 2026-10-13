@@ -1,14 +1,9 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Text;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
 using ProjectC.Application.Common;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
@@ -219,9 +214,9 @@ public class EventManagementAuthorizationMatrixTests : IClassFixture<CustomWebAp
         var validProbe = NewProbe();
 
         var expiredClient = CreateClientWithToken(
-            CreateSignedAccessToken(memberId, email, organizerId, expiresAtUtc: DateTime.UtcNow.AddMinutes(-5)));
+            SignedAccessTokenFactory.CreateSignedAccessToken(_factory.Services, memberId, email, organizerId, expiresAtUtc: DateTime.UtcNow.AddMinutes(-5)));
         var validClient = CreateClientWithToken(
-            CreateSignedAccessToken(memberId, email, organizerId, expiresAtUtc: DateTime.UtcNow.AddMinutes(5)));
+            SignedAccessTokenFactory.CreateSignedAccessToken(_factory.Services, memberId, email, organizerId, expiresAtUtc: DateTime.UtcNow.AddMinutes(5)));
 
         var expiredResponse = await CallEndpointAsync(expiredClient, "CreateEvent", seeded, expiredProbe);
         var validResponse = await CallEndpointAsync(validClient, "CreateEvent", seeded, validProbe);
@@ -247,30 +242,5 @@ public class EventManagementAuthorizationMatrixTests : IClassFixture<CustomWebAp
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         return client;
-    }
-
-    /// <summary>比照 JwtTokenService 的 claim 組成自行簽發，只為了能指定過去的過期時間（不真實等待，避免測試變慢）。
-    /// 過期時間刻意設在 ClockSkew（30 秒）之外。</summary>
-    private string CreateSignedAccessToken(Guid memberId, string email, Guid organizerId, DateTime expiresAtUtc)
-    {
-        var jwtOptions = _factory.Services.GetRequiredService<IOptions<JwtOptions>>().Value;
-        var signingCredentials = new SigningCredentials(
-            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey)), SecurityAlgorithms.HmacSha256);
-        var claims = new List<Claim>
-        {
-            new(JwtRegisteredClaimNames.Sub, memberId.ToString()),
-            new(JwtRegisteredClaimNames.Email, email),
-            new(ClaimTypes.Role, "Member"),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new(CustomClaimTypes.OrganizerId, organizerId.ToString()),
-        };
-        var token = new JwtSecurityToken(
-            issuer: jwtOptions.Issuer,
-            audience: jwtOptions.Audience,
-            claims: claims,
-            notBefore: expiresAtUtc.AddMinutes(-30),
-            expires: expiresAtUtc,
-            signingCredentials: signingCredentials);
-        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }

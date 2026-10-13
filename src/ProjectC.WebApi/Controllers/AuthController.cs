@@ -59,11 +59,12 @@ public class AuthController : ControllerBase
         return result.ToActionResult(Ok);
     }
 
-    [Authorize]
+    // 只憑 Refresh Token 撤銷，不要求 Access Token：前端登出時 Access Token 可能已過期（logout-revoke-by-refresh-token design.md 決策 1）。
+    [AllowAnonymous]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout(LogoutRequest request, CancellationToken cancellationToken)
     {
-        var result = await _logoutHandler.HandleAsync(User.GetMemberId(), request, cancellationToken);
+        var result = await _logoutHandler.HandleAsync(request, cancellationToken);
         return result.ToActionResult();
     }
 
