@@ -238,7 +238,7 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 - **THEN** 列表與詳情頁皆只對 Pending 訂單顯示持有到期時間，Paid 訂單不顯示
 
 ### Requirement: 已切換 Organizer 的操作人員可透過介面掃描 QR Code 核銷票券
-本 Requirement 與下一條「掃描期間與相機不可用時皆可切換到手動輸入 Ticket ID 完成核銷」Requirement 中的「操作人員」，指任何已切換至一個 Approved Organizer 的使用者（不限 `Admin` 角色），只能核銷目前 Organizer 名下的票券（見 `ticket-redemption` 能力）。系統 SHALL 在後台提供核銷掃碼頁面，使用裝置相機掃描票券 QR Code；掃描到內容後，系統 SHALL 依 `ticket-issuance` 能力定義的精確格式解析出 Ticket ID 與簽章，並呼叫核銷端點（`PATCH /api/admin/tickets/{id}/redeem`，含 `signature` 欄位，值為解析出的簽章）完成核銷——解析出的 `ticketId`／`signature` MUST 原封不動送入該次呼叫，不得在中途被轉換或省略。系統 SHALL 依核銷端點回應顯示可分辨的結果，且不得僅以顏色區分：成功、已核銷過（狀態衝突）、查無此票、簽章無效（含格式不合法）、以及非上述已知情況的系統錯誤。頁面切到背景（例如切換分頁或應用程式）後再切回前景時，系統 SHALL 讓相機掃描恢復可正常運作，不得停留在「畫面顯示可掃描但實際上無法偵測」的不一致狀態，也不得因為背景/前景切換而重複觸發核銷呼叫；切背景當下若正在等待某次核銷呼叫的結果，系統 SHALL 讓該次呼叫正常完成並在切回前景時顯示其結果，不得重新發送同一次核銷請求。查無此票、簽章無效、無法辨識與系統錯誤四類結果 SHALL 以比成功結果更高的通知急迫程度呈現（例如更長停留時間與可被輔助科技優先朗讀的呈現方式，實際秒數為實作層級的可調整預設值，不在本需求的驗收範圍內），供操作者留意。核銷結果顯示後，系統 SHALL 於一段時間後自動恢復可掃描狀態，或提供操作者可立即恢復的操作，不需重新整理頁面或手動導覽即可繼續掃描下一張票；因系統錯誤失敗的票券，操作者恢復掃描後 SHALL 能立即重新嘗試同一張票，不得被任何重複偵測機制永久阻擋。結果顯示期間，系統 MUST NOT 因相機持續偵測到相同或殘留的 QR 內容而重複呼叫核銷端點；此重複偵測抑制僅限於單一輪次的結果顯示期間有效，恢復可掃描狀態後 MUST NOT 沿用至下一輪。掃描到的內容若不符合預期格式，系統 SHALL 顯示「無法辨識的票券內容」，不呼叫核銷端點；此格式檢查僅用於避免不必要的呼叫，核銷端點本身仍會對任何內容做最終驗證。此頁面依「後台路由僅限已切換 Organizer 或審核頁面的 操作人員進入」Requirement 的一般後台頁面規則保護（要求已切換至一個 Approved Organizer，不限 `Admin` 角色），不額外定義權限規則；可核銷的票券範圍由後端 `ticket-redemption` 能力依呼叫端目前 Organizer 限制。系統 SHALL 在後台導覽選單提供進入此頁面的入口。
+本 Requirement 與下一條「掃描期間與相機不可用時皆可切換到手動輸入 Ticket ID 完成核銷」Requirement 中的「操作人員」，指任何已切換至一個 Approved Organizer 的使用者（不限 `Admin` 角色），只能核銷目前 Organizer 名下的票券（見 `ticket-redemption` 能力）。系統 SHALL 在後台提供核銷掃碼頁面，使用裝置相機掃描票券 QR Code；掃描到內容後，系統 SHALL 依 `ticket-issuance` 能力定義的精確格式解析出 Ticket ID 與簽章，並呼叫核銷端點（`PATCH /api/admin/tickets/{id}/redeem`，含 `signature` 欄位，值為解析出的簽章）完成核銷——解析出的 `ticketId`／`signature` MUST 原封不動送入該次呼叫，不得在中途被轉換或省略。系統 SHALL 依核銷端點回應顯示可分辨的結果，且不得僅以顏色區分：成功、已核銷過（狀態衝突）、查無此票、簽章無效（含格式不合法）、以及非上述已知情況的系統錯誤。由於後端對「票券不存在」與「票券屬於其他 Organizer」刻意回應相同結果（見 `ticket-redemption` 能力），「查無此票」結果的提示文字 SHALL 同時點出「此票可能不屬於目前切換的 Organizer」的可能性（例如「查無此票券，或此票不屬於目前切換的主辦方」），讓操作者能自行檢查目前切換的 Organizer；此提示不得透露該票券實際是否存在。頁面切到背景（例如切換分頁或應用程式）後再切回前景時，系統 SHALL 讓相機掃描恢復可正常運作，不得停留在「畫面顯示可掃描但實際上無法偵測」的不一致狀態，也不得因為背景/前景切換而重複觸發核銷呼叫；切背景當下若正在等待某次核銷呼叫的結果，系統 SHALL 讓該次呼叫正常完成並在切回前景時顯示其結果，不得重新發送同一次核銷請求。查無此票、簽章無效、無法辨識與系統錯誤四類結果 SHALL 以比成功結果更高的通知急迫程度呈現（例如更長停留時間與可被輔助科技優先朗讀的呈現方式，實際秒數為實作層級的可調整預設值，不在本需求的驗收範圍內），供操作者留意。核銷結果顯示後，系統 SHALL 於一段時間後自動恢復可掃描狀態，或提供操作者可立即恢復的操作，不需重新整理頁面或手動導覽即可繼續掃描下一張票；因系統錯誤失敗的票券，操作者恢復掃描後 SHALL 能立即重新嘗試同一張票，不得被任何重複偵測機制永久阻擋。結果顯示期間，系統 MUST NOT 因相機持續偵測到相同或殘留的 QR 內容而重複呼叫核銷端點；此重複偵測抑制僅限於單一輪次的結果顯示期間有效，恢復可掃描狀態後 MUST NOT 沿用至下一輪。掃描到的內容若不符合預期格式，系統 SHALL 顯示「無法辨識的票券內容」，不呼叫核銷端點；此格式檢查僅用於避免不必要的呼叫，核銷端點本身仍會對任何內容做最終驗證。此頁面依「後台路由僅限已切換 Organizer 或審核頁面的 操作人員進入」Requirement 的一般後台頁面規則保護（要求已切換至一個 Approved Organizer，不限 `Admin` 角色），不額外定義權限規則；可核銷的票券範圍由後端 `ticket-redemption` 能力依呼叫端目前 Organizer 限制。系統 SHALL 在後台導覽選單提供進入此頁面的入口。
 
 #### Scenario: ADMIN-REDEEM-SCAN-SUCCESS 掃描成功核銷
 - **WHEN** 操作人員用相機掃到一張狀態為 `Issued` 的票券 QR Code，簽章驗證通過
@@ -255,6 +255,10 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 #### Scenario: ADMIN-REDEEM-SCAN-NOT-FOUND 掃描查無此票的內容
 - **WHEN** 掃描到的內容格式正確、簽章驗證通過，但解析出的 Ticket ID 在系統中不存在
 - **THEN** 系統顯示「查無此票」結果
+
+#### Scenario: ADMIN-REDEEM-NOT-FOUND-HINT 查無此票結果提示可能是切換的 Organizer 不對
+- **WHEN** 核銷端點回應查無此票（不論來自掃描或手動輸入）
+- **THEN** 結果文字同時說明「查無此票券」與「此票可能不屬於目前切換的主辦方」，且不因票券實際存在與否而顯示不同文字
 
 #### Scenario: ADMIN-REDEEM-SCAN-INVALID-SIGNATURE 掃描到簽章被竄改的內容
 - **WHEN** 掃描到的內容格式正確（含分隔符、前段為合法 GUID），但後端驗證簽章與內容不符

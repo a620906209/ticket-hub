@@ -22,7 +22,8 @@ const canRetryCamera = computed(() =>
 const RESULT_TEXT: Record<ScanResultKind, string> = {
   success: '核銷成功',
   'already-redeemed': '此票券已核銷過',
-  'not-found': '查無此票券',
+  // 後端刻意讓「票不存在」與「票屬於其他主辦方」回同樣的 404（RDM-AUTHZ-004），前端無法區分，只能把兩種可能都提示出來
+  'not-found': '查無此票券，或此票不屬於目前切換的主辦方',
   'invalid-signature': '簽章驗證失敗',
   unrecognized: '無法辨識的票券內容',
   'system-error': '系統發生錯誤，請重試',
