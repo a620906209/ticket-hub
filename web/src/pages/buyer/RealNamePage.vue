@@ -220,7 +220,8 @@ onMounted(loadProfile)
 <style scoped>
 .real-name-page {
   max-width: 520px;
-  padding: 24px;
+  margin: 64px auto;
+  padding: 0 16px;
 }
 .page-alert {
   margin-bottom: 16px;

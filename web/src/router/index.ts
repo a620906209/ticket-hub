@@ -7,6 +7,9 @@ import BuyerLayout from '../layouts/BuyerLayout.vue'
 
 const router = createRouter({
   history: createWebHistory(),
+  // 沒設定時 SPA 換頁會沿用上一頁的捲動位置，從長列表點進詳情頁會停在頁面中段。上一頁／下一頁交回 savedPosition，
+  // 但資料非同步載入的頁面在還原當下高度不足，實際會停在頁首附近（2026-10-13 走查實測），收尾階段不另外處理
+  scrollBehavior: (_to, _from, savedPosition) => savedPosition ?? { top: 0 },
   routes: [
     {
       path: '/',
@@ -51,6 +54,8 @@ const router = createRouter({
         { path: 'organizers', name: 'admin-organizers', component: () => import('../pages/admin/AdminOrganizersPage.vue'), meta: { requiresAdmin: true } },
       ],
     },
+    // 未知網址（打錯或舊連結）沒有對應路由時整頁空白，導回活動列表
+    { path: '/:pathMatch(.*)*', redirect: { name: 'events' } },
   ],
 })
 

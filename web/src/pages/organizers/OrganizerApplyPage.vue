@@ -74,5 +74,7 @@ async function handleSubmit(): Promise<void> {
 <style scoped>
 .organizer-apply-page {
   max-width: 480px;
+  margin: 64px auto;
+  padding: 0 16px;
 }
 </style>
