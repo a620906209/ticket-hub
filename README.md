@@ -88,14 +88,22 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - Email 通知（`IEmailNotificationService` 介面 + Mock 實作，結構化 log 記錄）
 - 可觀測性（Serilog + Seq、HTTP／背景服務 TraceId 與結構化 log）
 
-**Phase 3（Could）— 部分已完成，其餘視情況擴充**：
+**Phase 3（Could）— 已全數完成**：
 
-- Redis Queue Leader Election：已完成；透過 Redis 分散式鎖確保多實例下每輪僅由一個實例推進排隊
-- Redis 一般查詢快取：已完成實作與測試，OpenSpec 歸檔與文件同步中
-- 現場核銷掃碼前端：已完成；支援相機掃描與手動輸入備援
-- 多租戶主辦方管理介面：尚未實作
-- 實名制驗證：尚未實作
-- CAPTCHA：尚未實作
+- Redis Queue Leader Election：透過 Redis 分散式鎖確保多實例下每輪僅由一個實例推進排隊
+- 排隊入場推進改用 Redis Sorted Set + Lua 原子操作（Postgres 仍為持久化真相來源）
+- Redis 一般查詢快取（cache-aside，寫入時明確失效 + TTL 安全網）
+- 現場核銷掃碼前端：支援相機掃描與手動輸入備援
+- 多租戶主辦方管理介面：申請、平台審核、切換主辦方，活動／訂單／核銷／報表依主辦方隔離
+- 實名制驗證：一次性登記、需實名活動的下單與核銷比對
+- CAPTCHA：註冊、登入、加入排隊三個端點
+
+### 已知限制
+
+- **P95 < 500ms 只有部分達成**：500 併發搶 50 張、0% 超賣在 k6 實測中全數達成。下單 P95 經兩輪優化，暖機後兩種票種都在 500ms 內（數量票約 370–415ms、座位票約 241ms）；但驗收規則要求「api 重建後第一次執行（冷啟動）也要通過」，數量票冷啟動約 918ms，**判定未達成**；座位票正式流程沒有在冷啟動下驗收，以量測組態補測冷啟動，5 次中有 4 次 ≥ 500ms。冷啟動多出的時間大半花在開資料庫連線（推測與 JIT、從零建立連線有關，未驗證）。候選解法是 Redis 預扣閘門（售完後的請求不進資料庫），但需要重新驗證超賣保證，收尾時決定暫緩。完整數據見 [`docs/load-test/p95-phase2-report.md`](docs/load-test/p95-phase2-report.md)
+- **量測環境是本機 Docker Compose**（WSL2），不是正式部署環境；數字只代表相對改善幅度
+- **金流、Email 都是 Mock 實作**，沒有串接真實第三方服務；只提供電子票券，不處理活動取消／退款（範疇決策見 [`docs/project-scope.md`](docs/project-scope.md) 第 2 節 Won't）
+- **前端 UI 審視的 P2 項目與買家探索頁改版暫緩**，見 [`docs/ui-ux-review-2026-10-08.md`](docs/ui-ux-review-2026-10-08.md) 第 6 節
 
 ## 5. 本機執行
 

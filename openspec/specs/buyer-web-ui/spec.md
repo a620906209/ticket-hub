@@ -72,6 +72,10 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 - **WHEN** 使用者點選某活動進入詳情頁
 - **THEN** 系統顯示該活動的資訊（含海報／說明，如有設定）與座位圖，座位依分區分組、每個座位標示目前的可售狀態
 
+#### Scenario: 同分區座位依座位號自然排序
+- **WHEN** 座位查詢 API 回傳的座位順序未排序（`event-management` 不保證順序），例如 A 區依序回傳 10、2、1
+- **THEN** 每個分區內的座位依座位號以數字自然排序顯示（1、2、10），而非字串排序（1、10、2）
+
 #### Scenario: 活動未設定海報或說明
 - **WHEN** Admin 建立活動時沒有填寫海報網址或說明
 - **THEN** 系統不顯示海報圖片區塊或說明文字區塊，不顯示空白佔位或錯誤訊息
@@ -602,6 +606,17 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 #### Scenario: BW-RESP-005 斷點上限寬度維持單欄且不橫向捲動
 - **WHEN** 未登入的使用者以 720px 寬的視窗（單欄版面的最大寬度）開啟活動詳情頁
 - **THEN** grid 只有一欄，購票欄位於資訊欄下方，且頁面 `scrollWidth` 不大於 720
+
+### Requirement: 前端導覽處理未知網址並在換頁時回到頁首
+前端路由 SHALL 將沒有對應路由的網址導回活動列表頁，不顯示空白頁面。一般換頁 SHALL 捲動到頁首；瀏覽器上一頁／下一頁 SHALL 交回瀏覽器記錄的捲動位置（資料非同步載入的頁面在還原當下高度可能不足，實際位置可能較原位置接近頁首，此為已知限制）。
+
+#### Scenario: 開啟不存在的網址
+- **WHEN** 使用者開啟沒有對應路由的網址（例如 `/no-such-page/deep`）
+- **THEN** 前端導向活動列表頁
+
+#### Scenario: 換頁回到頁首
+- **WHEN** 使用者在已捲動的頁面點選連結前往另一頁
+- **THEN** 新頁面從頁首開始顯示；若為瀏覽器上一頁／下一頁，則交回瀏覽器記錄的捲動位置
 
 ### Requirement: 前端文件語言宣告為繁體中文
 前端應用程式的 HTML 文件 SHALL 將根元素的 `lang` 屬性宣告為 `zh-Hant-TW`，讓輔助科技與瀏覽器以正確語言處理頁面內容。
