@@ -8,6 +8,7 @@
 | `seat-ticket.js` | 座位票：500 VU 各從 `HOT` 分區 50 席隨機選 1 席 |
 | `aggregate.js` | 彙整 12 份正式 summary JSON，產生 `/output/report-tables.md` |
 | `baseline.js` | 瓶頸量測：無競爭基準（1 VU 依序 50 筆），見「瓶頸量測」 |
+| `fixtures/purchase-flow-ux-event.js` | 非壓測：建立 purchase-flow-ux 瀏覽器量測用的活動（`A` 區 400 席含 1 席 Sold、`GA` 計數票），輸出 `PURCHASE_FLOW_UX_EVENT_ID`；只能透過 `fixtures/run-purchase-flow-ux-event.sh` 執行；seeder 帶 `--buyers 2`，見「清理」 |
 | `tests/*.test.js` | 判定與彙整邏輯的自我測試 |
 
 ## 前提
@@ -200,3 +201,16 @@ exit code 為 0 代表全部 check 通過。`aggregate-flow.test.js` 會在 `loa
 
 - token 檔可隨時手動刪除：`rm loadtest/.output/tokens.json`（整個 `loadtest/.output/` 已列入 `.gitignore`）。
 - 每次執行都會建立新的場館與活動，活動 Title 以 `[LoadTest] ` 開頭，場館名稱以 `[LoadTest] venue` 開頭。產品沒有刪除活動的 API，需要清理時建議直接重建開發用 DB volume，或以 pgAdmin 依 Title 前綴辨識後手動處理。
+- `fixtures/purchase-flow-ux-event.js`（purchase-flow-ux 瀏覽器量測，見 `openspec/changes/purchase-flow-ux/tasks.md` 1.0）：
+  - 每次執行留下：1 個場館（名稱以 `[PurchaseFlowUx] venue` 開頭）、1 個座位圖、1 個活動（Title 以 `[PurchaseFlowUx] ` 開頭）、2 個票種、2 筆訂單（壓測買家 1 已付款、壓測買家 2 未付款）；量測時由使用者註冊的 `pfux-*@example.test` 買家帳號也會保留。
+  - 執行順序：seeder（`--buyers 2`）→ 輪詢 api 就緒 → `bash loadtest/fixtures/run-purchase-flow-ux-event.sh`，三步須連續執行（token 30 分鐘過期，過期時 fixture 因 401 失敗）。
+  - 不得與壓測並行：seeder 會覆寫共用的 `tokens.json`。
+  - fixture 之間也不得並行：fixture 先計數再建立，這兩步不是原子操作。所以只能透過 wrapper `fixtures/run-purchase-flow-ux-event.sh` 執行，不得直接執行 k6；fixture 沒拿到 wrapper 傳入的鎖 token 會拒絕執行。
+    - wrapper 先在 compose 的 redis 取得互斥鎖（key `loadtest:purchase-flow-ux:fixture-lock`，TTL 300 秒）。鎖被占用時輸出 `LOCK_BUSY`、redis 無法使用或產生不了 token 時輸出 `LOCK_FAILED`，都以 3 結束。
+    - 結束時（含 Ctrl-C）先確認 k6 容器 `pfux-fixture-<token>` 已停止（必要時 `docker rm -f`；Ctrl-C 時 2 秒後再查一次，防止容器晚出現），才只刪除自己的鎖；無法確認時輸出 `LOCK_KEPT`，不釋放鎖，交給 TTL。
+    - 只對 wrapper 送 SIGTERM／SIGHUP（關閉終端機）不會中止 k6，wrapper 會等 k6 跑完才以 143／129 結束。在沒有 job control 的背景（`&`）啟動時，Ctrl-C 會被忽略。
+    - 殘餘風險：中斷前已送到 API 的請求可能在鎖釋放後才完成，中斷後重跑前一律檢查 `[PurchaseFlowUx] ` 活動數。
+    - k6 結束後鎖已遺失（`LOCK_LOST`）或 redis 無法確認（`LOCK_CHECK_FAILED`）時以 4 結束，訊息附 k6 結束碼；此時即使 k6 成功也不得視為通過。
+    - wrapper 被 SIGKILL 終止時不會移除容器：重跑前先確認沒有殘留的 `pfux-fixture-*` 容器，並檢查 `[PurchaseFlowUx] ` 活動數。
+    - 修改 wrapper 後執行 `bash loadtest/fixtures/run-purchase-flow-ux-event.test.sh`（假 docker，不碰真實 redis 與 API），必須全部 PASS。
+  - 保留上限：`[PurchaseFlowUx] ` 活動已有 6 筆時，fixture 不建立任何資料，輸出 `PURCHASE_FLOW_UX_RETENTION_LIMIT_REACHED count=<n>` 並以非 0 結束；中途失敗的執行同樣計入。達到上限時不自動清理，依上一項的做法（pgAdmin 依 `[PurchaseFlowUx] ` 前綴與 `pfux-` Email 前綴辨識後手動處理，或重建開發用 DB volume）清理後再重跑。

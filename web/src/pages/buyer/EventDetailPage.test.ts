@@ -97,8 +97,10 @@ function buildQueueStatus(overrides: Partial<QueueStatus> = {}): QueueStatus {
   return { status: 'NotJoined', waitingCount: null, queueModeEnabled: true, ...overrides }
 }
 
-function mountPage() {
+// 需要斷言焦點的測試才傳 attachTo：jsdom 只有掛在 document 上的元素能取得焦點。
+function mountPage(options: { attachTo?: HTMLElement } = {}) {
   return mount(EventDetailPage, {
+    attachTo: options.attachTo,
     global: {
       plugins: [ElementPlus],
       stubs: {
@@ -119,9 +121,26 @@ function submitButton(wrapper: ReturnType<typeof mount>) {
 }
 
 function quickPickButton(wrapper: ReturnType<typeof mount>) {
-  const button = wrapper.findAll('button').find((b) => b.text() === '自動選位並送出訂單')
-  if (!button) throw new Error('找不到「自動選位並送出訂單」按鈕')
+  const button = wrapper.findAll('button').find((b) => b.text() === '自動選位')
+  if (!button) throw new Error('找不到「自動選位」按鈕')
   return button
+}
+
+// 錯誤位置一律同時斷言「出現在應有的位置」與「不出現在另一個位置」（purchase-flow-ux design.md 決策 6）。
+function actionError(wrapper: ReturnType<typeof mount>) {
+  return wrapper.find('.checkout-bar .action-error')
+}
+
+function pageError(wrapper: ReturnType<typeof mount>) {
+  return wrapper.find('.page-error')
+}
+
+function checkoutSeatList(wrapper: ReturnType<typeof mount>) {
+  return wrapper.find('.checkout-seat-list')
+}
+
+function selectedSeatCount(wrapper: ReturnType<typeof mount>) {
+  return wrapper.findAll('.seat-btn.selected').length
 }
 
 function countInputFor(wrapper: ReturnType<typeof mount>, ticketTypeName: string) {
@@ -235,7 +254,9 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     expect(wrapper.text()).toContain('已選 2 個座位')
   })
 
-  it('區域隨選：維持預設「全部區域」，能隨機抽出對應數量並直接送出訂單成功', async () => {
+  // 自動選位只填入已選清單、不直接下單（purchase-flow-ux 決策 3）：買家要先看到抽到哪些座位，
+  // 由買家自己按「送出訂單」才建立訂單，避免抽到不想要的座位就被持有。
+  it('[BW-QUICK-001] 區域隨選：維持預設「全部區域」，抽出座位填入已選清單，由買家送出訂單', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1', zoneCode: 'A' }),
@@ -252,13 +273,58 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     await quickPickButton(wrapper).trigger('click')
     await flushPromises()
 
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+    expect(selectedSeatCount(wrapper)).toBe(1)
+    expect(wrapper.text()).toContain('已選 1 個座位')
+    // 抽選是隨機的，只能確認抽到兩區之一，且送出的就是已選清單上顯示的那一席。
+    const seatIdByLabel: Record<string, string> = { 'A-1': 'seat-1', 'B-2': 'seat-2' }
+    const pickedLabel = checkoutSeatList(wrapper).text()
+    expect(Object.keys(seatIdByLabel)).toContain(pickedLabel)
+
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
     expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     const selections = vi.mocked(ordersApi.placeOrder).mock.calls[0][0]
-    expect(selections).toHaveLength(1)
+    expect(selections.map((s) => s.eventSeatId)).toEqual([seatIdByLabel[pickedLabel]])
     expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ path: '/order-result/order-1' }))
   })
 
-  it('區域隨選：指定單一分區時，只從該分區抽出座位，不會選到其他分區', async () => {
+  it('[BW-QUICK-003] 自動選位後手動取消其中一個座位，送出的請求不包含該座位', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
+      buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
+      buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
+      buildSeat({ eventSeatId: 'seat-3', seatNumber: '3' }),
+    ])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
+    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.quick-pick input[type="number"]').setValue(2)
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+    expect(selectedSeatCount(wrapper)).toBe(2)
+
+    const cancelledSeat = wrapper.findAll('.seat-btn.selected')[0]
+    const cancelledSeatId = ['seat-1', 'seat-2', 'seat-3'][
+      wrapper.findAll('.seat-btn').findIndex((b) => b.element === cancelledSeat.element)
+    ]
+    await cancelledSeat.trigger('click')
+    expect(selectedSeatCount(wrapper)).toBe(1)
+
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
+    const selections = vi.mocked(ordersApi.placeOrder).mock.calls[0][0]
+    expect(selections).toHaveLength(1)
+    expect(selections.map((s) => s.eventSeatId)).not.toContain(cancelledSeatId)
+  })
+
+  it('[BW-QUICK-002] 區域隨選：指定單一分區時，只從該分區抽出座位，不會選到其他分區', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-a1', seatNumber: '1', zoneCode: 'A' }),
@@ -278,10 +344,20 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     await quickPickButton(wrapper).trigger('click')
     await flushPromises()
 
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+    expect(selectedSeatCount(wrapper)).toBe(2)
+    expect(checkoutSeatList(wrapper).text()).toContain('A-1')
+    expect(checkoutSeatList(wrapper).text()).toContain('A-2')
+    expect(checkoutSeatList(wrapper).text()).not.toContain('B-')
+
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
     expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     const selections = vi.mocked(ordersApi.placeOrder).mock.calls[0][0]
     expect(selections).toHaveLength(2)
     expect(selections.every((s) => s.eventSeatId === 'seat-a1' || s.eventSeatId === 'seat-a2')).toBe(true)
+    expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ path: '/order-result/order-1' }))
   })
 
   it('區域隨選：分區有可售座位但沒有對應的座位制票種時，不出現在分區選單與抽選池中，也不會縮減數量後下單', async () => {
@@ -308,6 +384,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     // 不能只抽到 1 張（因為誤把 B 區座位也算進候選池）就直接送出。
     expect(ordersApi.placeOrder).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('目前沒有足夠的可售座位')
+    expect(wrapper.text()).toContain('已選 0 個座位')
   })
 
   it('區域隨選張數超過可售座位或限購剩餘額度時，顯示錯誤、不呼叫下單 API', async () => {
@@ -349,6 +426,63 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     expect(ordersApi.placeOrder).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('目前沒有足夠的可售座位')
     expect(wrapper.text()).toContain('已選 0 個座位')
+  })
+
+  it('[BW-QUICK-001] 連續使用自動選位：只從尚未選取的座位抽出，不會重複加入同一個座位', async () => {
+    // 若候選集合沒有排除已選座位，第二次抽選可能抽到已選的座位，實際新增的張數就會少於買家要求的張數。
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
+      buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
+      buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
+      buildSeat({ eventSeatId: 'seat-3', seatNumber: '3' }),
+    ])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const quickPickCountInput = wrapper.find('.quick-pick input[type="number"]')
+    await quickPickCountInput.setValue(2)
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(selectedSeatCount(wrapper)).toBe(2)
+
+    await quickPickCountInput.setValue(1)
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(selectedSeatCount(wrapper)).toBe(3)
+    expect(wrapper.text()).toContain('已選 3 個座位')
+    expect(checkoutSeatList(wrapper).text().split('、').sort()).toEqual(['A-1', 'A-2', 'A-3'])
+
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(selectedSeatCount(wrapper)).toBe(3)
+    expect(actionError(wrapper).text()).toContain('目前沒有足夠的可售座位')
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+  })
+
+  it('[BW-FLOW-007] 手動點選座位成功不清除結帳列的既有錯誤（只有「自動選位」與「送出訂單」會清除）', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
+      buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
+      buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
+    ])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.quick-pick input[type="number"]').setValue(5)
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(actionError(wrapper).text()).toContain('目前沒有足夠的可售座位')
+
+    await wrapper.findAll('.seat-btn')[0].trigger('click')
+    await flushPromises()
+
+    expect(selectedSeatCount(wrapper)).toBe(1)
+    expect(actionError(wrapper).text()).toContain('目前沒有足夠的可售座位')
+    expect(pageError(wrapper).exists()).toBe(false)
   })
 
   it('未登入使用區域隨選：導向登入頁，不進行任何選位或下單動作', async () => {
@@ -600,7 +734,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([{ eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' }])
   })
 
-  it('使用區域隨選時一併送出已輸入的計數購買', async () => {
+  it('[BW-QUICK-008] 自動選位後與已輸入的計數購買合併送出', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
@@ -614,10 +748,20 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
     await quickPickButton(wrapper).trigger('click')
     await flushPromises()
 
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+    expect(selectedSeatCount(wrapper)).toBe(1)
+    expect(checkoutSeatList(wrapper).text()).toBe('A-1')
+    expect(wrapper.text()).toContain('已選 1 個座位、2 張計數票券')
+
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([
       { eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' },
       { eventSeatId: null, ticketTypeId: 'tt-count-1', quantity: 2 },
     ])
+    expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ path: '/order-result/order-1' }))
   })
 
   it('已手動選取座位佔用額度後，計數購買輸入上限隨之減少', async () => {
@@ -754,7 +898,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     expect(wrapper.text()).toContain('排隊中')
     expect(wrapper.text()).toContain('目前前方還有 3 人等待')
     expect(wrapper.find('.seat-btn').exists()).toBe(false)
-    expect(wrapper.findAll('button').some((b) => b.text() === '自動選位並送出訂單')).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text() === '自動選位')).toBe(false)
 
     expect(queueApi.getMyQueueStatus).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(5000)
@@ -1498,10 +1642,15 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
 
     await quickPickButton(wrapper).trigger('click')
     await flushPromises()
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
 
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
     expect(wrapper.findAll('.seat-btn.selected')).toHaveLength(1)
-    expect(errorAlert(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
+    expect(actionError(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
+    expect(pageError(wrapper).exists()).toBe(false)
     expectNoReload()
   })
 
@@ -1531,6 +1680,10 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     await flushPromises()
 
     await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+
+    await submitButton(wrapper).trigger('click')
     await flushPromises()
 
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
@@ -1653,5 +1806,608 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     clearIntervalSpy.mockRestore()
     addListenerSpy.mockRestore()
     removeListenerSpy.mockRestore()
+  })
+})
+
+describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', () => {
+  const NOW = new Date('2030-01-01T00:00:00.000Z').getTime()
+  const scrollIntoViewMock = vi.fn()
+  let mountedWrapper: ReturnType<typeof mount> | null = null
+
+  function mountAttached() {
+    mountedWrapper = mountPage({ attachTo: document.body })
+    return mountedWrapper
+  }
+
+  function seatsOf(count: number, zoneCode = 'A') {
+    return Array.from({ length: count }, (_, i) =>
+      buildSeat({ eventSeatId: `seat-${zoneCode}${i + 1}`, zoneCode, seatNumber: String(i + 1) }),
+    )
+  }
+
+  function summaryRegion(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.checkout-bar [aria-live="polite"]')
+  }
+
+  function expectActionErrorOnly(wrapper: ReturnType<typeof mount>, message: string) {
+    expect(actionError(wrapper).exists()).toBe(true)
+    expect(actionError(wrapper).text()).toContain(message)
+    expect(actionError(wrapper).attributes('role')).toBe('alert')
+    expect(pageError(wrapper).exists()).toBe(false)
+  }
+
+  function salesNotOpenError() {
+    return new ApiError(409, { status: 409, title: 'SalesNotOpen', detail: 'english detail' })
+  }
+
+  // BW-FLOW-007 的前置狀態：一般下單失敗且重新載入也失敗，頁面層級與操作層級錯誤並存。
+  // 重新載入失敗時 event 仍保留上一次的值（loadData 只在全部成功後才寫入），頁面不會變成「找不到活動」。
+  async function mountWithPageAndActionErrors(event: EventSummary = buildEvent()) {
+    vi.mocked(eventsApi.getEvents).mockResolvedValueOnce([event]).mockRejectedValueOnce(new Error('network'))
+    vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(new Error('座位已被搶'))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(pageError(wrapper).text()).toContain('載入活動資訊失敗')
+    expect(actionError(wrapper).text()).toContain('下單失敗')
+    return wrapper
+  }
+
+  function expectBothErrorsRemain(wrapper: ReturnType<typeof mount>) {
+    expect(pageError(wrapper).text()).toContain('載入活動資訊失敗')
+    expect(actionError(wrapper).text()).toContain('下單失敗')
+  }
+
+  async function fillTwoCountTicketsInOneBatch(wrapper: ReturnType<typeof mount>) {
+    // 同一個同步批次內輸入兩個計數票種，讓個別輸入框的 max 來不及反映另一邊（沿用既有超量測試的做法）。
+    const inputA = countInputFor(wrapper, '站立區A').element as HTMLInputElement
+    const inputB = countInputFor(wrapper, '站立區B').element as HTMLInputElement
+    inputA.value = '2'
+    inputA.dispatchEvent(new Event('input'))
+    inputB.value = '2'
+    inputB.dispatchEvent(new Event('input'))
+    await flushPromises()
+  }
+
+  beforeEach(() => {
+    mockIsAuthenticated = true
+    pushMock.mockReset()
+    vi.mocked(eventsApi.getEvents).mockReset().mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventSeats).mockReset().mockResolvedValue([buildSeat()])
+    vi.mocked(eventsApi.getTicketTypes).mockReset().mockResolvedValue([buildSeatTicketType()])
+    vi.mocked(ordersApi.placeOrder).mockReset()
+    vi.mocked(queueApi.getMyQueueStatus).mockReset()
+    vi.mocked(queueApi.joinQueue).mockReset()
+    vi.mocked(captchaApi.getCaptcha).mockReset().mockResolvedValue({ token: 'captcha-token-1', imageBase64: 'base64-image-1' })
+    vi.mocked(membersApi.getMyProfile).mockReset()
+    scrollIntoViewMock.mockReset()
+    // jsdom 沒有實作 scrollIntoView，鍵盤移動焦點時會呼叫。
+    Element.prototype.scrollIntoView = scrollIntoViewMock
+  })
+
+  afterEach(() => {
+    mountedWrapper?.unmount()
+    mountedWrapper = null
+    delete (Element.prototype as Partial<Element>).scrollIntoView
+    vi.useRealTimers()
+  })
+
+  it('[BW-FLOW-002、005] 結帳列依選取順序列出前 6 個座位，超過時顯示「等 N 個座位」，摘要為 polite live region', async () => {
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue(seatsOf(7))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(checkoutSeatList(wrapper).exists()).toBe(false)
+    expect(summaryRegion(wrapper).exists()).toBe(true)
+
+    const seatButtons = wrapper.findAll('.seat-btn')
+    await seatButtons[0].trigger('click')
+    expect(summaryRegion(wrapper).text()).toContain('已選 1 個座位')
+
+    // 點選順序刻意不是座位編號順序，確認清單依加入先後排列而非依編號排序。
+    for (const index of [6, 1, 2, 3, 4, 5]) await seatButtons[index].trigger('click')
+
+    const listText = checkoutSeatList(wrapper).text()
+    expect(listText).toContain('A-1、A-7、A-2、A-3、A-4、A-5')
+    expect(listText).not.toContain('A-6')
+    expect(listText).toContain('等 7 個座位')
+
+    await seatButtons[0].trigger('click')
+
+    const afterCancelText = checkoutSeatList(wrapper).text()
+    expect(afterCancelText).toContain('A-7、A-2、A-3、A-4、A-5、A-6')
+    expect(afterCancelText).not.toContain('等')
+  })
+
+  async function mountAndSubmitOneSeat() {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    return wrapper
+  }
+
+  it.each([
+    [
+      '(a) 限購 1 張時點選第 2 個座位',
+      '這個活動每筆訂單最多購買 1 張',
+      async () => {
+        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 1 })])
+        vi.mocked(eventsApi.getEventSeats).mockResolvedValue(seatsOf(2))
+        const wrapper = mountPage()
+        await flushPromises()
+        await wrapper.findAll('.seat-btn')[0].trigger('click')
+        await wrapper.findAll('.seat-btn')[1].trigger('click')
+        return wrapper
+      },
+    ],
+    [
+      '(b) 分區沒有座位制票種時點選該分區的座位',
+      '分區 B 尚未設定票種',
+      async () => {
+        vi.mocked(eventsApi.getEventSeats).mockResolvedValue(seatsOf(1, 'B'))
+        const wrapper = mountPage()
+        await flushPromises()
+        await wrapper.find('.seat-btn').trigger('click')
+        return wrapper
+      },
+    ],
+    [
+      '(c) 區域隨選張數超過可售座位數',
+      '目前沒有足夠的可售座位',
+      async () => {
+        vi.mocked(eventsApi.getEventSeats).mockResolvedValue(seatsOf(2))
+        const wrapper = mountPage()
+        await flushPromises()
+        await wrapper.find('.quick-pick input[type="number"]').setValue(5)
+        await quickPickButton(wrapper).trigger('click')
+        return wrapper
+      },
+    ],
+    [
+      '(d) 區域隨選張數超過限購剩餘額度',
+      '這個活動每筆訂單最多購買 1 張',
+      async () => {
+        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 1 })])
+        vi.mocked(eventsApi.getEventSeats).mockResolvedValue(seatsOf(2))
+        const wrapper = mountPage()
+        await flushPromises()
+        await wrapper.findAll('.seat-btn')[0].trigger('click')
+        await quickPickButton(wrapper).trigger('click')
+        return wrapper
+      },
+    ],
+    [
+      '(e) 送出前合併總數超過限購',
+      '每筆訂單最多購買 3 張',
+      async () => {
+        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 3 })])
+        vi.mocked(eventsApi.getEventSeats).mockResolvedValue([])
+        vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
+          buildCountTicketType({ id: 'tt-count-a', zoneCode: '站立區A' }),
+          buildCountTicketType({ id: 'tt-count-b', zoneCode: '站立區B' }),
+        ])
+        const wrapper = mountPage()
+        await flushPromises()
+        await fillTwoCountTicketsInOneBatch(wrapper)
+        await submitButton(wrapper).trigger('click')
+        return wrapper
+      },
+    ],
+    [
+      '(f) 送出時回傳 429',
+      '請求過於頻繁',
+      async () => {
+        vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
+        return mountAndSubmitOneSeat()
+      },
+    ],
+    [
+      '(g) 送出時回傳 409 SalesNotOpen',
+      '尚未開賣，請於開賣時間後再試',
+      async () => {
+        vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesNotOpenError())
+        return mountAndSubmitOneSeat()
+      },
+    ],
+    [
+      '(h) 送出時一般失敗且重新載入成功',
+      '下單失敗',
+      async () => {
+        vi.mocked(ordersApi.placeOrder).mockRejectedValue(new Error('座位已被搶'))
+        return mountAndSubmitOneSeat()
+      },
+    ],
+  ])('[BW-FLOW-003] %s：錯誤顯示在結帳列，不顯示在頁面頂端', async (_label, message, arrange) => {
+    const wrapper = await arrange()
+    await flushPromises()
+
+    expectActionErrorOnly(wrapper, message)
+  })
+
+  it('[BW-FLOW-003] 頁面層級錯誤存在時送出前檢查超量：頁面錯誤保留，結帳列顯示限購訊息', async () => {
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
+      buildSeatTicketType(),
+      buildCountTicketType({ id: 'tt-count-a', zoneCode: '站立區A' }),
+      buildCountTicketType({ id: 'tt-count-b', zoneCode: '站立區B' }),
+    ])
+    const wrapper = await mountWithPageAndActionErrors(buildEvent({ maxTicketsPerOrder: 3 }))
+
+    await fillTwoCountTicketsInOneBatch(wrapper)
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+    expect(pageError(wrapper).text()).toContain('載入活動資訊失敗')
+    expect(actionError(wrapper).text()).toContain('每筆訂單最多購買 3 張')
+    expect(actionError(wrapper).text()).not.toContain('下單失敗')
+  })
+
+  it('[BW-FLOW-003] (i) 未登入按「自動選位」：導向登入頁，兩處錯誤都不清除', async () => {
+    const wrapper = await mountWithPageAndActionErrors()
+    mockIsAuthenticated = false
+
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(pushMock).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/events/event-1' } })
+    expectBothErrorsRemain(wrapper)
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('[BW-FLOW-003] (j) 已登入且非販售中：「自動選位」停用，兩處錯誤都不清除', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    const wrapper = await mountWithPageAndActionErrors(
+      buildEvent({ salesEndAtUtc: new Date(NOW + 60_000).toISOString() }),
+    )
+
+    vi.setSystemTime(NOW + 60_000)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(quickPickButton(wrapper).attributes('disabled')).toBeDefined()
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+    expectBothErrorsRemain(wrapper)
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('[BW-FLOW-003] (k) 沒有已選內容：「送出訂單」停用，兩處錯誤都不清除', async () => {
+    const wrapper = await mountWithPageAndActionErrors()
+
+    expect(wrapper.text()).toContain('已選 0 個座位')
+    expect(submitButton(wrapper).attributes('disabled')).toBeDefined()
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+    expectBothErrorsRemain(wrapper)
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('[BW-FLOW-007] 一般失敗且重新載入也失敗時兩處錯誤並存，重新送出時兩處舊錯誤都清除', async () => {
+    const wrapper = await mountWithPageAndActionErrors()
+    expect(wrapper.text()).toContain('已選 0 個座位')
+
+    await wrapper.find('.seat-btn').trigger('click')
+    expectBothErrorsRemain(wrapper)
+
+    vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(2)
+    expect(pageError(wrapper).exists()).toBe(false)
+    expect(actionError(wrapper).text()).toContain('請求過於頻繁')
+    expect(actionError(wrapper).text()).not.toContain('下單失敗')
+  })
+
+  it('[BW-FLOW-004] 活動載入失敗：錯誤顯示在頁面頂端並帶 role="alert"，不出現在結帳列', async () => {
+    vi.mocked(eventsApi.getEvents).mockRejectedValue(new Error('network'))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(pageError(wrapper).text()).toContain('載入活動資訊失敗')
+    expect(pageError(wrapper).attributes('role')).toBe('alert')
+    expect(actionError(wrapper).exists()).toBe(false)
+  })
+
+  it('[BW-FLOW-004] 熱門搶購模式查詢排隊狀態失敗：錯誤顯示在頁面頂端', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockRejectedValue(new Error('network'))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(pageError(wrapper).text()).toContain('查詢排隊狀態失敗')
+    expect(actionError(wrapper).exists()).toBe(false)
+  })
+
+  it('[BW-FLOW-004] 熱門搶購模式加入排隊一般失敗：錯誤顯示在頁面頂端', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
+    vi.mocked(queueApi.joinQueue).mockRejectedValue(
+      new ApiError(409, { status: 409, title: 'Conflict', detail: '活動目前未開啟熱門搶購模式' }),
+    )
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('input[placeholder="請輸入驗證碼"]').setValue('TEST')
+    const joinButton = wrapper.findAll('button').find((b) => b.text() === '加入排隊')
+    if (!joinButton) throw new Error('找不到「加入排隊」按鈕')
+    await joinButton.trigger('click')
+    await flushPromises()
+
+    expect(pageError(wrapper).text()).toContain('活動目前未開啟熱門搶購模式')
+    expect(actionError(wrapper).exists()).toBe(false)
+  })
+
+  it('[BW-FLOW-004、006] 送出時排隊資格逾時並轉為 Waiting：錯誤顯示在頁面頂端，結帳列不存在', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus)
+      .mockResolvedValueOnce(buildQueueStatus({ status: 'Admitted' }))
+      .mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 2 }))
+    vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await submitButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(pageError(wrapper).text()).toContain('排隊資格已逾時或尚未入場')
+    expect(wrapper.find('.checkout-bar').exists()).toBe(false)
+    // 排隊輪詢計時器跟著元件，不卸載會在之後的測試觸發
+    wrapper.unmount()
+  })
+
+  it.each(['NotJoined', 'Waiting'])('[BW-FLOW-006] 排隊狀態為 %s 時不顯示結帳列與「送出訂單」', async (status) => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status, waitingCount: 1 }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('.checkout-bar').exists()).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text() === '送出訂單')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('[BW-SEAT-A11Y-001、002] 第一個分區的座位網格前顯示一次圖例，Sold／Held 座位帶不可選樣式', async () => {
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
+      buildSeat({ eventSeatId: 'a1', seatNumber: '1', status: 'Available' }),
+      buildSeat({ eventSeatId: 'a2', seatNumber: '2', status: 'Sold' }),
+      buildSeat({ eventSeatId: 'a3', seatNumber: '3', status: 'Held' }),
+      buildSeat({ eventSeatId: 'b1', zoneCode: 'B', seatNumber: '1' }),
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.findAll('.seat-legend')).toHaveLength(1)
+    const firstZone = wrapper.findAll('.zone-block')[0]
+    const legend = firstZone.find('.seat-legend')
+    expect(legend.exists()).toBe(true)
+    const grid = firstZone.find('.seat-grid').element
+    expect(legend.element.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    const swatches = legend.findAll('.seat-swatch')
+    expect(swatches).toHaveLength(3)
+    expect(swatches.map((s) => s.element.parentElement?.textContent?.trim())).toEqual(['可選', '已選', '不可選'])
+    for (const swatch of swatches) {
+      expect(swatch.attributes('aria-hidden')).toBe('true')
+      expect(swatch.classes()).not.toContain('seat-btn')
+    }
+    expect(legend.findAll('.seat-swatch--unavailable')).toHaveLength(1)
+    expect(swatches[2].classes()).toContain('seat-swatch--unavailable')
+
+    const zoneASeats = firstZone.findAll('.seat-btn')
+    expect(zoneASeats[0].classes()).not.toContain('sold')
+    expect(zoneASeats[1].classes()).toContain('sold')
+    expect(zoneASeats[2].classes()).toContain('sold')
+  })
+
+  it('[BW-SEAT-A11Y-003] 已登入時座位的 aria-label、title 與 aria-pressed 反映分區、號碼與狀態', async () => {
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
+      buildSeat({ eventSeatId: 'a12', seatNumber: '12', status: 'Available' }),
+      buildSeat({ eventSeatId: 'a13', seatNumber: '13', status: 'Sold' }),
+      buildSeat({ eventSeatId: 'a14', seatNumber: '14', status: 'Held' }),
+      buildSeat({ eventSeatId: 'a15', seatNumber: '15', status: 'Unknown' }),
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const seatButtons = wrapper.findAll('.seat-btn')
+    const expectedLabels = ['A 區 12 號，可選', 'A 區 13 號，已售出', 'A 區 14 號，保留中', 'A 區 15 號，不可選']
+    seatButtons.forEach((button, index) => {
+      expect(button.attributes('aria-label')).toBe(expectedLabels[index])
+      expect(button.attributes('title')).toBe(expectedLabels[index])
+    })
+    expect(seatButtons[0].attributes('aria-pressed')).toBe('false')
+
+    await seatButtons[0].trigger('click')
+
+    expect(seatButtons[0].attributes('aria-label')).toBe('A 區 12 號，已選')
+    expect(seatButtons[0].attributes('title')).toBe('A 區 12 號，已選')
+    expect(seatButtons[0].attributes('aria-pressed')).toBe('true')
+  })
+
+  it('[BW-SEAT-A11Y-004] 未登入點選已售出座位：aria-disabled 為 true、沒有原生 disabled，仍導向登入頁', async () => {
+    mockIsAuthenticated = false
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat({ status: 'Sold' })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const soldSeat = wrapper.find('.seat-btn')
+    expect(soldSeat.attributes('aria-disabled')).toBe('true')
+    expect(soldSeat.attributes('disabled')).toBeUndefined()
+
+    await soldSeat.trigger('click')
+
+    expect(pushMock).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/events/event-1' } })
+  })
+
+  it('[BW-SEAT-A11Y-004] 保留中（Held）座位同樣標示 aria-disabled、沒有原生 disabled，已登入點選不加入已選清單', async () => {
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat({ status: 'Held' })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const heldSeat = wrapper.find('.seat-btn')
+    expect(heldSeat.attributes('aria-disabled')).toBe('true')
+    expect(heldSeat.attributes('disabled')).toBeUndefined()
+
+    await heldSeat.trigger('click')
+
+    expect(selectedSeatCount(wrapper)).toBe(0)
+    expect(wrapper.text()).toContain('已選 0 個座位')
+  })
+
+  it('[BW-SEAT-A11Y-004] 已登入點選已售出座位：不加入已選清單', async () => {
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat({ status: 'Sold' })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+
+    expect(selectedSeatCount(wrapper)).toBe(0)
+    expect(wrapper.text()).toContain('已選 0 個座位')
+    expect(checkoutSeatList(wrapper).exists()).toBe(false)
+  })
+
+  describe('[BW-SEAT-A11Y-005、006] 座位網格 roving tabindex 與方向鍵', () => {
+    // 第 4 席用 Held：Held 與 Sold 一樣不可選，必須被 Tab 停留點與方向鍵跳過。
+    const zoneAStatuses = ['Sold', 'Available', 'Available', 'Held', 'Available']
+
+    function buildRovingSeats(statusOverrides: Record<number, string> = {}) {
+      return [
+        ...zoneAStatuses.map((status, i) =>
+          buildSeat({ eventSeatId: `a${i + 1}`, seatNumber: String(i + 1), status: statusOverrides[i + 1] ?? status }),
+        ),
+        buildSeat({ eventSeatId: 'b1', zoneCode: 'B', seatNumber: '1', status: 'Sold' }),
+        buildSeat({ eventSeatId: 'b2', zoneCode: 'B', seatNumber: '2', status: 'Sold' }),
+      ]
+    }
+
+    function zoneSeats(wrapper: ReturnType<typeof mount>, zoneIndex: number) {
+      return wrapper.findAll('.zone-block')[zoneIndex].findAll('.seat-btn')
+    }
+
+    function tabStopNumbers(wrapper: ReturnType<typeof mount>, zoneIndex: number) {
+      return zoneSeats(wrapper, zoneIndex)
+        .filter((b) => b.attributes('tabindex') === '0')
+        .map((b) => b.text())
+    }
+
+    // 在目前焦點的座位上觸發，事件冒泡到 .seat-grid，與真實鍵盤操作一致。
+    function pressKey(key: string, modifiers: { altKey?: boolean; ctrlKey?: boolean } = {}) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...modifiers })
+      ;(document.activeElement as HTMLElement).dispatchEvent(event)
+      return event
+    }
+
+    function focusedSeatNumber() {
+      return (document.activeElement as HTMLElement).textContent?.trim()
+    }
+
+    beforeEach(() => {
+      vi.mocked(eventsApi.getEventSeats).mockResolvedValue(buildRovingSeats())
+      vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
+        buildSeatTicketType({ id: 'tt-a', zoneCode: 'A' }),
+        buildSeatTicketType({ id: 'tt-b', zoneCode: 'B' }),
+      ])
+    })
+
+    it('(a) 每個分區只有第一個可選座位是 Tab 停留點，全部不可選的分區沒有停留點', async () => {
+      const wrapper = mountPage()
+      await flushPromises()
+
+      expect(zoneSeats(wrapper, 0).map((b) => b.attributes('tabindex'))).toEqual(['-1', '0', '-1', '-1', '-1'])
+      expect(zoneSeats(wrapper, 1).map((b) => b.attributes('tabindex'))).toEqual(['-1', '-1'])
+      expect(wrapper.findAll('.seat-grid').map((g) => g.attributes('role'))).toEqual(['group', 'group'])
+      expect(wrapper.findAll('.seat-grid').map((g) => g.attributes('aria-label'))).toEqual(['A 區座位', 'B 區座位'])
+    })
+
+    it('(b) 方向鍵、Home、End 只在可選座位間移動、不循環，其他按鍵與修飾鍵組合不攔截', async () => {
+      const wrapper = mountAttached()
+      await flushPromises()
+      ;(zoneSeats(wrapper, 0)[1].element as HTMLElement).focus()
+
+      const steps: Array<[string, string]> = [
+        ['ArrowRight', '3'],
+        ['ArrowRight', '5'],
+        ['ArrowLeft', '3'],
+        ['End', '5'],
+        ['ArrowRight', '5'],
+        ['Home', '2'],
+        ['ArrowLeft', '2'],
+        ['ArrowDown', '3'],
+        ['ArrowUp', '2'],
+      ]
+      const focusedNumbers: Array<string | undefined> = []
+      for (const [key, expectedNumber] of steps) {
+        const event = pressKey(key)
+        await flushPromises()
+        focusedNumbers.push(focusedSeatNumber())
+        expect(focusedSeatNumber(), `按下 ${key} 後的焦點`).toBe(expectedNumber)
+        expect(event.defaultPrevented, `${key} 的 defaultPrevented`).toBe(true)
+        expect(tabStopNumbers(wrapper, 0)).toEqual([expectedNumber])
+        expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ block: 'nearest' })
+        expect(scrollIntoViewMock.mock.contexts.at(-1)).toBe(document.activeElement)
+      }
+      expect(focusedNumbers).toEqual(['3', '5', '3', '5', '5', '2', '2', '3', '2'])
+      expect(focusedNumbers).not.toContain('1')
+      expect(focusedNumbers).not.toContain('4')
+
+      const passThroughKeys: Array<[string, { altKey?: boolean; ctrlKey?: boolean }]> = [
+        ['Tab', {}],
+        ['Enter', {}],
+        [' ', {}],
+        ['ArrowLeft', { altKey: true }],
+        ['End', { ctrlKey: true }],
+      ]
+      for (const [key, modifiers] of passThroughKeys) {
+        const event = pressKey(key, modifiers)
+        await flushPromises()
+        expect(event.defaultPrevented, `${key} ${JSON.stringify(modifiers)} 的 defaultPrevented`).toBe(false)
+        expect(focusedSeatNumber()).toBe('2')
+      }
+    })
+
+    it('(b2) 焦點停在不可選座位（滑鼠點選 Held 座位）時，方向鍵與 Home／End 不攔截、焦點不移動', async () => {
+      const wrapper = mountAttached()
+      await flushPromises()
+      ;(zoneSeats(wrapper, 0)[3].element as HTMLElement).focus()
+
+      for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) {
+        const event = pressKey(key)
+        await flushPromises()
+        expect(event.defaultPrevented, `${key} 的 defaultPrevented`).toBe(false)
+        expect(focusedSeatNumber(), `按下 ${key} 後的焦點`).toBe('4')
+      }
+      expect(tabStopNumbers(wrapper, 0)).toEqual(['2'])
+    })
+
+    it('(c) 滑鼠點選座位後，Tab 停留點移到該座位', async () => {
+      const wrapper = mountPage()
+      await flushPromises()
+
+      await zoneSeats(wrapper, 0)[4].trigger('click')
+
+      expect(tabStopNumbers(wrapper, 0)).toEqual(['5'])
+    })
+
+    it('(d) 記錄的座位變成不可選並重新載入後，Tab 停留點回到第一個可選座位', async () => {
+      vi.mocked(ordersApi.placeOrder).mockRejectedValue(new Error('座位已被搶'))
+      const wrapper = mountPage()
+      await flushPromises()
+      await zoneSeats(wrapper, 0)[4].trigger('click')
+      expect(tabStopNumbers(wrapper, 0)).toEqual(['5'])
+
+      vi.mocked(eventsApi.getEventSeats).mockResolvedValue(buildRovingSeats({ 5: 'Sold' }))
+      await submitButton(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+      expect(tabStopNumbers(wrapper, 0)).toEqual(['2'])
+    })
   })
 })
