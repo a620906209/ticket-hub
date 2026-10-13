@@ -49,9 +49,9 @@
 
 | # | 嚴重度 | 問題 | 位置 | 建議 |
 | --- | --- | --- | --- | --- |
-| U5 | P1 | 活動詳情頁的 `errorMessage` 固定顯示在**頁面頂端**，但觸發錯誤的操作（點座位超過限購、區域隨選張數不足）在右欄中下方；手機單欄時，資訊欄排在購票區上方，錯誤訊息會離操作位置更遠，買家可能完全看不到 | `pages/buyer/EventDetailPage.vue:681` | 與操作相關的錯誤改用就近顯示（`quick-pick` 下方或 summary 區），或 `ElMessage` 搭配頂端 alert |
-| U6 | P1 | 「送出訂單」與總金額放在**所有座位網格之後**，座位一多就必須捲到底才能結帳，也看不到已選內容 | `pages/buyer/EventDetailPage.vue:812-822` | 改為 sticky 底部結帳列（已選張數＋總額＋按鈕） |
-| U7 | P1 | 座位網格**沒有圖例**；可售（`#fff`）與已售（`#f3f0ea`）背景的對比只有約 1.14:1，看起來幾乎一樣，只能從游標形狀分辨 | `EventDetailPage.vue:944-969` | 加圖例；已售座位加上斜線或 × 圖示，不能只靠顏色區分（WCAG 1.4.1） |
+| U5 | P1（✅ 已修正（purchase-flow-ux）：操作錯誤改為顯示在結帳列內、摘要上方的 `.action-error`，頁面層級錯誤仍留在頂端 `.page-error`） | 活動詳情頁的 `errorMessage` 固定顯示在**頁面頂端**，但觸發錯誤的操作（點座位超過限購、區域隨選張數不足）在右欄中下方；手機單欄時，資訊欄排在購票區上方，錯誤訊息會離操作位置更遠，買家可能完全看不到 | `pages/buyer/EventDetailPage.vue:681` | 與操作相關的錯誤改用就近顯示（`quick-pick` 下方或 summary 區），或 `ElMessage` 搭配頂端 alert |
+| U6 | P1（✅ 已修正（purchase-flow-ux）：所有寬度都改為購票欄底部的 sticky 結帳列，含錯誤、已選座位清單、張數＋總額與「送出訂單」） | 「送出訂單」與總金額放在**所有座位網格之後**，座位一多就必須捲到底才能結帳，也看不到已選內容 | `pages/buyer/EventDetailPage.vue:812-822` | 改為 sticky 底部結帳列（已選張數＋總額＋按鈕） |
+| U7 | P1（✅ 已修正（purchase-flow-ux）：第一個分區上方加「可選／已選／不可選」圖例；不可選座位改為虛線框＋刪除線，不只靠顏色區分） | 座位網格**沒有圖例**；可售（`#fff`）與已售（`#f3f0ea`）背景的對比只有約 1.14:1，看起來幾乎一樣，只能從游標形狀分辨 | `EventDetailPage.vue:944-969` | 加圖例；已售座位加上斜線或 × 圖示，不能只靠顏色區分（WCAG 1.4.1） |
 | U8 | P2 | 座位的 `title` 直接顯示英文 enum（`Available`／`Locked`／`Sold`），與其他頁面已中文化的狀態標籤不一致 | `EventDetailPage.vue:781` | 改用 `statusLabels` 的對照表 |
 | U9 | P2 | 後台活動列表把 `venueId`、`seatMapId` GUID 當成主要欄位，佔用寬度但對營運人員沒有意義 | `pages/admin/EventListPage.vue:163-164` | 改顯示場館名稱，或收進展開列 |
 | U10 | P2 | 日期一律使用 `toLocaleString()`，含秒數，格式也取決於瀏覽器語系，同一個畫面可能出現不同格式 | 多處（EventList、EventDetail、Admin） | 抽出共用的 `formatDateTime`（EventDetailPage 已有一份，可以提升到 utils） |
@@ -60,7 +60,7 @@
 
 | # | 嚴重度 | 問題 | 位置 | 建議 |
 | --- | --- | --- | --- | --- |
-| U11 | P1 | 「自動選位並送出訂單」**一鍵直接下單**，送出前看不到抽中哪些座位；雖然待付款訂單可以取消，但這會鎖住座位並佔用限購額度 | `EventDetailPage.vue:767-769`、`handleQuickPick` | 改成「自動選位」只填入座位，由買家按送出；或送出前顯示確認視窗並列出座位（屬於產品決策，需要確認） |
+| U11 | P1（✅ 已修正（purchase-flow-ux）：按鈕改為「自動選位」，只填入座位，由買家確認後按「送出訂單」） | 「自動選位並送出訂單」**一鍵直接下單**，送出前看不到抽中哪些座位；雖然待付款訂單可以取消，但這會鎖住座位並佔用限購額度 | `EventDetailPage.vue:767-769`、`handleQuickPick` | 改成「自動選位」只填入座位，由買家按送出；或送出前顯示確認視窗並列出座位（屬於產品決策，需要確認） |
 | U12 | P2 | 登入頁的驗證碼圖片與輸入框拆成兩個 form-item，標籤分別是「驗證碼」與「驗證碼輸入」；驗證碼還沒載入時登入按鈕會 disabled，但沒有說明原因 | `pages/buyer/LoginPage.vue:83-95` | 合併成同一列（輸入框＋圖片＋換一張），disabled 時顯示「驗證碼載入中」 |
 | U13 | P2 | 主辦方審核的「核准／駁回」沒有確認對話框（取消訂單有，做法正確） | `pages/admin/AdminOrganizersPage.vue` | 駁回這類不可逆操作補上 `ElMessageBox.confirm` |
 | ✅ | — | 做得好：取消訂單的確認框刻意不用「確定／取消」按鈕文字（`usePendingOrderActions.ts:116`）；驗證碼錯誤會自動換新圖；限購用 `el-input-number` 的 `max` 直接擋住，不需要事後報錯 | | |
@@ -155,8 +155,8 @@
 
 | # | 嚴重度 | 問題 | 建議 |
 | --- | --- | --- | --- |
-| A1 | P1 | 座位網格每個座位都是 `<button>`，數百個座位都會進入 Tab 順序，鍵盤使用者要按幾百次 Tab 才能到「送出訂單」；已售座位沒有 `disabled`，同樣會被 Tab 到。✅ 實測：測試活動頁共 507 個可聚焦元素，其中 500 個是座位；座位沒有 `aria-pressed`／`aria-label`，`title` 為「A-56（Available）」 | 已售座位設 `disabled`；網格改成 roving tabindex（方向鍵移動），或在網格前加「跳到結帳」連結 |
-| A2 | P1 | 座位沒有 `aria-pressed` 或 `aria-label`，螢幕閱讀器只會唸出「A-12」，不知道是否已選或已售 | 加上 `:aria-pressed="isSelected(seat)"` 與 `aria-label="A 區 12 號，可售"` |
+| A1 | P1（✅ 已修正（purchase-flow-ux）：每個分區一個 roving tabindex，方向鍵／Home／End 移動；不可選座位用 `aria-disabled`，因未登入點選須導向登入頁而不用原生 `disabled`；焦點座位以 `scroll-margin-bottom` 避開結帳列） | 座位網格每個座位都是 `<button>`，數百個座位都會進入 Tab 順序，鍵盤使用者要按幾百次 Tab 才能到「送出訂單」；已售座位沒有 `disabled`，同樣會被 Tab 到。✅ 實測：測試活動頁共 507 個可聚焦元素，其中 500 個是座位；座位沒有 `aria-pressed`／`aria-label`，`title` 為「A-56（Available）」 | 已售座位設 `disabled`；網格改成 roving tabindex（方向鍵移動），或在網格前加「跳到結帳」連結 |
+| A2 | P1（✅ 已修正（purchase-flow-ux）：座位加上 `aria-pressed` 與 `aria-label`，例如「A 區 12 號，可選」） | 座位沒有 `aria-pressed` 或 `aria-label`，螢幕閱讀器只會唸出「A-12」，不知道是否已選或已售 | 加上 `:aria-pressed="isSelected(seat)"` 與 `aria-label="A 區 12 號，可售"` |
 | A3 | P2 | 買家導覽的會員下拉選單觸發元素是 `<span>`，Element Plus 的 dropdown 對 span 觸發元素的鍵盤支援有限（推測，需實測 Tab＋Enter） | 觸發元素改用 `<button>` |
 | A4 | P2 | 全站只有 8 處 `aria-*`／`role`；動態錯誤 alert 沒有 `aria-live`，螢幕閱讀器不會唸出下單失敗 | 頂端錯誤區加上 `role="alert"`（`el-alert` 本身不帶 live region） |
 | ✅ | — | 做得好：實名頁與核銷頁會在結果出現時主動移動 focus（`RealNamePage.vue:101`、`RedemptionScannerPage.vue:50`）；實名引導使用 `role="status"` | |
@@ -217,7 +217,7 @@ Vite 本身已對超過 500 kB 的 chunk 發出警告。成因：
 | --- | --- | --- |
 | 1（快速修正） | `lang="zh-Hant-TW"`、已售座位 `disabled`＋`aria-*`、`.layout` 改 `minmax(0, 1fr)`＋`.quick-pick` 加 wrap（修 R3 P0）、海報 `aspect-ratio`、`color-scheme: light` | 小改動，幾乎沒有風險 |
 | 2（P0） | 色票明度調整＋對比度回歸腳本；路由 lazy-load＋Element Plus 按需引入 | 合規與首屏效能 |
-| 3（P1 UX） | 購票頁 sticky 結帳列、座位圖例、錯誤就近顯示、alert 優先順序；後台手機版導覽 | 核心轉換流程 |
+| 3（P1 UX） | ✅ 已修正（purchase-flow-ux）：購票頁 sticky 結帳列、座位圖例、錯誤就近顯示（另含自動選位只填入、座位鍵盤操作與 `aria-*`）；✅ 已修正（admin-mobile-nav）：後台手機版導覽；**尚未處理**：alert 優先順序（第 2.3 節） | 核心轉換流程 |
 | 4（P2） | type scale／spacing token、清除 inline style、日期格式共用化、骨架畫面 | 長期維護 |
 
 批次 2、3 會改變既有 spec 描述的畫面行為（例如 buyer-web-ui 的購票區結構），依 CLAUDE.md 規定須先建立 OpenSpec change。批次 1 屬於「無對應 spec 的小型改動」，可以先實作，但 commit 須註明。

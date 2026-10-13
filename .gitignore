@@ -492,3 +492,6 @@ loadtest/.output/
 
 # pi agent 本機設定（agent 定義為單次審查用、模型寫死），比照 .devin/ 不進版控
 /.pi/
+
+# purchase-flow-ux 量測腳本的 dev server 暫存副本（tasks.md 1.1「暫存副本」），用完即刪，不進版控
+web/public/__pfux-*

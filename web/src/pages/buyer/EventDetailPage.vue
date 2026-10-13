@@ -34,6 +34,9 @@ const selectedSeats = ref<SelectedSeat[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 const errorMessage = ref('')
+// 選位、隨選與送出等購票操作的錯誤顯示在結帳列，買家不必捲回頂端才看得到；頁面層級錯誤（載入、
+// 排隊）仍用 errorMessage 顯示在頂端（purchase-flow-ux design.md 決策 1）。
+const actionErrorMessage = ref('')
 
 // 熱門搶購模式排隊狀態（design.md 決策 6／buyer-web-ui spec）。
 const queueStatus = ref<QueueStatus | null>(null)
@@ -198,6 +201,75 @@ function isSelected(seat: EventSeat): boolean {
   return selectedSeatIds.value.has(seat.eventSeatId)
 }
 
+const SEAT_STATUS_LABELS: Record<string, string> = { Available: '可選', Sold: '已售出', Held: '保留中' }
+
+// 狀態用文字表達，不只靠顏色，螢幕閱讀器與色覺辨識困難者才分得出來（design.md 決策 4）。
+function getSeatLabel(seat: EventSeat): string {
+  const statusLabel = isSelected(seat) ? '已選' : (SEAT_STATUS_LABELS[seat.status] ?? '不可選')
+  return `${seat.zoneCode} 區 ${seat.seatNumber} 號，${statusLabel}`
+}
+
+// 每個分區只有一個 Tab 停留點，避免幾百個座位逐一 Tab；分區內改用方向鍵移動（design.md 決策 5）。
+const focusedSeatIdByZone = reactive<Record<string, string>>({})
+
+// 記錄的座位重新載入後可能已不可選，此時退回第一個可選座位；整區都不可選時沒有停留點。
+function getTabStopSeatId(zoneCode: string, zoneSeats: EventSeat[]): string | null {
+  const recordedId = focusedSeatIdByZone[zoneCode]
+  const recorded = zoneSeats.find((seat) => seat.eventSeatId === recordedId && seat.status === 'Available')
+  return recorded?.eventSeatId ?? zoneSeats.find((seat) => seat.status === 'Available')?.eventSeatId ?? null
+}
+
+// 每個分區算一次，不在模板對每個座位各算一次（幾百個座位時會變成平方次的掃描）。
+const tabStopSeatIdByZone = computed(
+  () => new Map(seatsByZone.value.map(([zoneCode, zoneSeats]) => [zoneCode, getTabStopSeatId(zoneCode, zoneSeats)])),
+)
+
+function handleSeatFocus(seat: EventSeat): void {
+  if (seat.status === 'Available') focusedSeatIdByZone[seat.zoneCode] = seat.eventSeatId
+}
+
+function handleSeatGridKeydown(keyboardEvent: KeyboardEvent, zoneSeats: EventSeat[]): void {
+  if (keyboardEvent.altKey || keyboardEvent.ctrlKey || keyboardEvent.metaKey) return
+  const availableSeats = zoneSeats.filter((seat) => seat.status === 'Available')
+  if (availableSeats.length === 0) return
+
+  const currentId = (keyboardEvent.target as HTMLElement).dataset.seatId
+  const currentIndex = availableSeats.findIndex((seat) => seat.eventSeatId === currentId)
+  // 滑鼠點不可選座位時焦點會停在該席，此時沒有「目前位置」可以推算方向，不攔截按鍵，否則會跳到分區第一個可選座位。
+  if (currentIndex === -1) return
+  const lastIndex = availableSeats.length - 1
+  let targetIndex: number
+  switch (keyboardEvent.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      targetIndex = Math.min(currentIndex + 1, lastIndex)
+      break
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      targetIndex = Math.max(currentIndex - 1, 0)
+      break
+    case 'Home':
+      targetIndex = 0
+      break
+    case 'End':
+      targetIndex = lastIndex
+      break
+    default:
+      return
+  }
+  keyboardEvent.preventDefault()
+
+  const targetId = availableSeats[targetIndex].eventSeatId
+  const container = keyboardEvent.currentTarget as HTMLElement
+  const targetButton = [...container.querySelectorAll<HTMLElement>('[data-seat-id]')].find(
+    (element) => element.dataset.seatId === targetId,
+  )
+  if (!targetButton) return
+  // preventScroll 後再用 nearest 捲動，搭配座位的 scroll-margin-bottom 讓焦點不被 sticky 結帳列擋住。
+  targetButton.focus({ preventScroll: true })
+  targetButton.scrollIntoView({ block: 'nearest' })
+}
+
 // 依分區分組顯示，座位數量大時比一整片攤平的清單好瀏覽，也讓每個分區各自是較小的 v-for。
 const seatsByZone = computed(() => {
   const map = new Map<string, EventSeat[]>()
@@ -244,7 +316,7 @@ function handleCountChange(ticketType: TicketType, rawValue: number | undefined)
 function buildSelection(seat: EventSeat): SelectedSeat | null {
   const ticketType = ticketTypeByZone.value.get(seat.zoneCode)
   if (!ticketType) {
-    errorMessage.value = `分區 ${seat.zoneCode} 尚未設定票種，無法選購`
+    actionErrorMessage.value = `分區 ${seat.zoneCode} 尚未設定票種，無法選購`
     return null
   }
   return {
@@ -264,6 +336,7 @@ function toggleSeat(seat: EventSeat): void {
   }
   if (!canPurchase.value) return
   if (seat.status !== 'Available') return
+  focusedSeatIdByZone[seat.zoneCode] = seat.eventSeatId
 
   if (isSelected(seat)) {
     selectedSeats.value = selectedSeats.value.filter((s) => s.eventSeatId !== seat.eventSeatId)
@@ -271,7 +344,7 @@ function toggleSeat(seat: EventSeat): void {
   }
 
   if (remainingCapacity.value <= 0) {
-    errorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請先取消已選的座位再選新的`
+    actionErrorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請先取消已選的座位再選新的`
     return
   }
 
@@ -287,9 +360,18 @@ const totalPrice = computed(
     countTicketTypes.value.reduce((sum, t) => sum + (countQuantities[t.id] ?? 0) * t.price, 0),
 )
 
-// 區域隨選購票：買家不用一個一個手動點座位，選分區＋張數，系統隨機從符合條件的 Available
-// 座位中抽出補滿（受每筆訂單限購張數與可售座位數雙重限制），選完直接送出訂單，不用再手動
-// 滾到最下面按「送出訂單」——這是刻意的一鍵購票路徑，跟下面手動點座位＋手動送出的路徑分開。
+// 結帳列依選取順序列出前幾個座位，太多時只顯示總數，避免結帳列高到擋住座位（design.md 決策 2）。
+const CHECKOUT_SEAT_PREVIEW_LIMIT = 6
+const checkoutSeatPreview = computed(() =>
+  selectedSeats.value
+    .slice(0, CHECKOUT_SEAT_PREVIEW_LIMIT)
+    .map((s) => `${s.zoneCode}-${s.seatNumber}`)
+    .join('、'),
+)
+
+// 區域隨選：買家不用一個一個手動點座位，選分區＋張數，系統隨機從符合條件的 Available
+// 座位中抽出補滿（受每筆訂單限購張數與可售座位數雙重限制）。抽中後只填入已選清單、不直接下單：
+// 買家送出前必須先看到抽中哪些座位，才能取消不要的再送出（purchase-flow-ux U11、design.md 決策 3）。
 const ALL_ZONES = '__ALL__'
 const quickPickZone = ref(ALL_ZONES)
 const quickPickCount = ref(1)
@@ -311,7 +393,7 @@ function shuffle<T>(items: T[]): T[] {
   return result
 }
 
-async function handleQuickPick(): Promise<void> {
+function handleQuickPick(): void {
   if (!authStore.isAuthenticated) {
     router.push({ path: '/login', query: { redirect: route.fullPath } })
     return
@@ -320,6 +402,7 @@ async function handleQuickPick(): Promise<void> {
   if (quickPickCount.value <= 0) return
 
   errorMessage.value = ''
+  actionErrorMessage.value = ''
   const candidates = seats.value.filter(
     (seat) =>
       seat.status === 'Available' &&
@@ -331,11 +414,11 @@ async function handleQuickPick(): Promise<void> {
   // 實際可抽的數量直接送出，那樣送出的訂單張數會跟買家要求的不一致（spec Scenario「區域隨選
   // 張數超過可售座位或限購剩餘額度」）。
   if (quickPickCount.value > remainingCapacity.value) {
-    errorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請先取消已選的座位再選新的`
+    actionErrorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請先取消已選的座位再選新的`
     return
   }
   if (quickPickCount.value > candidates.length) {
-    errorMessage.value =
+    actionErrorMessage.value =
       quickPickZone.value === ALL_ZONES ? '目前沒有足夠的可售座位' : `${quickPickZone.value} 區沒有足夠的可售座位`
     return
   }
@@ -347,7 +430,6 @@ async function handleQuickPick(): Promise<void> {
     if (selection) picked.push(selection)
   }
   selectedSeats.value = [...selectedSeats.value, ...picked]
-  await handleSubmit()
 }
 
 function stopQueuePolling(): void {
@@ -505,12 +587,13 @@ async function handleSubmit(): Promise<void> {
   // 送出前重新加總，不只依賴各輸入元件的 max 屬性把關（design.md 決策 3 風險緩解）。
   const totalCount = selectedSeats.value.length + countSelections.reduce((sum, s) => sum + (s.quantity ?? 0), 0)
   if (maxTicketsPerOrder.value !== null && totalCount > maxTicketsPerOrder.value) {
-    errorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請調整已選座位或購買數量`
+    actionErrorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請調整已選座位或購買數量`
     return
   }
 
   submitting.value = true
   errorMessage.value = ''
+  actionErrorMessage.value = ''
   try {
     const { id } = await placeOrder([
       ...selectedSeats.value.map((s) => ({ eventSeatId: s.eventSeatId, ticketTypeId: s.ticketTypeId })),
@@ -543,7 +626,7 @@ async function handleSubmit(): Promise<void> {
       return
     }
     if (error instanceof ApiError && error.status === 429) {
-      errorMessage.value = '請求過於頻繁，請稍後再試'
+      actionErrorMessage.value = '請求過於頻繁，請稍後再試'
       return
     }
     // 販售期間外：後端檢查販售期間時尚未鎖定座位或庫存，選擇仍有效，不清空、不重新載入。
@@ -555,18 +638,17 @@ async function handleSubmit(): Promise<void> {
       return
     }
     if (salesWindowErrorTitle === 'SalesNotOpen') {
-      errorMessage.value = SALES_NOT_OPEN_MESSAGE
+      actionErrorMessage.value = SALES_NOT_OPEN_MESSAGE
       return
     }
     // 其餘失敗（座位被搶、計數庫存於送出當下已變動、後端其他驗證失敗）一律清空並刷新，
     // 不依錯誤類型分流（design.md 決策 8）。
-    // 注意：loadData() 一開始會清空 errorMessage，所以錯誤訊息必須在 loadData() 之後才設定，
-    // 否則會被立刻清掉、畫面上完全看不到（這是既有程式碼原本就有的問題，這次順便修正）。
-    // 這也代表：若 loadData() 本身也失敗，它內部設定的錯誤訊息會被這裡的下單失敗訊息蓋掉——
-    // 這是刻意的（下單失敗才是使用者當下最需要知道的事），不是遺漏。
+    // 下單失敗訊息顯示在結帳列，loadData() 只清頁面層級的 errorMessage，維持「先 loadData()、
+    // 再設定訊息」的順序是為了不依賴這個細節。若 loadData() 本身也失敗，它的載入錯誤顯示在頂端、
+    // 下單失敗顯示在結帳列，兩則並存，買家兩件事都看得到（purchase-flow-ux BW-FLOW-007）。
     const message = toErrorMessage(error, '下單失敗，可能有座位已被搶先鎖定或售出，請重新選擇')
     await loadData()
-    errorMessage.value = message
+    actionErrorMessage.value = message
     clearSelections()
   } finally {
     submitting.value = false
@@ -592,7 +674,7 @@ onUnmounted(() => {
 
 <template>
   <div v-loading="loading" class="event-detail-page">
-    <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon style="margin-bottom: 16px" />
+    <el-alert v-if="errorMessage" class="page-error" role="alert" :title="errorMessage" type="error" show-icon style="margin-bottom: 16px" />
 
     <template v-if="event">
       <div class="layout">
@@ -678,21 +760,37 @@ onUnmounted(() => {
               :disabled="isSalesLocked"
               style="width: 110px"
             />
-            <el-button type="primary" :loading="submitting" :disabled="isSalesLocked" @click="handleQuickPick">
-              自動選位並送出訂單
-            </el-button>
+            <el-button type="primary" :disabled="isSalesLocked" @click="handleQuickPick">自動選位</el-button>
           </div>
 
-          <div v-for="[zoneCode, zoneSeats] in seatsByZone" :key="zoneCode" class="zone-block">
+          <div v-for="([zoneCode, zoneSeats], zoneIndex) in seatsByZone" :key="zoneCode" class="zone-block">
+            <div v-if="zoneIndex === 0" class="seat-legend">
+              <span class="seat-legend-item"><span class="seat-swatch" aria-hidden="true"></span>可選</span>
+              <span class="seat-legend-item"><span class="seat-swatch seat-swatch--selected" aria-hidden="true"></span>已選</span>
+              <span class="seat-legend-item"><span class="seat-swatch seat-swatch--unavailable" aria-hidden="true"></span>不可選</span>
+            </div>
             <h3>{{ zoneCode }} 區</h3>
-            <div class="seat-grid" :class="{ 'seat-grid--locked': isSalesLocked }">
+            <div
+              class="seat-grid"
+              :class="{ 'seat-grid--locked': isSalesLocked }"
+              role="group"
+              :aria-label="`${zoneCode} 區座位`"
+              @keydown="handleSeatGridKeydown($event, zoneSeats)"
+            >
+              <!-- 不用原生 disabled：未登入者點選不可選座位仍要導向登入頁（BW-SEAT-A11Y-004） -->
               <button
                 v-for="seat in zoneSeats"
                 :key="seat.eventSeatId"
                 type="button"
                 class="seat-btn"
                 :class="{ selected: isSelected(seat), sold: seat.status !== 'Available' }"
-                :title="`${seat.zoneCode}-${seat.seatNumber}（${seat.status}）`"
+                :data-seat-id="seat.eventSeatId"
+                :tabindex="tabStopSeatIdByZone.get(zoneCode) === seat.eventSeatId ? 0 : -1"
+                :aria-pressed="isSelected(seat)"
+                :aria-label="getSeatLabel(seat)"
+                :title="getSeatLabel(seat)"
+                :aria-disabled="seat.status !== 'Available' ? 'true' : undefined"
+                @focus="handleSeatFocus(seat)"
                 @click="toggleSeat(seat)"
               >
                 {{ seat.seatNumber }}
@@ -723,8 +821,21 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="summary">
-            <p>已選 {{ selectedSeats.length }} 個座位、{{ countTotal }} 張計數票券，總金額 {{ formatCurrency(totalPrice) }}</p>
+          <div class="checkout-bar">
+            <el-alert
+              v-if="actionErrorMessage"
+              class="action-error"
+              role="alert"
+              :title="actionErrorMessage"
+              type="error"
+              show-icon
+              :closable="false"
+            />
+            <p v-if="selectedSeats.length > 0" class="checkout-seat-list">
+              {{ checkoutSeatPreview }}
+              <template v-if="selectedSeats.length > CHECKOUT_SEAT_PREVIEW_LIMIT">等 {{ selectedSeats.length }} 個座位</template>
+            </p>
+            <p aria-live="polite">已選 {{ selectedSeats.length }} 個座位、{{ countTotal }} 張計數票券，總金額 {{ formatCurrency(totalPrice) }}</p>
             <el-button
               type="primary"
               :disabled="!canPurchase || (selectedSeats.length === 0 && countTotal === 0)"
@@ -870,26 +981,60 @@ onUnmounted(() => {
   height: 28px;
   font-size: 12px;
   padding: 0;
+  /* 結帳列的估計高度：方向鍵移動焦點時 scrollIntoView 會讓座位停在結帳列上方（design.md 決策 5） */
+  scroll-margin-bottom: 160px;
 }
-.seat-btn:hover {
-  border-color: var(--color-primary);
+/* 觸控裝置點擊後會殘留 hover，讓座位看起來像已選，只在真正能懸停的裝置高亮 */
+@media (hover: hover) and (pointer: fine) {
+  .seat-btn:hover {
+    border-color: var(--color-primary);
+  }
+  .seat-grid--locked .seat-btn:not(.selected):hover {
+    border-color: var(--color-border);
+  }
 }
-.seat-btn.selected {
+/* 須排在與座位共用的已選／不可選規則之前：特異度相同，放後面時 border 簡寫會蓋掉 dashed 與背景色 */
+.seat-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-bg-elevated);
+}
+.seat-btn.selected,
+.seat-swatch--selected {
   background: var(--el-color-primary);
   border-color: var(--el-color-primary);
   color: #fff;
 }
-.seat-btn.sold {
+.seat-btn.sold,
+.seat-swatch--unavailable {
   cursor: not-allowed;
   background: var(--el-fill-color-light);
   color: var(--color-text-secondary);
   border-color: var(--color-border);
+  border-style: dashed;
+  text-decoration: line-through;
 }
 .seat-grid--locked .seat-btn {
   cursor: default;
 }
-.seat-grid--locked .seat-btn:not(.selected):hover {
-  border-color: var(--color-border);
+.seat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.seat-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.seat-swatch--unavailable {
+  cursor: default;
 }
 .sales-window {
   color: var(--color-text-secondary);
@@ -898,8 +1043,25 @@ onUnmounted(() => {
 .sales-status {
   margin: 0 0 12px;
 }
-.summary {
+/* sticky 範圍是購票欄，手機單欄捲到資訊欄時不會擋住畫面（design.md 決策 2） */
+.checkout-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   margin-top: 24px;
+  padding: 12px 0;
+  background: var(--color-bg-elevated);
+  border-top: 1px solid var(--color-border);
+}
+.checkout-bar p {
+  margin: 0 0 8px;
+}
+.checkout-seat-list {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.action-error {
+  margin-bottom: 8px;
 }
 .captcha-row {
   display: flex;

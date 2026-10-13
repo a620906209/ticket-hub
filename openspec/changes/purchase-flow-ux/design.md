@@ -81,7 +81,7 @@ CSS：`position: sticky; bottom: 0; z-index: 1`，背景使用 `--color-bg-eleva
 - `aria-label`：`${zoneCode} 區 ${seatNumber} 號，${statusLabel}`。`statusLabel` 依序判斷：已選取為「已選」，`Available` 為「可選」，`Sold` 為「已售出」，`Held` 為「保留中」，其他值為「不可選」。`title` 也改用同一段中文，取代原本的英文狀態。
 - `aria-disabled="true"`：`seat.status !== 'Available'` 時加上。不使用原生 `disabled`，理由見 Context 的第一項限制。
 - 分區容器 `.seat-grid` 加上 `role="group"`，以及 `aria-label="${zoneCode} 區座位"`。
-- 不可選座位（`.seat-btn.sold`）在原本的背景色之外，座位號碼加上 `text-decoration: line-through`，邊框改為 `border-style: dashed`。
+- 不可選座位（`.seat-btn.sold`；沿用 master 的判定，`.sold` 代表所有非 `Available` 的座位，包含 `Sold` 與 `Held`，所以 `.seat-btn:not(.sold)` 就是 Available 座位）在原本的背景色之外，座位號碼加上 `text-decoration: line-through`，邊框改為 `border-style: dashed`。
 - 圖例 `.seat-legend` 放在第一個分區上方，有三個項目「可選／已選／不可選」，每項都有色塊 `.seat-swatch` 加上文字。色塊與座位共用同一組 CSS 規則（`.seat-btn.sold, .seat-swatch--unavailable { … }`），避免兩邊樣式不一致。色塊**不使用** `.seat-btn` class，因為既有測試用 `find('.seat-btn')` 取第一個座位。色塊加上 `aria-hidden="true"`，圖例文字本身已足以說明。
 - `.seat-btn:hover` 的邊框高亮改放在 `@media (hover: hover) and (pointer: fine)` 內：觸控裝置點擊後會殘留 hover 狀態，讓座位看起來像被選取（emil-design-eng 規劃建議）。這次不加按壓縮放動畫：座位會用鍵盤操作，鍵盤觸發的操作不應有動畫。這一項是純樣式決策，不列入 AC，也沒有對應的測試。
 
@@ -92,7 +92,7 @@ CSS：`position: sticky; bottom: 0; z-index: 1`，背景使用 `--color-bg-eleva
 - `focusedSeatIdByZone`：一個 `reactive<Record<string, string>>`，記錄每個分區最近一次取得焦點或被點擊的座位。
 - 每個分區的 Tab 停留點：記錄的座位如果仍在這個分區、而且是 `Available`，就用它；否則用該分區第一個 `Available` 座位。停留點的 `tabindex` 為 `0`，其他座位為 `-1`。分區內沒有可選座位時，整個分區都沒有 Tab 停留點。座位資料重新載入後（例如下單失敗刷新），會自動依這個規則回到第一個可選座位，不需要另外清除記錄。
 - 座位的 `@focus` 與 `@click` 會更新記錄。
-- 方向鍵在分區容器上處理 `@keydown`：`ArrowRight`／`ArrowDown` 移到下一個 `Available` 座位，`ArrowLeft`／`ArrowUp` 移到上一個，`Home`／`End` 移到第一個／最後一個；到頭或到尾就停住，不循環。只有這 6 個按鍵、而且沒有按住 Alt／Ctrl／Meta 時才處理並呼叫 `preventDefault`，避免攔截 Alt+ArrowLeft（瀏覽器上一頁）這類組合。Enter 與 Space 沿用原生 `<button>` 的行為，Tab 則照常離開分區。
+- 方向鍵在分區容器上處理 `@keydown`：`ArrowRight`／`ArrowDown` 移到下一個 `Available` 座位，`ArrowLeft`／`ArrowUp` 移到上一個，`Home`／`End` 移到第一個／最後一個；到頭或到尾就停住，不循環。只有這 6 個按鍵、而且沒有按住 Alt／Ctrl／Meta 時才處理並呼叫 `preventDefault`，避免攔截 Alt+ArrowLeft（瀏覽器上一頁）這類組合。Enter 與 Space 沿用原生 `<button>` 的行為，Tab 則照常離開分區。焦點停在不可選座位時（滑鼠點選 `tabindex="-1"` 的 Sold／Held 座位仍會取得焦點），沒有可推算方向的目前位置，所以這些按鍵都不處理、焦點不動；使用者可按 Tab 離開後再回到停留點。
 - 要移動焦點的元素，用 `data-seat-id` 在事件所在的分區容器裡查找，再呼叫 `focus({ preventScroll: true })` 與 `scrollIntoView({ block: 'nearest' })`。
 - 座位加上 `scroll-margin-bottom`，數值為結帳列的估計高度 `160px`。這樣 `scrollIntoView` 會讓焦點座位停在結帳列上方，不被擋住（WCAG 2.4.11）。用 Tab 進入分區時，捲動由瀏覽器處理。Chrome 的焦點捲動是否會套用 `scroll-margin`，我不確定，交給量測確認（見決策 6 與 Risks）。
 
@@ -102,12 +102,12 @@ CSS：`position: sticky; bottom: 0; z-index: 1`，背景使用 `--color-bg-eleva
 
 - **行為**（錯誤位置、結帳列內容、自動選位只填入、`aria-*`、roving tabindex、方向鍵）：以 Vitest 測試，寫在 `EventDetailPage.test.ts`，沿用既有的 `mountPage()` 與 mock API。鍵盤測試要用 `attachTo: document.body` 掛載，才能斷言 `document.activeElement`。jsdom 沒有 `scrollIntoView`，在 `beforeEach` 以 `vi.fn()` 補上，並斷言有以 `{ block: 'nearest' }` 呼叫。錯誤位置的斷言方式：訊息必須出現在 `.checkout-bar .action-error` 內，**而且** `.page-error` 不存在；反之亦然。這樣把操作錯誤放錯 state 的實作會失敗。
 - **版面**（sticky 是否真的固定在畫面底部、焦點座位是否被擋住、不可選座位的實際樣式、窄螢幕是否溢出）：用腳本化的瀏覽器量測 `measure-purchase-flow.js`，放在 change 目錄。
-  - 寬度：以同源 iframe 量測 320、390、720、721、800、1280 px，iframe 高度 700px，使用一個第一個分區至少有 400 個座位（其中至少一個 `Sold`／`Held`、一個 `Available`）、同時有座位制與計數票種、販售中、不需實名、未啟用熱門搶購模式的活動。活動由受版控的 fixture 腳本 `loadtest/fixtures/purchase-flow-ux-event.js` 每輪重新建立（見下方「量測資料」），不依賴 dev DB 既有資料。400 是依 1280px 寬時購票欄每列約 16 個座位推算：座位 36×28px、間距 6px，約 25 列、高度約 840px，大於 700px 的 iframe 高度，才能讓 1280px 的斷言 1、2 成立。量測頁面與 dev server 同源，iframe 共用 localStorage 的登入狀態。登入狀態由使用者每輪以新註冊的買家帳號人工登入（含 CAPTCHA），登出由 UI 執行，兩者都以 DOM 與 localStorage 核對；步驟與判準見 tasks.md 1.1「登入／登出前置」。分兩輪：已登入一輪量全部寬度與斷言 1 至 4（需要結帳列與計數購票列）；未登入一輪只量 320／390／720 的斷言 4，對應窄螢幕需求中以未登入為前提的 3 個 Scenario。
+  - 寬度：以同源 iframe 量測 320、390、720、721、800、1280 px，iframe 高度 700px，使用一個第一個分區至少有 400 個座位（其中至少一個 `Sold`／`Held`、一個 `Available`）、同時有座位制與計數票種、販售中、不需實名、未啟用熱門搶購模式的活動。活動由受版控的 fixture 腳本 `loadtest/fixtures/purchase-flow-ux-event.js` 每輪重新建立（見下方「量測資料」），不依賴 dev DB 既有資料。400 是依 1280px 寬時購票欄每列約 16 個座位推算：座位 36×28px、間距 6px，約 25 列、高度約 840px，大於 700px 的 iframe 高度，才能讓 1280px 的斷言 1、2 成立。量測頁面與 dev server 同源，iframe 共用 localStorage 的登入狀態。登入狀態由使用者每輪以新註冊的買家帳號人工登入（含 CAPTCHA），登出由 UI 執行，兩者都以 DOM 與 localStorage 核對；步驟與判準見 tasks.md 1.1「登入／登出前置」。分兩輪：已登入一輪量全部寬度與斷言 1 至 4（需要結帳列與計數購票列）；未登入一輪只量 320／390／720 的斷言 4，對應以未登入為前提的 BW-RESP-001、002、005。
   - 斷言 1（sticky）：捲到第一個分區頂端時，「送出訂單」按鈕完全在視窗內；而且最後一個座位的 `top` 大於視窗高度，證明頁面確實比視窗長、按鈕是因為 sticky 才看得到。
   - 斷言 2（焦點不被擋住）：先確認第一個分區最後一個 `Available` 座位一開始在視窗下緣之外；在第一個可選座位用 `dispatchEvent` 送出 `End` 鍵後，`document.activeElement` 必須**就是**這個座位，而且它的 `rect.top >= 0`、`rect.bottom` 不超過結帳列的 `rect.top`。焦點如果沒有移動，斷言就失敗，所以沒有實作 `End` 鍵處理時無法通過。
   - 斷言 3（樣式）：不可選座位的 computed `text-decoration-line` 包含 `line-through`、`border-top-style` 為 `dashed`；`.seat-swatch--unavailable` 的這兩個值也相同；`Available` 座位的 `text-decoration-line` 不包含 `line-through`，`border-top-style` 為 `solid`。這樣把樣式誤套到所有座位的實作也會失敗。
-  - 斷言 4（溢出）：既有「活動詳情頁在窄螢幕不產生頁面橫向捲動」的 Scenario，因為結帳列結構改變，需要重跑：`scrollWidth`、grid 欄寬、活動標題／票價表／計數購票列／結帳列的右緣，以及 320px 時「自動選位」按鈕位於分區選單的下一行。
-  - 量測資料：沿用 k6-load-test 的機制，seeder 簽發 Admin 與買家 token，k6 容器只透過 API 建立資料（不寫 SQL）。放在 `loadtest/` 而不是 change 目錄，是因為 k6 容器只掛載 `./loadtest`。腳本建立一個活動：唯一的座位分區 `A` 共 400 席、`A` 區座位制票種、`GA` 計數票種、販售開始於 1 分鐘前、不設販售結束、不需實名、不開熱門搶購模式。之後由第 1 位壓測買家下單 `A` 區第 1 席並付款，產生 `Sold`；再由第 2 位買家下單第 2 席、不付款，產生 `Held`。`Held` 會在持有期限到期後釋出，所以量測只要求 `Sold`／`Held` 至少一個，靠的是永久的 `Sold`。腳本最後以公開 API 核對上述條件，任何一項不符就以非 0 結束，並輸出 `EVENT_ID`。每輪量測前都重跑一次，新活動的標題以 `[PurchaseFlowUx]` 開頭，資料留在 dev DB，不自動清理（產品沒有刪除 API，自動清理只能用原生 SQL）；每輪註冊的 `pfux-*@example.test` 買家帳號也同樣保留。為了不無限累積，fixture 先計算既有的 `[PurchaseFlowUx]` 活動，達到 6 筆就拒絕建立並停止，由使用者依 `loadtest/README.md`「清理」段落手動處理（步驟見 tasks.md 1.0「保留上限」）。付款觸發的通知信由 `MockEmailNotificationService` 處理，不會對外寄出。
+  - 斷言 4（溢出）：既有「活動詳情頁在窄螢幕不產生頁面橫向捲動」的 Scenario（BW-RESP-001～005，本 change 補上 ID；各 ID 對應的寬度、元素與子項見 tasks.md 1.1），因為結帳列結構改變，需要重跑：`scrollWidth`、grid 欄寬、單欄時購票欄位於資訊欄下方、活動標題／票價表／計數購票列／結帳列的右緣，以及 320px 時「自動選位」按鈕位於分區選單的下一行。
+  - 量測資料：沿用 k6-load-test 的機制，seeder 簽發 Admin 與買家 token，k6 容器只透過 API 建立資料（不寫 SQL）。放在 `loadtest/` 而不是 change 目錄，是因為 k6 容器只掛載 `./loadtest`。腳本建立一個活動：唯一的座位分區 `A` 共 400 席、`A` 區座位制票種、`GA` 計數票種、販售開始於 1 分鐘前、不設販售結束、不需實名、不開熱門搶購模式。之後由第 1 位壓測買家下單 `A` 區第 1 席並付款，產生 `Sold`；再由第 2 位買家下單第 2 席、不付款，產生 `Held`。`Held` 會在持有期限到期後釋出，所以量測只要求 `Sold`／`Held` 至少一個，靠的是永久的 `Sold`。腳本最後以公開 API 核對上述條件，任何一項不符就以非 0 結束，並輸出 `EVENT_ID`。每輪量測前都重跑一次，新活動的標題以 `[PurchaseFlowUx]` 開頭，資料留在 dev DB，不自動清理（產品沒有刪除 API，自動清理只能用原生 SQL）；每輪註冊的 `pfux-*@example.test` 買家帳號也同樣保留。為了不無限累積，fixture 先計算既有的 `[PurchaseFlowUx]` 活動，達到 6 筆就拒絕建立並停止，由使用者依 `loadtest/README.md`「清理」段落手動處理（步驟見 tasks.md 1.0「保留上限」）。計數與建立之間不是原子操作，所以 fixture 只能經由 wrapper `loadtest/fixtures/run-purchase-flow-ux-event.sh` 執行：wrapper 先在 compose 的 redis 上取得互斥鎖（`SET NX EX`），讓兩次 fixture 無法同時通過上限檢查（tasks.md 1.0「並行保護」）。付款觸發的通知信由 `MockEmailNotificationService` 處理，不會對外寄出。
   - 所有座標在比較前都必須是有限數值；元素不存在時一律判定量測無效，不得讓兩個缺失值的比較結果通過。
   - 修改前先量一次基準值：基準狀態下斷言 1、2、3 必須失敗，以證明量測本身能抓到失敗。
   - 用 Tab 進入分區時是否被結帳列擋住（決策 5 的不確定點），改用 claude-in-chrome 送出真實的 Tab 鍵手動檢查並記錄結果。這一項不列入通過條件，只會記錄在 Risks。
@@ -140,7 +140,7 @@ CSS：`position: sticky; bottom: 0; z-index: 1`，背景使用 `--color-bg-eleva
 | 項目 | 內容 |
 | --- | --- |
 | 偏離的規則 | CLAUDE.md「OpenSpec 工作流規則 → Task 執行前」第 2 點：每條 AC 至少對應一項單元測試或整合測試 |
-| 適用範圍 | 僅限 BW-FLOW-001（結帳列 sticky 固定位置）、BW-SEAT-A11Y-002 中「不可選座位的實際樣式」的部分、BW-SEAT-A11Y-007（方向鍵移動後焦點座位不被結帳列遮住），以及「活動詳情頁在窄螢幕不產生頁面橫向捲動」既有 Scenario 的重新驗證。其餘 AC 一律以 Vitest 驗證，不適用此例外 |
+| 適用範圍 | 僅限 BW-FLOW-001（結帳列 sticky 固定位置）、BW-SEAT-A11Y-002 中「不可選座位的實際樣式」的部分、BW-SEAT-A11Y-007（方向鍵移動後焦點座位不被結帳列遮住），以及「活動詳情頁在窄螢幕不產生頁面橫向捲動」既有 Scenario（BW-RESP-001～005）的重新驗證。其餘 AC 一律以 Vitest 驗證，不適用此例外 |
 | 替代驗證 | 決策 6 的 `measure-purchase-flow.js` 斷言 1 至 4；修改前先量基準值，基準狀態下斷言 1、2、3 必須失敗（tasks.md 1.2）。量測資料由 tasks.md 1.0 的 fixture 腳本建立 |
 | 理由 | jsdom 不計算版面、不套用 sticky 與 media query，也不會算出 computed style 的實際值；只為這幾條需求引入 E2E 框架，不符合最小解法 |
 | 剩餘風險 | 沒有回歸保護，之後的修改可能讓 sticky 失效或造成溢出而不被發現 |
