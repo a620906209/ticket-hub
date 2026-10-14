@@ -16,6 +16,7 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Property(o => o.EventId).IsRequired();
         builder.Property(o => o.BuyerId).IsRequired();
+        builder.Property(o => o.CreatedAtUtc).IsRequired();
         builder.Property(o => o.HeldUntilUtc).IsRequired();
 
         // Order 只用 EventId 這個純量欄位參照 Event，沒有 navigation，一樣用 HasOne<T>().WithMany() 建立 FK 約束。

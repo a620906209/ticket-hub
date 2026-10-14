@@ -37,7 +37,7 @@ public class GetPaidItemSalesByEventIdAsyncTests
         var countTicketTypeId = await TicketingTestData.SeedCountBasedTicketTypeAsync(seedDbContext, eventId, price: 300m, availableQuantity: 100);
         var buyerId = await SeedBuyerAsync(seedDbContext);
 
-        var order = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow.AddMinutes(10),
+        var order = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10),
         [
             new OrderItem(Guid.NewGuid(), seatTicketTypeId, eventSeatIds[0], quantity: 1, unitPrice: 500m),
             new OrderItem(Guid.NewGuid(), countTicketTypeId, eventSeatId: null, quantity: 3, unitPrice: 300m),
@@ -70,14 +70,14 @@ public class GetPaidItemSalesByEventIdAsyncTests
         var ticketTypeId = await TicketingTestData.SeedCountBasedTicketTypeAsync(seedDbContext, eventId);
         var buyerId = await SeedBuyerAsync(seedDbContext);
 
-        var paidOrder = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow.AddMinutes(10),
+        var paidOrder = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10),
             [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatId: null, quantity: 5, unitPrice: 300m)]);
         paidOrder.Confirm();
 
-        var pendingOrder = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow.AddMinutes(10),
+        var pendingOrder = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10),
             [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatId: null, quantity: 2, unitPrice: 300m)]);
 
-        var cancelledOrder = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow.AddMinutes(10),
+        var cancelledOrder = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10),
             [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatId: null, quantity: 1, unitPrice: 300m)]);
         cancelledOrder.Cancel();
 
@@ -111,7 +111,7 @@ public class GetPaidItemSalesByEventIdAsyncTests
         // Status = 1 (Paid)，模擬 migration 前既有座位訂單、TicketTypeId 未回填的舊資料形狀
         // （見 GetOrderByIdLegacyDataTests 同樣的植入手法）。
         await seedDbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "HeldUntilUtc", "Status") VALUES ({orderId}, {eventId}, {buyer.Id}, {heldUntilUtc}, 1)""");
+            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "CreatedAtUtc", "HeldUntilUtc", "Status") VALUES ({orderId}, {eventId}, {buyer.Id}, {heldUntilUtc.AddMinutes(-10)}, {heldUntilUtc}, 1)""");
         await seedDbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""INSERT INTO "OrderItems" ("Id", "EventSeatId", "UnitPrice", "OrderId") VALUES ({Guid.NewGuid()}, {eventSeatIds[0]}, 500, {orderId})""");
 
@@ -155,7 +155,7 @@ public class GetPaidItemSalesByEventIdAsyncTests
         // ——正常下單流程（OrderService.PlaceOrderAsync 的跨活動驗證）不會產生這種組合，這裡直接繞過該流程
         // 用 Domain 建構子＋DbContext 存檔，驗證查詢本身（不判斷票種所屬活動，見 design.md 決策 1 契約）
         // 真的能撈出這個分組，這個判斷責任在 Application 層（design.md 決策 2、3）。
-        var order = new Order(Guid.NewGuid(), eventAId, buyerId, DateTime.UtcNow.AddMinutes(10),
+        var order = new Order(Guid.NewGuid(), eventAId, buyerId, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10),
             [new OrderItem(Guid.NewGuid(), otherEventTicketTypeId, eventSeatId: null, quantity: 2, unitPrice: 300m)]);
         order.Confirm();
         seedDbContext.Orders.Add(order);

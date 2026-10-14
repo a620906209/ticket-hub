@@ -63,6 +63,19 @@ public class CreateOrderHandlerTests
     }
 
     [Fact]
+    public void Handle_RecordsCurrentTimeAsCreatedAtUtcAndHoldsForTenMinutes()
+    {
+        var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
+        var handler = new CreateOrderHandler(new FakeDateTimeProvider { UtcNow = now });
+        var (@event, seatMap) = CreateEventWithSeatMap();
+
+        var result = handler.Handle(Guid.NewGuid(), [CreateSeatSelection(@event, seatMap, "1")], []);
+
+        result.Value!.CreatedAtUtc.Should().Be(now);
+        result.Value.HeldUntilUtc.Should().Be(now.AddMinutes(10));
+    }
+
+    [Fact]
     public void Handle_RecordsGivenBuyerIdOnCreatedOrder()
     {
         var now = new DateTime(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);

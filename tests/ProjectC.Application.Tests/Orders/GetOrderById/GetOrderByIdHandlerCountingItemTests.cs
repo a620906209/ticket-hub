@@ -19,7 +19,7 @@ public class GetOrderByIdHandlerCountingItemTests
         var @event = new Event(Guid.NewGuid(), "Concert", Now.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         var eventRepository = new FakeEventRepository();
         eventRepository.Data.Add(@event);
-        var order = new Order(Guid.NewGuid(), @event.Id, Guid.NewGuid(), Now.AddMinutes(10),
+        var order = new Order(Guid.NewGuid(), @event.Id, Guid.NewGuid(), DateTime.UtcNow, Now.AddMinutes(10),
         [
             new OrderItem(Guid.NewGuid(), seatTicketTypeId, eventSeatId, 1, 500m),
             new OrderItem(Guid.NewGuid(), countTicketTypeId, null, 3, 300m),

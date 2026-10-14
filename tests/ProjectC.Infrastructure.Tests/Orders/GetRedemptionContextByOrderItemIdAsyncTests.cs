@@ -31,7 +31,7 @@ public class GetRedemptionContextByOrderItemIdAsyncTests
         var buyer = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Buyer", "hash");
         var orderItem = new OrderItem(Guid.NewGuid(), ticketTypeId, null, 1, 300m);
         seedDbContext.Members.Add(buyer);
-        seedDbContext.Orders.Add(new Order(Guid.NewGuid(), eventId, buyer.Id, DateTime.UtcNow.AddMinutes(10), [orderItem]));
+        seedDbContext.Orders.Add(new Order(Guid.NewGuid(), eventId, buyer.Id, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10), [orderItem]));
         await seedDbContext.SaveChangesAsync();
 
         await using var readDbContext = _fixture.CreateDbContext();

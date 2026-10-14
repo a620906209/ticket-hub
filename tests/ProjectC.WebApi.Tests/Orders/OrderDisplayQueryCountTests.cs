@@ -93,31 +93,38 @@ public class OrderDisplayQueryCountTests : IClassFixture<QueryCountingWebApplica
     }
 
     // [ORD-LIST-004] 單元層的 Fake 無法區分單次 Contains 與逐筆查詢，此保證只在整合層驗證。
+    // 「1 筆／1 買家／1 活動」對「3 筆／3 買家／2 活動」：買家與活動數量同時成長，兩者的名稱查詢都不得隨之增加。
     [Fact]
-    public async Task GetAdminOrders_WithOneVersusThreeBuyers_IssuesSameQueriesPerTable()
+    public async Task GetAdminOrders_WithOneVersusThreeBuyersAcrossTwoEvents_IssuesSameQueriesPerTable()
     {
-        var (singleBuyerOrganizer, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var (multiBuyerOrganizer, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
-        var singleBuyerEvent = await OrderDisplayTestData.SeedEventAsync(_factory, singleBuyerOrganizer, "Admin List A", seatCount: 1, countTicketTypeCount: 0);
-        var multiBuyerEvent = await OrderDisplayTestData.SeedEventAsync(_factory, multiBuyerOrganizer, "Admin List B", seatCount: 3, countTicketTypeCount: 0);
+        var (singleOrganizer, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (multiOrganizer, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var singleEvent = await OrderDisplayTestData.SeedEventAsync(_factory, singleOrganizer, "Admin List A", seatCount: 1, countTicketTypeCount: 0);
+        var multiFirstEvent = await OrderDisplayTestData.SeedEventAsync(_factory, multiOrganizer, "Admin List B1", seatCount: 2, countTicketTypeCount: 0);
+        var multiSecondEvent = await OrderDisplayTestData.SeedEventAsync(_factory, multiOrganizer, "Admin List B2", seatCount: 1, countTicketTypeCount: 0);
         var (singleBuyer, _) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory);
-        await OrderDisplayTestData.PlaceOrderAsync(singleBuyer, singleBuyerEvent, seatItemCount: 1, countItemCount: 0);
-        for (var i = 0; i < 3; i++)
+        await OrderDisplayTestData.PlaceOrderAsync(singleBuyer, singleEvent, seatItemCount: 1, countItemCount: 0);
+        var multiOrderTargets = new[] { (multiFirstEvent, 0), (multiFirstEvent, 1), (multiSecondEvent, 0) };
+        for (var i = 0; i < multiOrderTargets.Length; i++)
         {
+            var (targetEvent, seatIndex) = multiOrderTargets[i];
             var (buyer, _) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory, $"Buyer {i}");
-            await OrderDisplayTestData.PlaceOrderAsync(buyer, multiBuyerEvent, seatItemCount: 1, countItemCount: 0, firstSeatIndex: i);
+            await OrderDisplayTestData.PlaceOrderAsync(buyer, targetEvent, seatItemCount: 1, countItemCount: 0, firstSeatIndex: seatIndex);
         }
 
-        (await singleBuyerOrganizer.GetAsync("/api/admin/orders")).EnsureSuccessStatusCode();
-        (await multiBuyerOrganizer.GetAsync("/api/admin/orders")).EnsureSuccessStatusCode();
-        var singleBuyerCounts = await GetQueryCountsByTableAsync(singleBuyerOrganizer, "/api/admin/orders");
-        var multiBuyerCounts = await GetQueryCountsByTableAsync(multiBuyerOrganizer, "/api/admin/orders");
+        (await singleOrganizer.GetAsync("/api/admin/orders")).EnsureSuccessStatusCode();
+        (await multiOrganizer.GetAsync("/api/admin/orders")).EnsureSuccessStatusCode();
+        var singleCounts = await GetQueryCountsByTableAsync(singleOrganizer, "/api/admin/orders");
+        var multiCounts = await GetQueryCountsByTableAsync(multiOrganizer, "/api/admin/orders");
 
-        multiBuyerCounts.Should().BeEquivalentTo(singleBuyerCounts);
+        multiCounts.Should().BeEquivalentTo(singleCounts);
         // 正向錨點（以暖機後實測寫死）：買家名稱確實以單次 Members 查詢取得。只比兩次相等的話，
         // 若買家名稱查詢不經資料庫（例如日後加快取）兩邊都是 0，測試仍會空洞通過。
-        singleBuyerCounts.GetValueOrDefault("Members").Should().Be(1);
-        singleBuyerCounts.GetValueOrDefault("Orders").Should().Be(1);
+        singleCounts.GetValueOrDefault("Members").Should().Be(1);
+        singleCounts.GetValueOrDefault("Orders").Should().Be(1);
+        // Events 為 2：訂單查詢以 Events.Any(...)（EXISTS 子查詢）做 Organizer 過濾（interceptor 會把子查詢的表一併計入）佔 1 次，
+        // 活動名稱批次查詢佔 1 次；移除活動名稱查詢時此值降為 1（tasks.md 4.4 已實測確認）。
+        singleCounts.GetValueOrDefault("Events").Should().Be(2);
     }
 
     private async Task<IReadOnlyDictionary<string, int>> GetQueryCountsByTableAsync(HttpClient client, string url)

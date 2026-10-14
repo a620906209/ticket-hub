@@ -64,7 +64,7 @@ public class UniqueConstraintsTests
 
         // 已經逾期的 Pending 訂單：查詢時 GetStatus(now) 會推導成 Expired，但持久化的 Status 欄位本身不能是 Expired。
         var pastHeldUntilUtc = DateTime.UtcNow.AddMinutes(-10);
-        var order = new Order(Guid.NewGuid(), eventId, buyer.Id, pastHeldUntilUtc,
+        var order = new Order(Guid.NewGuid(), eventId, buyer.Id, DateTime.UtcNow, pastHeldUntilUtc,
             [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatIds[0], 1, 100m)]);
 
         dbContext.Orders.Add(order);

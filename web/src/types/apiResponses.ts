@@ -58,9 +58,13 @@ export interface AuthTokens {
 export interface OrderSummary {
   id: string
   eventId: string
+  eventTitle: string
   buyerId: string
   buyerDisplayName: string
+  ticketCount: number
+  totalAmount: number
   status: string
+  createdAtUtc: string
   heldUntilUtc: string
 }
 

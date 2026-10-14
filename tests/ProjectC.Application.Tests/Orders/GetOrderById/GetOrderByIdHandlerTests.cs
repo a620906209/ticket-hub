@@ -30,7 +30,7 @@ public class GetOrderByIdHandlerTests
         var @event = SeedEvent();
         var eventSeatId = Guid.NewGuid();
         // 已逾時但持久化狀態仍是 Pending，驗證明細的 Status 也是即時推導值，跟列表端點語意一致。
-        var order = new Order(Guid.NewGuid(), @event.Id, Guid.NewGuid(), Now.AddMinutes(-1), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), eventSeatId, 1, 500m)]);
+        var order = new Order(Guid.NewGuid(), @event.Id, Guid.NewGuid(), DateTime.UtcNow, Now.AddMinutes(-1), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), eventSeatId, 1, 500m)]);
         _orderRepository.Data.Add(order);
 
         var result = await CreateHandler().HandleAsync(order.Id, @event.OrganizerId, CancellationToken.None);
@@ -55,7 +55,7 @@ public class GetOrderByIdHandlerTests
     public async Task HandleAsync_WhenOrderBelongsToOtherOrganizer_ReturnsSameNotFoundErrorAsMissingOrder()
     {
         var @event = SeedEvent();
-        var order = new Order(Guid.NewGuid(), @event.Id, Guid.NewGuid(), Now.AddMinutes(10), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m)]);
+        var order = new Order(Guid.NewGuid(), @event.Id, Guid.NewGuid(), DateTime.UtcNow, Now.AddMinutes(10), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m)]);
         _orderRepository.Data.Add(order);
         var handler = CreateHandler();
 
@@ -73,7 +73,7 @@ public class GetOrderByIdHandlerTests
     [Fact]
     public async Task HandleAsync_WhenEventNotFound_ThrowsInvalidOperationException()
     {
-        var order = new Order(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Now.AddMinutes(10), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m)]);
+        var order = new Order(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow, Now.AddMinutes(10), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m)]);
         _orderRepository.Data.Add(order);
 
         var act = () => CreateHandler().HandleAsync(order.Id, Guid.NewGuid(), CancellationToken.None);

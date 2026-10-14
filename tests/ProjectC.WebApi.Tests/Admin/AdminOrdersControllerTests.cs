@@ -147,6 +147,33 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
         body.Should().NotContainEquivalentOf("email").And.NotContain(aliceEmail).And.NotContain(bobEmail);
     }
 
+    // [ORD-LIST-005] 以序列化後的 JSON 驗證四個新欄位的名稱與值：2 個座位（各 NT$500）＋ 1 個計數項目（NT$300）。
+    [Fact]
+    public async Task GetOrders_ReturnsEventTitleTicketCountTotalAmountAndCreatedAtInJson()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var seededEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "春季音樂會", seatCount: 2, countTicketTypeCount: 1);
+        var (buyerClient, _) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory);
+        var beforePlaceOrder = DateTime.UtcNow;
+        var orderId = await OrderDisplayTestData.PlaceOrderAsync(buyerClient, seededEvent, seatItemCount: 2, countItemCount: 1);
+        var afterPlaceOrder = DateTime.UtcNow;
+
+        var response = await organizerClient.GetAsync("/api/admin/orders");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var order = document.RootElement.EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == orderId);
+        order.GetProperty("eventTitle").GetString().Should().Be("春季音樂會");
+        order.GetProperty("ticketCount").GetInt32().Should().Be(3);
+        order.GetProperty("totalAmount").GetDecimal().Should().Be(1300m);
+        var createdAtText = order.GetProperty("createdAtUtc").GetString()!;
+        createdAtText.Should().EndWith("Z", "前端以 new Date() 解析，缺少時區標記會被當成本地時間");
+        var createdAtUtc = order.GetProperty("createdAtUtc").GetDateTime().ToUniversalTime();
+        // 前後各留 1 秒：WSL2 時鐘偶爾會倒退約 1 秒（organizer-scoping 的 flaky 調查），不放寬會間歇失敗。
+        createdAtUtc.Should().BeOnOrAfter(beforePlaceOrder.AddSeconds(-1)).And.BeOnOrBefore(afterPlaceOrder.AddSeconds(1));
+        (order.GetProperty("heldUntilUtc").GetDateTime().ToUniversalTime() - createdAtUtc).Should().Be(TimeSpan.FromMinutes(10));
+    }
+
     // ---- 訂單明細 ----
 
     // [ORD-DETAIL-001]

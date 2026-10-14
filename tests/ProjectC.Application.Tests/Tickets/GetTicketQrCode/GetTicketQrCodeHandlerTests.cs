@@ -60,7 +60,7 @@ public class GetTicketQrCodeHandlerTests
     {
         var buyerId = Guid.NewGuid();
         var orderItem = new OrderItem(Guid.NewGuid(), Guid.NewGuid(), null, 1, 500m);
-        var order = new Order(Guid.NewGuid(), Guid.NewGuid(), buyerId, Now.AddMinutes(15), [orderItem]);
+        var order = new Order(Guid.NewGuid(), Guid.NewGuid(), buyerId, DateTime.UtcNow, Now.AddMinutes(15), [orderItem]);
         var ticket = new Ticket(Guid.NewGuid(), orderItem.Id, Now);
         var orderRepository = new FakeOrderRepository();
         orderRepository.Data.Add(order);

@@ -144,7 +144,7 @@ public class GetMyOrdersHandlerTests
 
     private Order SeedOrder(Guid buyerId, Guid eventId)
     {
-        var order = new Order(Guid.NewGuid(), eventId, buyerId, Now.AddMinutes(15), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), null, 1, 500m)]);
+        var order = new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow, Now.AddMinutes(15), [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), null, 1, 500m)]);
         _orderRepository.Data.Add(order);
         return order;
     }

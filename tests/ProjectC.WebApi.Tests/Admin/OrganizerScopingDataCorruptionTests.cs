@@ -140,6 +140,30 @@ public class OrganizerScopingDataCorruptionTests : IClassFixture<OrganizerScopin
             .And.NotContain(exception.Message);
     }
 
+    // [ORD-LIST-007] 同一 Organizer 下兩個活動各一筆訂單，只有一個活動查不到：整個列表 500，不回傳部分列表。
+    [Fact]
+    public async Task GetAdminOrders_WhenOneEventMissing_Returns500AndLogsIdsWithoutLeaking()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var intactEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "Intact Event", seatCount: 1, countTicketTypeCount: 0);
+        var orphanEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "Orphan Event", seatCount: 1, countTicketTypeCount: 0);
+        var (buyer, _) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory, "Event Corruption Buyer");
+        var intactOrderId = await OrderDisplayTestData.PlaceOrderAsync(buyer, intactEvent, seatItemCount: 1, countItemCount: 0);
+        var orphanOrderId = await OrderDisplayTestData.PlaceOrderAsync(buyer, orphanEvent, seatItemCount: 1, countItemCount: 0);
+        _factory.MissingEventIds.TryAdd(orphanEvent.EventId, 0);
+
+        var response = await organizerClient.GetAsync("/api/admin/orders");
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        var body = await AssertGlobalExceptionProblemDetailsAsync(response);
+        var exception = AssertSingleLoggedDataInconsistency(body, orphanOrderId, orphanEvent.EventId);
+        body.Should().NotContain("eventTitle").And.NotContain("buyerDisplayName")
+            .And.NotContain(intactOrderId.ToString())
+            .And.NotContain(orphanOrderId.ToString())
+            .And.NotContain(orphanEvent.EventId.ToString())
+            .And.NotContain(exception.Message);
+    }
+
     // 以回應的 traceId 篩出該請求的 log（factory 在整個測試類別共用同一個 logger）。
     private InvalidOperationException AssertSingleLoggedDataInconsistency(string problemDetailsBody, Guid orderId, Guid missingId)
     {

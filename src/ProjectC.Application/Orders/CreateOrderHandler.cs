@@ -86,7 +86,7 @@ public sealed class CreateOrderHandler
             .Select(selection => new OrderItem(Guid.NewGuid(), selection.TicketType.Id, null, selection.Quantity, selection.TicketType.Price));
         var items = seatItems.Concat(quantityItems).ToList();
 
-        var order = new Order(orderId, eventId, buyerId, heldUntilUtc, items);
+        var order = new Order(orderId, eventId, buyerId, now, heldUntilUtc, items);
         return Result<Order>.Success(order);
     }
 }
