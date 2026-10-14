@@ -69,7 +69,19 @@ const EXPECTED_ROUTE_TREE: RouteShape[] = [
       child('orders', 'admin-orders', { requiresOrganizerContext: true }),
       child('orders/:id', 'admin-order-detail', { requiresOrganizerContext: true }),
       child('redeem', 'admin-redeem', { requiresOrganizerContext: true }),
-      child('organizers', 'admin-organizers', { requiresAdmin: true }),
+      // web-area-separation：審核頁搬到 /platform，舊網址保留為 redirect
+      child('organizers', undefined, undefined, { name: 'platform-organizers' }),
+    ],
+  },
+  // web-area-separation 新增，不屬於 BS-014 基準
+  {
+    path: '/platform',
+    name: undefined,
+    meta: undefined,
+    redirect: undefined,
+    children: [
+      child('', undefined, undefined, { name: 'platform-organizers' }),
+      child('organizers', 'platform-organizers', { requiresAdmin: true }),
     ],
   },
   // bundle-splitting 之後新增（2026-10-13 走查：未知網址整頁空白），不屬於 BS-014 基準
@@ -97,7 +109,8 @@ const EXPECTED_COMPONENTS: Record<string, () => Promise<{ default: unknown }>> =
   'admin-orders': () => import('../pages/admin/AdminOrderListPage.vue'),
   'admin-order-detail': () => import('../pages/admin/AdminOrderDetailPage.vue'),
   'admin-redeem': () => import('../pages/admin/RedemptionScannerPage.vue'),
-  'admin-organizers': () => import('../pages/admin/AdminOrganizersPage.vue'),
+  '/platform': () => import('../layouts/PlatformLayout.vue'),
+  'platform-organizers': () => import('../pages/admin/AdminOrganizersPage.vue'),
 }
 
 function flattenRoutes(routes: RouteRecordRaw[]): RouteRecordRaw[] {
@@ -110,11 +123,11 @@ describe('router 延遲載入與路由設定', () => {
   })
 
   // 首次 import 全部頁面（含 inline 轉換的 Element Plus）在容器內約需數秒，超過預設 5 秒
-  it('[BS-005] 18 個頁面與 AdminLayout 為延遲載入，且都能載入成 Vue 元件', { timeout: 30_000 }, async () => {
+  it('[BS-005] 18 個頁面、AdminLayout 與 PlatformLayout 為延遲載入，且都能載入成 Vue 元件', { timeout: 30_000 }, async () => {
     const router = await importFreshRouter()
     const lazyRecords = router.getRoutes().filter((record) => typeof record.components?.default === 'function')
 
-    expect(lazyRecords).toHaveLength(19)
+    expect(lazyRecords).toHaveLength(20)
     for (const record of lazyRecords) {
       const component = await resolveComponent(record.components!.default)
       expect(typeof component, `${record.path} 應解析成 Vue 元件物件`).toBe('object')

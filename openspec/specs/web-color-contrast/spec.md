@@ -2,10 +2,9 @@
 
 ## Purpose
 定義前端共用色票（`web/src/styles/morandi.css`，買家端與後台共用）的最低對比度要求：文字與語意色元件符合 WCAG AA、輸入類元件邊界與按鈕焦點框不低於 3:1，並限制調色時須保留莫蘭迪色相與低彩度。由 `web/src/styles/morandi.contrast.test.ts` 直接解析色票驗證。來源 change：`openspec/changes/archive/2026-10-08-palette-contrast-aa/`。
-
 ## Requirements
 ### Requirement: 文字與語意色元件的對比度符合 WCAG AA
-前端色票（`web/src/styles/morandi.css`，買家端與後台共用）定義的文字色與語意色，在下列組合中的對比度 MUST 不低於 4.5:1（WCAG 2.1 相對亮度公式）。「白底」指 `--el-bg-color`（`#ffffff`），「頁面底」指 `--el-bg-color-page` 與 `--color-bg`。語意色指 primary、success、warning、danger、info 五色；`--el-color-error` 系列 SHALL 維持為 danger 系列的別名。
+前端色票（`web/src/styles/morandi.css`，買家端與後台共用）定義的文字色與語意色，在下列組合中的對比度 MUST 不低於 4.5:1（WCAG 2.1 相對亮度公式）。「白底」指 `--el-bg-color`（`#ffffff`），「頁面底」指 `--el-bg-color-page`、`--color-bg`，以及主辦方後台與平台管理的區域底色 `--color-bg-organizer`、`--color-bg-platform`；本能力其他 Requirement 中的「頁面底」同此定義。語意色指 primary、success、warning、danger、info 五色；`--el-color-error` 系列 SHALL 維持為 danger 系列的別名。
 
 - 實心語意色按鈕：白字對該色按鈕的靜態背景（base）、hover 背景、active 背景；hover SHALL 比 base 深，active SHALL 比 hover 深。
 - text 按鈕：文字色對 hover 背景與 active 背景。
@@ -13,6 +12,7 @@
 - 連結與主色文字（`--color-primary`、`--el-color-primary`）：對白底與頁面底。
 - 文字色（`--el-text-color-primary`、`--el-text-color-regular`、`--el-text-color-secondary`、`--color-text`、`--color-text-secondary`）：對白底與頁面底。
 - Placeholder（`--el-text-color-placeholder`）：對白底（輸入框背景）。
+- 區域強調色（`--color-area-organizer`、`--color-area-platform`，用於導覽列色條與區域切換鈕色塊）：對白底，以及對各自的區域底色（`--color-bg-organizer`、`--color-bg-platform`）。
 
 停用狀態（disabled）的元件不在此限（WCAG 1.4.3 例外）。`--color-primary` SHALL 等於 `--el-color-primary`，`--color-text-secondary` SHALL 等於 `--el-text-color-secondary`；表格與分隔線的 `--el-border-color-light`／`--el-border-color-lighter` SHALL 維持原值。
 
@@ -47,6 +47,10 @@
 #### Scenario: WCC-006 error 系列維持為 danger 的別名
 - **WHEN** 解析 `--el-color-error`、`--el-color-error-light-3`／`-5`／`-7`／`-8`／`-9`、`--el-color-error-dark-2`
 - **THEN** 每一個解析後的值都等於對應的 danger token
+
+#### Scenario: WCC-013 區域強調色
+- **WHEN** 讀取 `--color-area-organizer`、`--color-area-platform`、`--color-bg-organizer`、`--color-bg-platform`
+- **THEN** `--color-area-organizer` 對白底與 `--color-bg-organizer`、`--color-area-platform` 對白底與 `--color-bg-platform` 的對比度都不低於 4.5；兩個區域底色彼此不同，且都不等於 `--color-bg`
 
 ### Requirement: 輸入類元件邊界與按鈕焦點框的對比度不低於 3:1
 輸入類元件（輸入框、選單、日期選擇器、數字輸入）的邊框色 `--el-border-color`，與其 hover 邊框色 `--el-border-color-hover`，對白底與頁面底的對比度 MUST 不低於 3:1（WCAG 1.4.11）；hover 邊框 SHALL 比一般邊框深（相對亮度較低），不得在 hover 時變淡。按鈕的鍵盤焦點框色（預設按鈕 `.el-button` 與五個語意色按鈕的 `--el-button-outline-color`）對白底與頁面底的對比度 MUST 不低於 3:1。表格與分隔線使用的 `--el-border-color-light`／`--el-border-color-lighter` 屬於裝飾性邊界，不在此限。

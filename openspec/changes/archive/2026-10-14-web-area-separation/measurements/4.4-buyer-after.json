@@ -1,0 +1,215 @@
+[
+  {
+    "AREA": "buyer",
+    "W": 320,
+    "targetPath": "/",
+    "injectLongText": false,
+    "baseline": false,
+    "selfCheckInjectWide": false,
+    "pathname": "/",
+    "clientWidth": 320,
+    "documentScrollWidth": 320,
+    "navRootScrollWidth": 320,
+    "navRootClientWidth": 320,
+    "navMaxRight": 320,
+    "navMaxRightElement": "header.buyer-header",
+    "descendantMaxRight": 304.421875,
+    "elementsBeyondW": [],
+    "overflowingElements": [],
+    "elements": {
+      "areaSwitcher": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 120.625,
+          "right": 188.625,
+          "width": 68,
+          "height": 32
+        }
+      },
+      "brand": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 16,
+          "right": 74.046875,
+          "width": 58.046875,
+          "height": 54
+        }
+      },
+      "buyerNav": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 86.046875,
+          "right": 108.625,
+          "width": 22.578125,
+          "height": 42
+        }
+      },
+      "buyerActions": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 120.625,
+          "right": 304,
+          "width": 183.375,
+          "height": 42
+        }
+      }
+    },
+    "layoutBackground": {
+      "actual": "rgb(243, 240, 234)",
+      "variable": "--color-bg",
+      "expected": "rgb(243, 240, 234)"
+    },
+    "navBackground": null,
+    "navBorderTop": null,
+    "valid": true,
+    "invalidReasons": [],
+    "pass": true,
+    "failReasons": []
+  },
+  {
+    "AREA": "buyer",
+    "W": 390,
+    "targetPath": "/",
+    "injectLongText": false,
+    "baseline": false,
+    "selfCheckInjectWide": false,
+    "pathname": "/",
+    "clientWidth": 390,
+    "documentScrollWidth": 390,
+    "navRootScrollWidth": 390,
+    "navRootClientWidth": 390,
+    "navMaxRight": 390,
+    "navMaxRightElement": "header.buyer-header",
+    "descendantMaxRight": 366.15625,
+    "elementsBeyondW": [],
+    "overflowingElements": [],
+    "elements": {
+      "areaSwitcher": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 151.15625,
+          "right": 247.15625,
+          "width": 96,
+          "height": 32
+        }
+      },
+      "brand": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 24,
+          "right": 81,
+          "width": 57,
+          "height": 54
+        }
+      },
+      "buyerNav": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 105,
+          "right": 127.15625,
+          "width": 22.15625,
+          "height": 42
+        }
+      },
+      "buyerActions": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 151.15625,
+          "right": 366,
+          "width": 214.84375,
+          "height": 42
+        }
+      }
+    },
+    "layoutBackground": {
+      "actual": "rgb(243, 240, 234)",
+      "variable": "--color-bg",
+      "expected": "rgb(243, 240, 234)"
+    },
+    "navBackground": null,
+    "navBorderTop": null,
+    "valid": true,
+    "invalidReasons": [],
+    "pass": true,
+    "failReasons": []
+  },
+  {
+    "AREA": "buyer",
+    "W": 1280,
+    "targetPath": "/",
+    "injectLongText": false,
+    "baseline": false,
+    "selfCheckInjectWide": false,
+    "pathname": "/",
+    "clientWidth": 1280,
+    "documentScrollWidth": 1280,
+    "navRootScrollWidth": 1280,
+    "navRootClientWidth": 1280,
+    "navMaxRight": 1280,
+    "navMaxRightElement": "header.buyer-header",
+    "descendantMaxRight": 1256,
+    "elementsBeyondW": [],
+    "overflowingElements": [],
+    "elements": {
+      "areaSwitcher": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 984.546875,
+          "right": 1080.546875,
+          "width": 96,
+          "height": 32
+        }
+      },
+      "brand": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 24,
+          "right": 96,
+          "width": 72,
+          "height": 27
+        }
+      },
+      "buyerNav": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 120,
+          "right": 960.546875,
+          "width": 840.546875,
+          "height": 21
+        }
+      },
+      "buyerActions": {
+        "count": 1,
+        "visible": true,
+        "rect": {
+          "left": 984.546875,
+          "right": 1256,
+          "width": 271.453125,
+          "height": 32
+        }
+      }
+    },
+    "layoutBackground": {
+      "actual": "rgb(243, 240, 234)",
+      "variable": "--color-bg",
+      "expected": "rgb(243, 240, 234)"
+    },
+    "navBackground": null,
+    "navBorderTop": null,
+    "valid": true,
+    "invalidReasons": [],
+    "pass": true,
+    "failReasons": []
+  }
+]

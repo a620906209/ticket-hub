@@ -1,0 +1,2851 @@
+{
+  "orgBase": [
+    {
+      "AREA": "organizer",
+      "W": 320,
+      "targetPath": "/admin/redeem",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 320,
+      "documentScrollWidth": 320,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 304,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 63.171875,
+            "right": 171.171875,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 55.171875,
+            "width": 47.171875,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 179.171875,
+            "right": 304,
+            "width": 124.828125,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 320,
+      "targetPath": "/admin/venues",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 320,
+      "documentScrollWidth": 592,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 304,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 63.171875,
+            "right": 171.171875,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 55.171875,
+            "width": 47.171875,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 179.171875,
+            "right": 304,
+            "width": 124.828125,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 390,
+      "targetPath": "/admin/redeem",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 390,
+      "documentScrollWidth": 390,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 374,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 66,
+            "right": 174,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 58,
+            "width": 50,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 182,
+            "right": 374,
+            "width": 192,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 390,
+      "targetPath": "/admin/venues",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 390,
+      "documentScrollWidth": 592,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 374,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 66,
+            "right": 174,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 58,
+            "width": 50,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 182,
+            "right": 374,
+            "width": 192,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 720,
+      "targetPath": "/admin/redeem",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 720,
+      "documentScrollWidth": 720,
+      "navRootScrollWidth": 720,
+      "navRootClientWidth": 720,
+      "navMaxRight": 720,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 704,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 66,
+            "right": 174,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 58,
+            "width": 50,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 182,
+            "right": 704,
+            "width": 522,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 720,
+      "targetPath": "/admin/venues",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 720,
+      "documentScrollWidth": 720,
+      "navRootScrollWidth": 720,
+      "navRootClientWidth": 720,
+      "navMaxRight": 720,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 704,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 66,
+            "right": 174,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 58,
+            "width": 50,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 182,
+            "right": 704,
+            "width": 522,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 721,
+      "targetPath": "/admin/redeem",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 721,
+      "documentScrollWidth": 721,
+      "navRootScrollWidth": 721,
+      "navRootClientWidth": 721,
+      "navMaxRight": 721,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 705,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 508,
+            "width": 384,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 647,
+            "right": 705,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 508,
+            "right": 635,
+            "width": 127,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 721,
+      "targetPath": "/admin/venues",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 721,
+      "documentScrollWidth": 721,
+      "navRootScrollWidth": 721,
+      "navRootClientWidth": 721,
+      "navMaxRight": 721,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 705,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 508,
+            "width": 384,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 647,
+            "right": 705,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 508,
+            "right": 635,
+            "width": 127,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 800,
+      "targetPath": "/admin/redeem",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 800,
+      "documentScrollWidth": 800,
+      "navRootScrollWidth": 800,
+      "navRootClientWidth": 800,
+      "navMaxRight": 800,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 784,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 568.65625,
+            "width": 444.65625,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 726,
+            "right": 784,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 568.65625,
+            "right": 714,
+            "width": 145.34375,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 800,
+      "targetPath": "/admin/venues",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 800,
+      "documentScrollWidth": 800,
+      "navRootScrollWidth": 800,
+      "navRootClientWidth": 800,
+      "navMaxRight": 800,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 784,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 568.65625,
+            "width": 444.65625,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 726,
+            "right": 784,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 568.65625,
+            "right": 714,
+            "width": 145.34375,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 1280,
+      "targetPath": "/admin/redeem",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 1264,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 1048.65625,
+            "width": 924.65625,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1206,
+            "right": 1264,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1048.65625,
+            "right": 1194,
+            "width": 145.34375,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 1280,
+      "targetPath": "/admin/venues",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 1264,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 1048.65625,
+            "width": 924.65625,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1206,
+            "right": 1264,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1048.65625,
+            "right": 1194,
+            "width": 145.34375,
+            "height": 21
+          },
+          "text": "Ticket-Hub 示範主辦方",
+          "textLength": 16
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    }
+  ],
+  "orgInject": [
+    {
+      "AREA": "organizer",
+      "W": 320,
+      "targetPath": "/admin/redeem",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 320,
+      "documentScrollWidth": 320,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 304,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 60,
+            "right": 168,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 52,
+            "width": 44,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 176,
+            "right": 304,
+            "width": 128,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 320,
+      "targetPath": "/admin/venues",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 320,
+      "documentScrollWidth": 592,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 304,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 60,
+            "right": 168,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 52,
+            "width": 44,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 176,
+            "right": 304,
+            "width": 128,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 390,
+      "targetPath": "/admin/redeem",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 390,
+      "documentScrollWidth": 390,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 374,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 60,
+            "right": 168,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 52,
+            "width": 44,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 176,
+            "right": 374,
+            "width": 198,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 390,
+      "targetPath": "/admin/venues",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 390,
+      "documentScrollWidth": 592,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 374,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 60,
+            "right": 168,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 52,
+            "width": 44,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 176,
+            "right": 374,
+            "width": 198,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 720,
+      "targetPath": "/admin/redeem",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 720,
+      "documentScrollWidth": 720,
+      "navRootScrollWidth": 720,
+      "navRootClientWidth": 720,
+      "navMaxRight": 720,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 704,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 60,
+            "right": 168,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 52,
+            "width": 44,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 176,
+            "right": 704,
+            "width": 528,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 720,
+      "targetPath": "/admin/venues",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 720,
+      "documentScrollWidth": 720,
+      "navRootScrollWidth": 720,
+      "navRootClientWidth": 720,
+      "navMaxRight": 720,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 704,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 60,
+            "right": 168,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 52,
+            "width": 44,
+            "height": 44
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 176,
+            "right": 704,
+            "width": 528,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 721,
+      "targetPath": "/admin/redeem",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 721,
+      "documentScrollWidth": 721,
+      "navRootScrollWidth": 721,
+      "navRootClientWidth": 721,
+      "navMaxRight": 721,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 705,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 508,
+            "width": 384,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 647,
+            "right": 705,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 508,
+            "right": 635,
+            "width": 127,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 721,
+      "targetPath": "/admin/venues",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 721,
+      "documentScrollWidth": 721,
+      "navRootScrollWidth": 721,
+      "navRootClientWidth": 721,
+      "navMaxRight": 721,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 705,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 508,
+            "width": 384,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 647,
+            "right": 705,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 508,
+            "right": 635,
+            "width": 127,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 800,
+      "targetPath": "/admin/redeem",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 800,
+      "documentScrollWidth": 800,
+      "navRootScrollWidth": 800,
+      "navRootClientWidth": 800,
+      "navMaxRight": 800,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 784,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 508,
+            "width": 384,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 726,
+            "right": 784,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 508,
+            "right": 714,
+            "width": 206,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 800,
+      "targetPath": "/admin/venues",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 800,
+      "documentScrollWidth": 800,
+      "navRootScrollWidth": 800,
+      "navRootClientWidth": 800,
+      "navMaxRight": 800,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 784,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 508,
+            "width": 384,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 726,
+            "right": 784,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 508,
+            "right": 714,
+            "width": 206,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 1280,
+      "targetPath": "/admin/redeem",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/redeem",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 1264,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 954,
+            "width": 830,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1206,
+            "right": 1264,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 954,
+            "right": 1194,
+            "width": 240,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "organizer",
+      "W": 1280,
+      "targetPath": "/admin/venues",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/admin/venues",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "div.admin-nav",
+      "descendantMaxRight": 1264,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 124,
+            "width": 108,
+            "height": 32
+          }
+        },
+        "menuButton": {
+          "count": 1,
+          "visible": false,
+          "rect": {
+            "left": 0,
+            "right": 0,
+            "width": 0,
+            "height": 0
+          }
+        },
+        "horizontalMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 124,
+            "right": 954,
+            "width": 830,
+            "height": 60
+          }
+        },
+        "topBarLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1206,
+            "right": 1264,
+            "width": 58,
+            "height": 32
+          }
+        },
+        "organizerIndicator": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 954,
+            "right": 1194,
+            "width": 240,
+            "height": 21
+          },
+          "text": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM",
+          "textLength": 100
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(238, 242, 243)",
+        "variable": "--color-bg-organizer",
+        "expected": "rgb(238, 242, 243)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(97, 111, 114)",
+        "variable": "--color-area-organizer",
+        "expected": "rgb(97, 111, 114)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    }
+  ],
+  "platform": [
+    {
+      "AREA": "platform",
+      "W": 320,
+      "targetPath": "/platform/organizers",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/platform/organizers",
+      "clientWidth": 320,
+      "documentScrollWidth": 320,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "div.platform-nav",
+      "descendantMaxRight": 312,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 102,
+            "width": 94,
+            "height": 32
+          }
+        },
+        "platformMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 102,
+            "right": 254,
+            "width": 152,
+            "height": 60
+          }
+        },
+        "platformLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 254,
+            "right": 312,
+            "width": 58,
+            "height": 32
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(244, 238, 241)",
+        "variable": "--color-bg-platform",
+        "expected": "rgb(244, 238, 241)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(125, 100, 116)",
+        "variable": "--color-area-platform",
+        "expected": "rgb(125, 100, 116)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "platform",
+      "W": 390,
+      "targetPath": "/platform/organizers",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/platform/organizers",
+      "clientWidth": 390,
+      "documentScrollWidth": 390,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "div.platform-nav",
+      "descendantMaxRight": 382,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 102,
+            "width": 94,
+            "height": 32
+          }
+        },
+        "platformMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 102,
+            "right": 324,
+            "width": 222,
+            "height": 60
+          }
+        },
+        "platformLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 324,
+            "right": 382,
+            "width": 58,
+            "height": 32
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(244, 238, 241)",
+        "variable": "--color-bg-platform",
+        "expected": "rgb(244, 238, 241)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(125, 100, 116)",
+        "variable": "--color-area-platform",
+        "expected": "rgb(125, 100, 116)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "platform",
+      "W": 720,
+      "targetPath": "/platform/organizers",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/platform/organizers",
+      "clientWidth": 720,
+      "documentScrollWidth": 720,
+      "navRootScrollWidth": 720,
+      "navRootClientWidth": 720,
+      "navMaxRight": 720,
+      "navMaxRightElement": "div.platform-nav",
+      "descendantMaxRight": 712,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 8,
+            "right": 102,
+            "width": 94,
+            "height": 32
+          }
+        },
+        "platformMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 102,
+            "right": 654,
+            "width": 552,
+            "height": 60
+          }
+        },
+        "platformLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 654,
+            "right": 712,
+            "width": 58,
+            "height": 32
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(244, 238, 241)",
+        "variable": "--color-bg-platform",
+        "expected": "rgb(244, 238, 241)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(125, 100, 116)",
+        "variable": "--color-area-platform",
+        "expected": "rgb(125, 100, 116)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "platform",
+      "W": 721,
+      "targetPath": "/platform/organizers",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/platform/organizers",
+      "clientWidth": 721,
+      "documentScrollWidth": 721,
+      "navRootScrollWidth": 721,
+      "navRootClientWidth": 721,
+      "navMaxRight": 721,
+      "navMaxRightElement": "div.platform-nav",
+      "descendantMaxRight": 713,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 110,
+            "width": 94,
+            "height": 32
+          }
+        },
+        "platformMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 110,
+            "right": 655,
+            "width": 545,
+            "height": 60
+          }
+        },
+        "platformLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 655,
+            "right": 713,
+            "width": 58,
+            "height": 32
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(244, 238, 241)",
+        "variable": "--color-bg-platform",
+        "expected": "rgb(244, 238, 241)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(125, 100, 116)",
+        "variable": "--color-area-platform",
+        "expected": "rgb(125, 100, 116)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "platform",
+      "W": 800,
+      "targetPath": "/platform/organizers",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/platform/organizers",
+      "clientWidth": 800,
+      "documentScrollWidth": 800,
+      "navRootScrollWidth": 800,
+      "navRootClientWidth": 800,
+      "navMaxRight": 800,
+      "navMaxRightElement": "div.platform-nav",
+      "descendantMaxRight": 792,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 110,
+            "width": 94,
+            "height": 32
+          }
+        },
+        "platformMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 110,
+            "right": 734,
+            "width": 624,
+            "height": 60
+          }
+        },
+        "platformLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 734,
+            "right": 792,
+            "width": 58,
+            "height": 32
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(244, 238, 241)",
+        "variable": "--color-bg-platform",
+        "expected": "rgb(244, 238, 241)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(125, 100, 116)",
+        "variable": "--color-area-platform",
+        "expected": "rgb(125, 100, 116)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "platform",
+      "W": 1280,
+      "targetPath": "/platform/organizers",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/platform/organizers",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "div.platform-nav",
+      "descendantMaxRight": 1272,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 110,
+            "width": 94,
+            "height": 32
+          }
+        },
+        "platformMenu": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 110,
+            "right": 1214,
+            "width": 1104,
+            "height": 60
+          }
+        },
+        "platformLogoutButton": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1214,
+            "right": 1272,
+            "width": 58,
+            "height": 32
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(244, 238, 241)",
+        "variable": "--color-bg-platform",
+        "expected": "rgb(244, 238, 241)"
+      },
+      "navBackground": {
+        "actual": "rgb(255, 255, 255)",
+        "variable": "--color-bg-elevated",
+        "expected": "rgb(255, 255, 255)"
+      },
+      "navBorderTop": {
+        "width": "4px",
+        "color": "rgb(125, 100, 116)",
+        "variable": "--color-area-platform",
+        "expected": "rgb(125, 100, 116)"
+      },
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    }
+  ],
+  "buyer": [
+    {
+      "AREA": "buyer",
+      "W": 320,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/",
+      "clientWidth": 320,
+      "documentScrollWidth": 320,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 296.3125,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 110.3125,
+            "right": 206.3125,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 48.3125,
+            "width": 24.3125,
+            "height": 108
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 72.3125,
+            "right": 86.3125,
+            "width": 14,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 110.3125,
+            "right": 296,
+            "width": 185.6875,
+            "height": 84
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 390,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/",
+      "clientWidth": 390,
+      "documentScrollWidth": 390,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 366.15625,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 151.15625,
+            "right": 247.15625,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 81,
+            "width": 57,
+            "height": 54
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 105,
+            "right": 127.15625,
+            "width": 22.15625,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 151.15625,
+            "right": 366,
+            "width": 214.84375,
+            "height": 42
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 1280,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "pathname": "/",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 1256,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 984.546875,
+            "right": 1080.546875,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 96,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 120,
+            "right": 960.546875,
+            "width": 840.546875,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 984.546875,
+            "right": 1256,
+            "width": 271.453125,
+            "height": 32
+          }
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    }
+  ]
+}

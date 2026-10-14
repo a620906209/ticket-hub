@@ -1,25 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { getMyOrganizers } from '../api/organizers'
+import AreaSwitcher from '../components/AreaSwitcher.vue'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
 // 水平選單與窄螢幕抽屜共用同一份清單，避免新增選單時只改到其中一處（design.md 決策 2）。
-const menuItems = computed(() => {
-  const items = [
-    { index: '/admin/venues', label: '場館管理' },
-    { index: '/admin/events', label: '活動管理' },
-    { index: '/admin/orders', label: '訂單管理' },
-    { index: '/admin/redeem', label: '票券核銷' },
-  ]
-  // 審核頁路由守衛仍要求 Admin 角色（AWU-GUARD-004），非 Admin 點了只會被導回買家首頁，因此不顯示。
-  if (authStore.isAdmin) items.push({ index: '/admin/organizers', label: '主辦方審核' })
-  return items
-})
+// 審核頁已搬到平台管理（web-area-separation），入口改由區域切換選單提供，四項對所有角色相同。
+const menuItems = [
+  { index: '/admin/venues', label: '場館管理' },
+  { index: '/admin/events', label: '活動管理' },
+  { index: '/admin/orders', label: '訂單管理' },
+  { index: '/admin/redeem', label: '票券核銷' },
+]
 
 const isDrawerOpen = ref(false)
 const menuButton = ref<{ $el: HTMLElement } | null>(null)
@@ -84,6 +81,7 @@ async function handleDrawerLogout(): Promise<void> {
         {{ currentOrganizerName ?? '尚未切換主辦方' }}
       </router-link>
       <el-button text class="admin-nav-logout" @click="handleLogout">登出</el-button>
+      <AreaSwitcher current="organizer" class="admin-nav-area-switcher" />
     </div>
     <el-drawer
       v-model="isDrawerOpen"
@@ -105,11 +103,22 @@ async function handleDrawerLogout(): Promise<void> {
 </template>
 
 <style scoped>
+/* 區域底色與導覽列色條（web-area-separation 決策 3）：頁面底與白色導覽列要有明顯分界 */
+.admin-layout {
+  min-height: 100svh;
+  background: var(--color-bg-organizer);
+}
 .admin-nav {
   display: flex;
   align-items: center;
+  background: var(--color-bg-elevated);
+  border-top: 4px solid var(--color-area-organizer);
   border-bottom: 1px solid var(--el-menu-border-color);
   padding-right: 16px;
+}
+.admin-nav-area-switcher {
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 .admin-nav-menu {
   flex-grow: 1;

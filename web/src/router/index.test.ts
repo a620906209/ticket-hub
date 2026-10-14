@@ -52,19 +52,19 @@ describe('router guard', { timeout: 30_000 }, () => {
   })
 
   // AWU-GUARD-004：非 Admin 角色不論是否已切換 Organizer，開啟審核頁面都導向買家端首頁。
-  it('[AWU-GUARD-004] 一般會員開啟 /admin/organizers 導向買家端首頁', async () => {
-    signIn('Member')
+  // 舊網址 redirect 到新路由後必須同樣經過守衛，否則書籤成為繞過 requiresAdmin 的入口；
+  // 已切換 Organizer 的組合證明 requiresOrganizerContext 的放行沒有連帶放行審核頁。
+  it.each([
+    ['/platform/organizers', undefined],
+    ['/platform/organizers', 'org-1'],
+    ['/admin/organizers', undefined],
+    ['/admin/organizers', 'org-1'],
+  ] as [string, string | undefined][])('[AWU-GUARD-004] 一般會員開啟 %s（OrganizerId=%s）導向買家端首頁', async (path, organizerId) => {
+    signIn('Member', organizerId)
+    // 先離開 events，否則導覽失敗留在原地也會通過斷言
+    await router.push('/login')
 
-    await router.push('/admin/organizers')
-
-    expect(router.currentRoute.value.name).toBe('events')
-  })
-
-  // 本次讓「已切換的非 Admin」可進入其他後台頁，必須證明審核頁沒有跟著被放行。
-  it('[AWU-GUARD-004] 已切換 Organizer 的一般會員開啟 /admin/organizers 仍導向買家端首頁', async () => {
-    signIn('Member', 'org-1')
-
-    await router.push('/admin/organizers')
+    await router.push(path)
 
     expect(router.currentRoute.value.name).toBe('events')
   })
@@ -73,9 +73,26 @@ describe('router guard', { timeout: 30_000 }, () => {
   it('[AWU-GUARD-005] Admin 登入後不需切換 Organizer 即可進入審核頁面', async () => {
     signIn('Admin')
 
-    await router.push('/admin/organizers')
+    await router.push('/platform/organizers')
 
-    expect(router.currentRoute.value.name).toBe('admin-organizers')
+    expect(router.currentRoute.value.name).toBe('platform-organizers')
+  })
+
+  // AWU-GUARD-008：舊網址與書籤仍要能到審核頁；/platform 根路徑沒有自己的內容。
+  it.each(['/admin/organizers', '/platform'])('[AWU-GUARD-008] Admin 未切換 Organizer 開啟 %s 最終停在 /platform/organizers', async (path) => {
+    signIn('Admin')
+
+    await router.push(path)
+
+    expect(router.currentRoute.value.path).toBe('/platform/organizers')
+    expect(router.currentRoute.value.name).toBe('platform-organizers')
+  })
+
+  it('[AWU-GUARD-001] 未登入直接開啟平台管理審核頁導向登入頁', async () => {
+    await router.push('/platform/organizers')
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/platform/organizers')
   })
 
   // AWU-GUARD-002：已登入但 Access Token 未帶 OrganizerId claim（含單純 Admin 角色未切換）開啟一般後台頁面，

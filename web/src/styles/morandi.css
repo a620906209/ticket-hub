@@ -10,6 +10,12 @@
   --color-text-secondary: #736b61;
   --color-border: #dcd5c9;
   --color-primary: #616f72;
+  /* 區域底色與強調色（web-area-separation 決策 3）：底色只能接近白色才能讓所有文字色維持 AA，
+     主要區分靠導覽列色條與區域名稱 */
+  --color-bg-organizer: #eef2f3;
+  --color-bg-platform: #f4eef1;
+  --color-area-organizer: #616f72;
+  --color-area-platform: #7d6474;
 
   /* Element Plus：primary（塵霧藍灰） */
   --el-color-primary: #616f72;

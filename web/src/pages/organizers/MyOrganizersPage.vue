@@ -72,6 +72,10 @@ async function handleSwitch(organizer: OrganizerSummary): Promise<void> {
 
       <el-table v-else :data="organizers">
         <el-table-column prop="name" label="名稱" />
+        <!-- 同名主辦方以 GUID 第一段區分即可，完整 Id 對使用者沒有用處（web-area-separation 決策 5） -->
+        <el-table-column label="代碼" class-name="organizer-code" width="110">
+          <template #default="{ row }">{{ row.id.slice(0, 8) }}</template>
+        </el-table-column>
         <el-table-column label="狀態">
           <template #default="{ row }">{{ statusLabel(row.status) }}</template>
         </el-table-column>
