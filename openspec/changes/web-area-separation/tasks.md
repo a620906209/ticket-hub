@@ -186,3 +186,5 @@
 - [x] 8.2 回報 spec 同步狀態（admin-web-ui、buyer-web-ui、web-color-contrast、web-bundle-splitting 四份 delta 與實作是否一致），等待使用者指示 commit
 
   > **8.2 紀錄（2026-10-14）**：已回報四份 delta 的 spec 同步狀態（admin-web-ui 依使用者核准修改、與實作一致；buyer-web-ui、web-color-contrast、web-bundle-splitting 與實作一致）與未修的 non-blocking 項目；使用者指示 commit。
+
+  > **commit 後重新審查（2026-10-14，使用者指示處理）**：(1) proposal 的 admin-web-ui 項目補寫移除 AWU-NAV-004 與 MOBILE-NAV-001／004 審核頁情境的原因（delta 以 MODIFIED 整段取代，歸檔後這些情境會從主 spec 消失，原本只有 4.1 與測試檔註解提到）。(2) `AreaSwitcher.test.ts` 新增「點選停用的帳號列與『（目前）』項目不導覽」測試（AWU-AREA-SWITCH-001），原本只驗證停用樣式，不導覽依賴 Element Plus 內部判斷；已確認拿掉 `:disabled="item.isCurrent"` 時「（目前）」案例會失敗；帳號列本身沒有 click 綁定，該案例只防「日後加上 click 卻沒保留停用」，拿掉 `disabled` 不會使它失敗。

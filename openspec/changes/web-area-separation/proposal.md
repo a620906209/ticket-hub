@@ -22,7 +22,7 @@
 
 ### Modified Capabilities
 
-- `admin-web-ui`：路由守衛的審核頁路徑改為 `/platform/organizers`；後台導覽入口規則移除「主辦方審核」；新增「三區版面與區域切換」需求；「我的主辦方」清單新增代碼欄；窄螢幕導覽需求的抽屜選單項目同步調整並涵蓋平台管理版面。
+- `admin-web-ui`：路由守衛的審核頁路徑改為 `/platform/organizers`；後台導覽入口規則移除「主辦方審核」；新增「三區版面與區域切換」需求；「我的主辦方」清單新增代碼欄；窄螢幕導覽需求的抽屜選單項目同步調整並涵蓋平台管理版面。審核頁不再使用主辦方後台版面，因此移除依附於 `/admin/organizers` 的情境：AWU-NAV-004 整條 Scenario（未切換的 Admin 在審核頁看到後台選單），以及 AWU-MOBILE-NAV-001 的審核頁量測、AWU-MOBILE-NAV-004 的「在審核頁選取場館管理」情境。
 - `buyer-web-ui`：「Admin 可從買家端版面進入主辦方審核頁」改為由區域切換選單進入平台管理。
 - `web-color-contrast`：「頁面底」的定義納入兩個新區域背景色，新增區域強調色對白底的對比度要求。
 - `web-bundle-splitting`：延遲載入的 route 元件由 19 個變為 20 個（新增 `PlatformLayout`），路由樹對照基準更新。

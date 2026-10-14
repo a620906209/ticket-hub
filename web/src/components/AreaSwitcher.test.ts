@@ -78,6 +78,19 @@ describe('AreaSwitcher 區域切換選單', { timeout: 30_000 }, () => {
     }
   })
 
+  // 停用只看樣式不夠：點了仍跳頁會讓「（目前）」重新載入目前區域，帳號列也不該是入口（design.md 決策 2 第 1、5 點）
+  it.each(['登入帳號：admin@example.com', '主辦方後台（目前）'])('[AWU-AREA-SWITCH-001] 點選停用的「%s」不導覽', async (label) => {
+    signIn('Admin', 'admin@example.com')
+    const push = vi.spyOn(router, 'push').mockResolvedValue(undefined)
+
+    const popper = await mountAndOpen('organizer')
+    const items = readItems(popper).filter((candidate) => candidate.textContent?.trim() === label)
+    expect(items).toHaveLength(1)
+    items[0].click()
+
+    expect(push).not.toHaveBeenCalled()
+  })
+
   // 只斷言「找不到平台管理」時，選單整個沒渲染也會通過，所以斷言完整清單
   it('[AWU-AREA-SWITCH-002] 非 Admin 在會員前台展開選單，恰為帳號、會員前台、主辦方後台三項', async () => {
     signIn('Member')
