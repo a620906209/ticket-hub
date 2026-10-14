@@ -84,6 +84,21 @@ describe('MyOrganizersPage 我的主辦方清單', () => {
     expect(findSwitchButtons(wrapper)).toHaveLength(0)
   })
 
+  // AWU-LIST-005：同名主辦方只靠名稱無法分辨要切換哪一個；預期值寫死，不以實作的截取方式計算
+  it('[AWU-LIST-005] 兩筆同名主辦方各列顯示自己 Id 前 8 字元作為代碼', async () => {
+    vi.mocked(organizersApi.getMyOrganizers).mockResolvedValue([
+      { id: '3f2a9c1e-0b7d-4e21-9a5c-6d8e1f0a2b3c', name: '同名主辦方', status: 'Approved' },
+      { id: 'a71b04d9-5c3e-4f8a-b2d6-9e0c7f1a3b5d', name: '同名主辦方', status: 'Approved' },
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.el-table__body tr')
+    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => row.find('td.organizer-code').text())).toEqual(['3f2a9c1e', 'a71b04d9'])
+    expect(wrapper.find('.el-table__header').text()).toContain('代碼')
+  })
+
   // AWU-LIST-004
   it('清單為空時顯示提示文字與前往申請表單的入口，不顯示錯誤', async () => {
     vi.mocked(organizersApi.getMyOrganizers).mockResolvedValue([])

@@ -50,8 +50,17 @@ const router = createRouter({
         { path: 'orders', name: 'admin-orders', component: () => import('../pages/admin/AdminOrderListPage.vue'), meta: { requiresOrganizerContext: true } },
         { path: 'orders/:id', name: 'admin-order-detail', component: () => import('../pages/admin/AdminOrderDetailPage.vue'), meta: { requiresOrganizerContext: true } },
         { path: 'redeem', name: 'admin-redeem', component: () => import('../pages/admin/RedemptionScannerPage.vue'), meta: { requiresOrganizerContext: true } },
+        // 審核頁搬到 /platform 後保留舊網址與書籤；redirect 後的目的路由仍經過守衛（AWU-GUARD-004／008）
+        { path: 'organizers', redirect: { name: 'platform-organizers' } },
+      ],
+    },
+    {
+      path: '/platform',
+      component: () => import('../layouts/PlatformLayout.vue'),
+      children: [
+        { path: '', redirect: { name: 'platform-organizers' } },
         // 審核頁面只需要 Admin 角色，不需要已切換 Organizer（AWU-GUARD-004／005）。
-        { path: 'organizers', name: 'admin-organizers', component: () => import('../pages/admin/AdminOrganizersPage.vue'), meta: { requiresAdmin: true } },
+        { path: 'organizers', name: 'platform-organizers', component: () => import('../pages/admin/AdminOrganizersPage.vue'), meta: { requiresAdmin: true } },
       ],
     },
     // 未知網址（打錯或舊連結）沒有對應路由時整頁空白，導回活動列表

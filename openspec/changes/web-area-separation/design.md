@@ -43,7 +43,7 @@
 
 ### 決策 2：共用 `AreaSwitcher` 元件做區域切換
 
-三個版面放同一個 `web/src/components/AreaSwitcher.vue`（`el-dropdown`，`trigger="click"`），觸發按鈕文字為目前區域名稱（「會員前台」「主辦方後台」「平台管理」），前方有該區的色塊。目前區域由 prop `current: 'buyer' | 'organizer' | 'platform'` 指定，不從路由推導（版面本身就知道自己是哪一區，避免路由改名後元件判斷錯誤）。
+三個版面放同一個 `web/src/components/AreaSwitcher.vue`（`el-dropdown`，`trigger="click"`），觸發按鈕文字為目前區域名稱（「會員前台」「主辦方後台」「平台管理」），前方有該區的色塊。目前區域由 prop `current: 'buyer' | 'organizer' | 'platform'` 指定，不從路由推導（版面本身就知道自己是哪一區，避免路由改名後元件判斷錯誤）。三個版面都把切換鈕放在導覽列最右邊，其他功能都在它左邊，切換區域時位置不會跳動：會員前台依序為「我的訂單」、會員選單、切換鈕；主辦方後台依序為主辦方名稱、登出、切換鈕（窄螢幕不顯示登出）；平台管理依序為水平選單、登出、切換鈕（2026-10-14 依使用者回饋統一）。
 
 展開內容依序：
 
@@ -99,7 +99,7 @@
 - **版面溢出**：沿用 admin-mobile-nav 的 `measure-admin-nav.js` 做法，複製為本 change 的 `measure-area-nav.js`，量測項目新增：
   - 主辦方後台：已切換 Organizer 的 `Admin`（現在是 4 個選單項目＋切換鈕）在 W = 320、390、720、721、800、1280 量 `/admin/redeem`、`/admin/venues`，含 100 字元主辦方名稱注入；
   - 平台管理：`Admin` 在相同寬度量 `/platform/organizers`；
-  - 會員前台：已登入的會員在 W = 320、390、1280 量 `/` 的頂列（新增切換鈕後不得溢出）。
+  - 會員前台：已登入的會員在 W = 320、390、1280 量 `/` 的頂列（新增切換鈕後不得溢出）；8.1 審查後加量斷點兩側 361、480、481，並檢查單行、會員名稱未被上下裁切、30 字元會員名稱注入。
 - 量測無效條件比照 admin-mobile-nav（`clientWidth` ≠ W、路徑不符、選擇器命中數不是 1 等），並新增：`.area-switcher` 命中數不是 1。
 - 修改前先量基準值：W = 320 時會員前台頂列（目前沒有切換鈕）記錄餘裕；主辦方後台記錄現況。基準不要求重現溢出（本 change 不是修溢出，而是確保新增元素後不溢出），但需記錄數值以比對。
 
@@ -127,9 +127,9 @@
 | 項目 | 內容 |
 | --- | --- |
 | 偏離的規則 | CLAUDE.md「OpenSpec 工作流規則 → Task 執行前」第 2 點：每條 AC 至少對應一項單元測試或整合測試 |
-| 適用範圍 | 僅限：既有 AWU-MOBILE-NAV-001、002（本 change 修改其內容，例外沿用）；新增的 AWU-AREA-LAYOUT-001（三區背景色與色條實際套用）、AWU-AREA-NAV-OVERFLOW-001（平台管理與會員前台頂列不溢出）。其餘 Scenario 一律以 Vitest 驗證 |
-| 替代驗證 | `measure-area-nav.js` 瀏覽器量測（決策 6），每個 Scenario 都有可判定的通過／失敗條件與無效量測條件 |
+| 適用範圍 | 僅限：既有 AWU-MOBILE-NAV-001、002（本 change 修改其內容，例外沿用）；新增的 AWU-AREA-LAYOUT-001（三區背景色與色條實際套用）、AWU-AREA-NAV-OVERFLOW-001（平台管理與會員前台頂列不溢出，含會員前台單行判定與 30 字元會員名稱量測）；AWU-AREA-SWITCH-006 中「W = 320／390／480／481／1280 的可見文字」這一部分（`aria-label`、`title` 與縮寫元素有無仍以 Vitest 驗證）。其餘 Scenario 一律以 Vitest 驗證 |
+| 替代驗證 | `measure-area-nav.js` 瀏覽器量測（決策 6），驗證 MOBILE-NAV-001、002、AREA-NAV-OVERFLOW-001、AREA-LAYOUT-001；`measure-switch-abbreviation.js` 瀏覽器量測，驗證 SWITCH-006 的可見文字部分。每個 Scenario 都有可判定的通過／失敗條件與無效量測條件，並各有自我檢查確認失敗情境會判為失敗（`SELF_CHECK_INJECT_WIDE`、`SELF_CHECK_BREAK_COLORS`、`SELF_CHECK_BREAK_LINES`、`SELF_CHECK_BREAK_TRUNCATION`、`SELF_CHECK_FORCE_FULL_LABEL`） |
 | 理由 | jsdom 不做版面計算、不套用 media query、不解析 CSS 變數的最終值；只為這幾條需求引入 E2E 框架，不符合最小解法 |
-| 剩餘風險 | 沒有回歸保護，之後的修改可能造成溢出或背景色失效而不被發現 |
+| 剩餘風險 | 沒有回歸保護，之後的修改可能造成溢出或背景色失效而不被發現；會員名稱「不被上下裁切」只以 `scrollHeight` ≤ `clientHeight` 代理判定，字形超出字型度量的情況量測不到；有傳統捲軸、W 約 463～480 的「完整名稱＋寬間距」組合未直接量測，以 W = 481 的餘裕推算；macOS／Android 字型未實測 |
 | 解除條件 | 專案引入 E2E 框架（例如 Playwright）後改寫為自動化測試並刪除本例外 |
-| 核准狀態 | **已核准**：AWU-MOBILE-NAV-001、002 於 2026-10-09 核准；擴大到 AWU-AREA-LAYOUT-001 與 AWU-AREA-NAV-OVERFLOW-001 於 2026-10-13 核准（核准人 RD-Hank） |
+| 核准狀態 | **已核准**：AWU-MOBILE-NAV-001、002 於 2026-10-09 核准；擴大到 AWU-AREA-LAYOUT-001 與 AWU-AREA-NAV-OVERFLOW-001 於 2026-10-13 核准（核准人 RD-Hank）；擴大到 AWU-AREA-SWITCH-006 的可見文字部分於 2026-10-14 核准（核准人 RD-Hank） |

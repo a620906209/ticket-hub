@@ -32,6 +32,7 @@ const elementPlusComponentsDir = path.resolve(elementPlusEsDir, 'components')
 const HOME_PAGE_MODULE = 'src/pages/buyer/EventListPage.vue'
 const SCANNER_PAGE_MODULE = 'src/pages/admin/RedemptionScannerPage.vue'
 const ADMIN_LAYOUT_MODULE = 'src/layouts/AdminLayout.vue'
+const PLATFORM_LAYOUT_MODULE = 'src/layouts/PlatformLayout.vue'
 const SEMANTIC_COLORS = ['primary', 'success', 'warning', 'danger', 'info'] as const
 
 // 標籤 → Element Plus 含 index.mjs 的元件目錄。option、form-item、table-column 等目錄只有樣式，
@@ -452,6 +453,7 @@ describe('首屏 chunk 組成（BS-001～BS-003）', () => {
       (moduleId) =>
         moduleId.startsWith('src/pages/admin/') ||
         moduleId === ADMIN_LAYOUT_MODULE ||
+        moduleId === PLATFORM_LAYOUT_MODULE ||
         moduleId.startsWith('src/pages/organizers/') ||
         (moduleId.startsWith('src/pages/buyer/') && moduleId.endsWith('.vue') && moduleId !== HOME_PAGE_MODULE),
     )
@@ -472,15 +474,16 @@ describe('首屏 chunk 組成（BS-001～BS-003）', () => {
 })
 
 describe('路由延遲載入（BS-004）', () => {
-  it('BS-004 19 個動態 import 的元件各自是獨立 dynamic entry chunk，且不在 entry 靜態閉包內', () => {
+  it('BS-004 20 個動態 import 的元件各自是獨立 dynamic entry chunk，且不在 entry 靜態閉包內', () => {
     const report = getReport()
     const routerDir = path.resolve(srcDir, 'router')
     const routerSource = fs.readFileSync(path.join(routerDir, 'index.ts'), 'utf8')
     const lazyModules = [...routerSource.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) =>
       normalizeModuleId(path.resolve(routerDir, match[1])),
     )
-    expect(lazyModules).toHaveLength(19)
+    expect(lazyModules).toHaveLength(20)
     expect(lazyModules).toContain(ADMIN_LAYOUT_MODULE)
+    expect(lazyModules).toContain(PLATFORM_LAYOUT_MODULE)
     const entryClosure = collectStaticClosure(report, [getEntryChunk(report)])
     const chunkFileNames = new Set<string>()
     for (const moduleId of lazyModules) {
@@ -490,7 +493,7 @@ describe('路由延遲載入（BS-004）', () => {
       expect(entryClosure, `${moduleId} 不得在 entry 靜態閉包內`).not.toContain(chunk)
       chunkFileNames.add(chunk.fileName)
     }
-    expect(chunkFileNames.size).toBe(19)
+    expect(chunkFileNames.size).toBe(20)
   })
 })
 

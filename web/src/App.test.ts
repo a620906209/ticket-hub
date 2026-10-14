@@ -26,7 +26,7 @@ describe('App 登入失效時導回登入頁', { timeout: 30_000 }, () => {
     '/admin/orders/order-1',
     '/admin/redeem',
     '/admin/events/event-1/sales-report',
-    '/admin/organizers',
+    '/platform/organizers',
   ])('停在 %s 時登入失效，導向登入頁並帶 redirect', async (path) => {
     const authStore = useAuthStore()
     authStore.accessToken = fakeAccessToken({ sub: '1', OrganizerId: 'org-1' })

@@ -98,7 +98,7 @@ describe('AdminLayout 導覽列目前 Organizer 名稱顯示', { timeout: 30_000
 })
 
 // 訂單、核銷頁面與場館、活動相同，只要求已切換 Organizer（AWU-GUARD-007），選單對所有人顯示；
-// 審核頁仍要求 Admin 角色（AWU-GUARD-004），只對 Admin 顯示。
+// 審核頁搬到平台管理後（web-area-separation），選單對所有角色都是同樣四項。
 describe('AdminLayout 導覽選單依角色顯示', { timeout: 30_000 }, () => {
   const generalMenuLabels = ['場館管理', '活動管理', '訂單管理', '票券核銷']
 
@@ -127,7 +127,8 @@ describe('AdminLayout 導覽選單依角色顯示', { timeout: 30_000 }, () => {
     expect(readMenuLabels(wrapper)).toEqual(generalMenuLabels)
   })
 
-  it('[AWU-NAV-002] 已切換 Organizer 的 Admin 看到全部選單，含審核選單', async () => {
+  // 審核頁搬到平台管理後，Admin 在主辦方後台的選單與非 Admin 相同；審核入口改由區域切換選單提供
+  it('[AWU-NAV-002] 已切換 Organizer 的 Admin 選單恰為四項，不含審核選單', async () => {
     const authStore = useAuthStore()
     authStore.accessToken = fakeAccessTokenWithOrganizerId('org-1')
     authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
@@ -136,22 +137,11 @@ describe('AdminLayout 導覽選單依角色顯示', { timeout: 30_000 }, () => {
     const wrapper = mountLayout()
     await flushPromises()
 
-    expect(readMenuLabels(wrapper)).toEqual([...generalMenuLabels, '主辦方審核'])
+    expect(readMenuLabels(wrapper)).toEqual(generalMenuLabels)
   })
 
-  // 點選一般項目導向選擇主辦方頁由 AWU-GUARD-002（router/index.test.ts）驗證，這裡不重複。
-  it('[AWU-NAV-004] 尚未切換 Organizer 的 Admin 在審核頁仍看得到一般選單與審核選單', async () => {
-    const authStore = useAuthStore()
-    authStore.accessToken = 'access-token'
-    authStore.member = { id: '1', email: 'admin@example.com', displayName: 'Admin', role: 'Admin', isActive: true, hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null }
-    await router.push('/admin/organizers')
-
-    const wrapper = mountLayout()
-    await flushPromises()
-
-    expect(router.currentRoute.value.name).toBe('admin-organizers')
-    expect(readMenuLabels(wrapper)).toEqual([...generalMenuLabels, '主辦方審核'])
-  })
+  // AWU-NAV-004（未切換的 Admin 在審核頁看到後台選單）的測試已刪除：審核頁改用 PlatformLayout，
+  // 不再顯示 AdminLayout，web-area-separation 的 spec 已移除該 Scenario。
 })
 
 // AWU-MOBILE-NAV-003～007：窄螢幕抽屜選單。jsdom 不套用 media query，選單按鈕與水平選單同時在 DOM 中，
@@ -247,7 +237,7 @@ describe('AdminLayout 窄螢幕抽屜選單', { timeout: 30_000 }, () => {
   // 完全相等比對：同時證明兩個選單共用同一份依角色產生的清單（design.md 決策 2），抽屜沒有多出或漏掉項目。
   it.each([
     { role: '非 Admin', member: nonAdminMember, expectedLabels: generalMenuLabels },
-    { role: 'Admin', member: adminMember, expectedLabels: [...generalMenuLabels, '主辦方審核'] },
+    { role: 'Admin', member: adminMember, expectedLabels: generalMenuLabels },
   ])('[AWU-MOBILE-NAV-003] $role 點選單按鈕後開啟「後台選單」抽屜，依角色顯示選單項目與登出', async ({ member, expectedLabels }) => {
     await signInAndVisit(member, '/admin/venues')
     await mountAttachedLayout()
@@ -286,16 +276,58 @@ describe('AdminLayout 窄螢幕抽屜選單', { timeout: 30_000 }, () => {
     expect(router.currentRoute.value.path).toBe('/admin/venues')
   })
 
-  // 抽屜導覽仍經過路由守衛（AWU-GUARD-002），被導到其他頁面時抽屜同樣關閉。
-  it('[AWU-MOBILE-NAV-004] 尚未切換 Organizer 的 Admin 在抽屜選取「場館管理」後被導向選擇主辦方頁並關閉抽屜', async () => {
-    await signInAndVisit(adminMember, '/admin/organizers', false)
+  // 原本的第三種情境（未切換的 Admin 從審核頁開抽屜）已移除：審核頁不再使用 AdminLayout，
+  // 未切換時無法停在任何主辦方後台頁面開啟抽屜（web-area-separation spec）。
+
+  function findSwitcherPoppers(): HTMLElement[] {
+    return [...document.body.querySelectorAll<HTMLElement>('.area-switcher-popper')]
+  }
+
+  // 步驟比照 AreaSwitcher.test.ts 的 AWU-AREA-SWITCH-005：先證明開啟前隱藏，再點擊並等待 setTimeout 開啟
+  async function openAreaSwitcher(): Promise<string[]> {
+    expect(findSwitcherPoppers()).toHaveLength(1)
+    expect(findSwitcherPoppers()[0].style.display).toBe('none')
+    const switchers = document.body.querySelectorAll<HTMLElement>('.admin-nav .area-switcher')
+    expect(switchers).toHaveLength(1)
+    switchers[0].querySelector<HTMLElement>('.area-switcher-trigger')!.click()
+    await vi.waitFor(() => {
+      expect(findSwitcherPoppers()).toHaveLength(1)
+      expect(findSwitcherPoppers()[0].style.display).not.toBe('none')
+    })
+    return [...findSwitcherPoppers()[0].querySelectorAll('.el-dropdown-menu__item')].map((item) => item.textContent?.trim() ?? '')
+  }
+
+  // 三個版面的切換鈕都在導覽列最右邊，切換區域時位置不跳動（design.md 決策 2）
+  it('[AWU-AREA-SWITCH-007] 區域切換選單是導覽列最後一個元素，登出在它左邊', async () => {
+    await signInAndVisit(adminMember, '/admin/venues')
     await mountAttachedLayout()
-    await openDrawer()
 
-    await selectDrawerMenuItem('場館管理')
+    const navChildren = [...document.body.querySelector('.admin-nav')!.children]
+    const indexOf = (selector: string) => navChildren.findIndex((child) => child.matches(selector))
+    expect(indexOf('.admin-nav-menu')).toBeGreaterThanOrEqual(0)
+    expect(indexOf('.organizer-indicator')).toBeGreaterThan(indexOf('.admin-nav-menu'))
+    expect(indexOf('.admin-nav-logout')).toBe(indexOf('.organizer-indicator') + 1)
+    expect(indexOf('.area-switcher')).toBe(navChildren.length - 1)
+    expect(indexOf('.area-switcher')).toBe(indexOf('.admin-nav-logout') + 1)
+  })
 
-    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('my-organizers'))
-    await expectDrawerClosed()
+  it('[AWU-AREA-SWITCH-001] 主辦方後台導覽列有一個區域切換選單，觸發文字為主辦方後台', async () => {
+    await signInAndVisit(adminMember, '/admin/venues')
+    await mountAttachedLayout()
+
+    const labels = await openAreaSwitcher()
+
+    expect(document.body.querySelector('.admin-nav .area-switcher-trigger')?.textContent).toContain('主辦方後台')
+    expect(labels).toEqual(['登入帳號：admin@example.com', '會員前台', '主辦方後台（目前）', '平台管理'])
+  })
+
+  it('[AWU-AREA-SWITCH-002] 非 Admin 在主辦方後台展開區域切換選單，恰為三項且沒有平台管理', async () => {
+    await signInAndVisit(nonAdminMember, '/admin/venues')
+    await mountAttachedLayout()
+
+    const labels = await openAreaSwitcher()
+
+    expect(labels).toEqual(['登入帳號：member@example.com', '會員前台', '主辦方後台（目前）'])
   })
 
   // 觸控與 Safari 點擊不會讓按鈕取得焦點，Element Plus 預設只把焦點還給開啟前的 activeElement（落到 body），

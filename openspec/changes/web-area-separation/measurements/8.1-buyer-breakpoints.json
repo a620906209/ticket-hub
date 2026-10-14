@@ -1,0 +1,2481 @@
+{
+  "buyer": [
+    {
+      "AREA": "buyer",
+      "W": 320,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 320,
+      "documentScrollWidth": 320,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 304.1875,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 236,
+            "right": 304,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 80.21875,
+            "width": 64.21875,
+            "height": 54
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 92.21875,
+            "right": 117.1875,
+            "width": 24.96875,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 129.1875,
+            "right": 304,
+            "width": 174.8125,
+            "height": 42
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 182.59375,
+            "right": 228,
+            "width": 45.40625,
+            "height": 18
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 2,
+        "activityLink": 2,
+        "ordersLink": 2,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 55,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 361,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 361,
+      "documentScrollWidth": 361,
+      "navRootScrollWidth": 361,
+      "navRootClientWidth": 361,
+      "navMaxRight": 361,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 345,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 277,
+            "right": 345,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 128,
+            "width": 28,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 140,
+            "right": 345,
+            "width": 205,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 204,
+            "right": 269,
+            "width": 65,
+            "height": 18
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 390,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 390,
+      "documentScrollWidth": 390,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 374,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 306,
+            "right": 374,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 134.546875,
+            "width": 34.546875,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 146.546875,
+            "right": 374,
+            "width": 227.453125,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 210.546875,
+            "right": 298,
+            "width": 87.453125,
+            "height": 18
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 480,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 480,
+      "documentScrollWidth": 480,
+      "navRootScrollWidth": 480,
+      "navRootClientWidth": 480,
+      "navMaxRight": 480,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 464,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 396,
+            "right": 464,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 224.546875,
+            "width": 124.546875,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 236.546875,
+            "right": 464,
+            "width": 227.453125,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 300.546875,
+            "right": 388,
+            "width": 87.453125,
+            "height": 18
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 481,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 481,
+      "documentScrollWidth": 481,
+      "navRootScrollWidth": 481,
+      "navRootClientWidth": 481,
+      "navMaxRight": 481,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 457,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 361,
+            "right": 457,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 96,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 120,
+            "right": 161.546875,
+            "width": 41.546875,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 185.546875,
+            "right": 457,
+            "width": 271.453125,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 257.546875,
+            "right": 345,
+            "width": 87.453125,
+            "height": 18
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 1280,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 1256,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1160,
+            "right": 1256,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 96,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 120,
+            "right": 960.546875,
+            "width": 840.546875,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 984.546875,
+            "right": 1256,
+            "width": 271.453125,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1056.546875,
+            "right": 1144,
+            "width": 87.453125,
+            "height": 18
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    }
+  ],
+  "buyerInject": [
+    {
+      "AREA": "buyer",
+      "W": 320,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 320,
+      "documentScrollWidth": 320,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 304.1875,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 236,
+            "right": 304,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 80.21875,
+            "width": 64.21875,
+            "height": 54
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 92.21875,
+            "right": 117.1875,
+            "width": 24.96875,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 129.1875,
+            "right": 304,
+            "width": 174.8125,
+            "height": 42
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 182.59375,
+            "right": 228,
+            "width": 45.40625,
+            "height": 18
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 2,
+        "activityLink": 2,
+        "ordersLink": 2,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 55,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 361,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 361,
+      "documentScrollWidth": 361,
+      "navRootScrollWidth": 361,
+      "navRootClientWidth": 361,
+      "navMaxRight": 361,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 345,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 277,
+            "right": 345,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 128,
+            "width": 28,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 140,
+            "right": 345,
+            "width": 205,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 204,
+            "right": 269,
+            "width": 65,
+            "height": 18
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 390,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 390,
+      "documentScrollWidth": 390,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 374,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 306,
+            "right": 374,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 128,
+            "width": 28,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 140,
+            "right": 374,
+            "width": 234,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 204,
+            "right": 298,
+            "width": 94,
+            "height": 18
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 480,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 480,
+      "documentScrollWidth": 480,
+      "navRootScrollWidth": 480,
+      "navRootClientWidth": 480,
+      "navMaxRight": 480,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 464,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 396,
+            "right": 464,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 128,
+            "width": 28,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 140,
+            "right": 464,
+            "width": 324,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 204,
+            "right": 388,
+            "width": 184,
+            "height": 18
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 481,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 481,
+      "documentScrollWidth": 481,
+      "navRootScrollWidth": 481,
+      "navRootClientWidth": 481,
+      "navMaxRight": 481,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 457,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 361,
+            "right": 457,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 96,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 120,
+            "right": 148,
+            "width": 28,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 172,
+            "right": 457,
+            "width": 285,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 244,
+            "right": 345,
+            "width": 101,
+            "height": 18
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    },
+    {
+      "AREA": "buyer",
+      "W": 1280,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 1256,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1160,
+            "right": 1256,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 96,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 120,
+            "right": 702.53125,
+            "width": 582.53125,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 726.53125,
+            "right": 1256,
+            "width": 529.46875,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 798.53125,
+            "right": 1144,
+            "width": 345.46875,
+            "height": 18
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 18,
+        "scrollHeight": 18
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": true,
+      "failReasons": []
+    }
+  ],
+  "selfCheckBreakLines": [
+    {
+      "AREA": "buyer",
+      "W": 320,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": true,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 320,
+      "documentScrollWidth": 320,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 320,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 304,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 236,
+            "right": 304,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 34,
+            "width": 18,
+            "height": 108
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 46,
+            "right": 180,
+            "width": 134,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 192,
+            "right": 304,
+            "width": 112,
+            "height": 84
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 214,
+            "right": 228,
+            "width": 14,
+            "height": 36
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 4,
+        "activityLink": 2,
+        "ordersLink": 4,
+        "memberTrigger": 2
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 36,
+        "scrollHeight": 36
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 82,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "memberTrigger 行數=2（W=320 須為單行）",
+        "頂列內元素底緣=82 > 頂列底緣=57"
+      ]
+    },
+    {
+      "AREA": "buyer",
+      "W": 361,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": true,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 361,
+      "documentScrollWidth": 361,
+      "navRootScrollWidth": 361,
+      "navRootClientWidth": 361,
+      "navMaxRight": 361,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 345,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 277,
+            "right": 345,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 34,
+            "width": 18,
+            "height": 108
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 46,
+            "right": 221,
+            "width": 175,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 233,
+            "right": 345,
+            "width": 112,
+            "height": 84
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 255,
+            "right": 269,
+            "width": 14,
+            "height": 36
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 4,
+        "activityLink": 2,
+        "ordersLink": 4,
+        "memberTrigger": 2
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 36,
+        "scrollHeight": 36
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 82,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "brand 行數=4（W=361 須為單行）",
+        "activityLink 行數=2（W=361 須為單行）",
+        "ordersLink 行數=4（W=361 須為單行）",
+        "memberTrigger 行數=2（W=361 須為單行）",
+        "頂列內元素底緣=82 > 頂列底緣=57"
+      ]
+    },
+    {
+      "AREA": "buyer",
+      "W": 390,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": true,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 390,
+      "documentScrollWidth": 390,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 390,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 374,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 306,
+            "right": 374,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 34,
+            "width": 18,
+            "height": 108
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 46,
+            "right": 250,
+            "width": 204,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 262,
+            "right": 374,
+            "width": 112,
+            "height": 84
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 284,
+            "right": 298,
+            "width": 14,
+            "height": 36
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 4,
+        "activityLink": 2,
+        "ordersLink": 4,
+        "memberTrigger": 2
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 36,
+        "scrollHeight": 36
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 82,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "brand 行數=4（W=390 須為單行）",
+        "activityLink 行數=2（W=390 須為單行）",
+        "ordersLink 行數=4（W=390 須為單行）",
+        "memberTrigger 行數=2（W=390 須為單行）",
+        "頂列內元素底緣=82 > 頂列底緣=57"
+      ]
+    },
+    {
+      "AREA": "buyer",
+      "W": 480,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": true,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 480,
+      "documentScrollWidth": 480,
+      "navRootScrollWidth": 480,
+      "navRootClientWidth": 480,
+      "navMaxRight": 480,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 464,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 396,
+            "right": 464,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 34,
+            "width": 18,
+            "height": 108
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 46,
+            "right": 340,
+            "width": 294,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 352,
+            "right": 464,
+            "width": 112,
+            "height": 84
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 374,
+            "right": 388,
+            "width": 14,
+            "height": 36
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 4,
+        "activityLink": 2,
+        "ordersLink": 4,
+        "memberTrigger": 2
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 36,
+        "scrollHeight": 36
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 82,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "brand 行數=4（W=480 須為單行）",
+        "activityLink 行數=2（W=480 須為單行）",
+        "ordersLink 行數=4（W=480 須為單行）",
+        "memberTrigger 行數=2（W=480 須為單行）",
+        "頂列內元素底緣=82 > 頂列底緣=57"
+      ]
+    },
+    {
+      "AREA": "buyer",
+      "W": 481,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": true,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 481,
+      "documentScrollWidth": 481,
+      "navRootScrollWidth": 481,
+      "navRootClientWidth": 481,
+      "navMaxRight": 481,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 457,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 361,
+            "right": 457,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 42,
+            "width": 18,
+            "height": 108
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 66,
+            "right": 277,
+            "width": 211,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 301,
+            "right": 457,
+            "width": 156,
+            "height": 84
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 331,
+            "right": 345,
+            "width": 14,
+            "height": 36
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 4,
+        "activityLink": 2,
+        "ordersLink": 4,
+        "memberTrigger": 2
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 36,
+        "scrollHeight": 36
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 82,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "brand 行數=4（W=481 須為單行）",
+        "activityLink 行數=2（W=481 須為單行）",
+        "ordersLink 行數=4（W=481 須為單行）",
+        "memberTrigger 行數=2（W=481 須為單行）",
+        "頂列內元素底緣=82 > 頂列底緣=57"
+      ]
+    },
+    {
+      "AREA": "buyer",
+      "W": 1280,
+      "targetPath": "/",
+      "injectLongText": false,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": true,
+      "selfCheckBreakTruncation": false,
+      "pathname": "/",
+      "clientWidth": 1280,
+      "documentScrollWidth": 1280,
+      "navRootScrollWidth": 1280,
+      "navRootClientWidth": 1280,
+      "navMaxRight": 1280,
+      "navMaxRightElement": "header.buyer-header",
+      "descendantMaxRight": 1256,
+      "elementsBeyondW": [],
+      "overflowingElements": [],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1160,
+            "right": 1256,
+            "width": 96,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 24,
+            "right": 42,
+            "width": 18,
+            "height": 108
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 66,
+            "right": 1076,
+            "width": 1010,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1100,
+            "right": 1256,
+            "width": 156,
+            "height": 84
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 1130,
+            "right": 1144,
+            "width": 14,
+            "height": 36
+          },
+          "text": "Demo Admin"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 4,
+        "activityLink": 2,
+        "ordersLink": 4,
+        "memberTrigger": 2
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 36,
+        "scrollHeight": 36
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 82,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "brand 行數=4（W=1280 須為單行）",
+        "activityLink 行數=2（W=1280 須為單行）",
+        "ordersLink 行數=4（W=1280 須為單行）",
+        "memberTrigger 行數=2（W=1280 須為單行）",
+        "頂列內元素底緣=82 > 頂列底緣=57"
+      ]
+    }
+  ],
+  "selfCheckBreakTruncation": [
+    {
+      "AREA": "buyer",
+      "W": 320,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": true,
+      "pathname": "/",
+      "clientWidth": 320,
+      "documentScrollWidth": 320,
+      "navRootScrollWidth": 320,
+      "navRootClientWidth": 320,
+      "navMaxRight": 527.59375,
+      "navMaxRightElement": "span#el-id-7827-0.member-trigger.el-tooltip__trigger",
+      "descendantMaxRight": 527.59375,
+      "elementsBeyondW": [
+        {
+          "selector": "span#el-id-7827-0.member-trigger.el-tooltip__trigger",
+          "right": 527.59375
+        }
+      ],
+      "overflowingElements": [
+        {
+          "selector": "span#el-id-7827-0.member-trigger.el-tooltip__trigger",
+          "scrollWidth": 345,
+          "clientWidth": 45
+        }
+      ],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 236,
+            "right": 304,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 80.21875,
+            "width": 64.21875,
+            "height": 54
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 92.21875,
+            "right": 117.1875,
+            "width": 24.96875,
+            "height": 42
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 129.1875,
+            "right": 304,
+            "width": 174.8125,
+            "height": 42
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 182.59375,
+            "right": 228,
+            "width": 45.40625,
+            "height": 14
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 2,
+        "activityLink": 2,
+        "ordersLink": 2,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 14,
+        "scrollHeight": 16
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 55,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "navMaxRight=527.59375 > W（span#el-id-7827-0.member-trigger.el-tooltip__trigger；超出 W 的子孫：span#el-id-7827-0.member-trigger.el-tooltip__trigger@527.59375）",
+        "overflowingElements: span#el-id-7827-0.member-trigger.el-tooltip__trigger",
+        "會員名稱上下被裁切（scrollHeight=16 > clientHeight=14）"
+      ]
+    },
+    {
+      "AREA": "buyer",
+      "W": 361,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": true,
+      "pathname": "/",
+      "clientWidth": 361,
+      "documentScrollWidth": 361,
+      "navRootScrollWidth": 361,
+      "navRootClientWidth": 361,
+      "navMaxRight": 549,
+      "navMaxRightElement": "span#el-id-133-0.member-trigger.el-tooltip__trigger",
+      "descendantMaxRight": 549,
+      "elementsBeyondW": [
+        {
+          "selector": "span#el-id-133-0.member-trigger.el-tooltip__trigger",
+          "right": 549
+        }
+      ],
+      "overflowingElements": [
+        {
+          "selector": "span#el-id-133-0.member-trigger.el-tooltip__trigger",
+          "scrollWidth": 345,
+          "clientWidth": 65
+        }
+      ],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 277,
+            "right": 345,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 128,
+            "width": 28,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 140,
+            "right": 345,
+            "width": 205,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 204,
+            "right": 269,
+            "width": 65,
+            "height": 14
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 14,
+        "scrollHeight": 16
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "navMaxRight=549 > W（span#el-id-133-0.member-trigger.el-tooltip__trigger；超出 W 的子孫：span#el-id-133-0.member-trigger.el-tooltip__trigger@549）",
+        "overflowingElements: span#el-id-133-0.member-trigger.el-tooltip__trigger",
+        "會員名稱上下被裁切（scrollHeight=16 > clientHeight=14）"
+      ]
+    },
+    {
+      "AREA": "buyer",
+      "W": 390,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": true,
+      "pathname": "/",
+      "clientWidth": 390,
+      "documentScrollWidth": 390,
+      "navRootScrollWidth": 390,
+      "navRootClientWidth": 390,
+      "navMaxRight": 549,
+      "navMaxRightElement": "span#el-id-8884-0.member-trigger.el-tooltip__trigger",
+      "descendantMaxRight": 549,
+      "elementsBeyondW": [
+        {
+          "selector": "span#el-id-8884-0.member-trigger.el-tooltip__trigger",
+          "right": 549
+        }
+      ],
+      "overflowingElements": [
+        {
+          "selector": "span#el-id-8884-0.member-trigger.el-tooltip__trigger",
+          "scrollWidth": 345,
+          "clientWidth": 94
+        }
+      ],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 306,
+            "right": 374,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 128,
+            "width": 28,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 140,
+            "right": 374,
+            "width": 234,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 204,
+            "right": 298,
+            "width": 94,
+            "height": 14
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 14,
+        "scrollHeight": 16
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "navMaxRight=549 > W（span#el-id-8884-0.member-trigger.el-tooltip__trigger；超出 W 的子孫：span#el-id-8884-0.member-trigger.el-tooltip__trigger@549）",
+        "overflowingElements: span#el-id-8884-0.member-trigger.el-tooltip__trigger",
+        "會員名稱上下被裁切（scrollHeight=16 > clientHeight=14）"
+      ]
+    },
+    {
+      "AREA": "buyer",
+      "W": 480,
+      "targetPath": "/",
+      "injectLongText": true,
+      "baseline": false,
+      "selfCheckInjectWide": false,
+      "selfCheckBreakColors": false,
+      "selfCheckBreakLines": false,
+      "selfCheckBreakTruncation": true,
+      "pathname": "/",
+      "clientWidth": 480,
+      "documentScrollWidth": 480,
+      "navRootScrollWidth": 480,
+      "navRootClientWidth": 480,
+      "navMaxRight": 549,
+      "navMaxRightElement": "span#el-id-6282-0.member-trigger.el-tooltip__trigger",
+      "descendantMaxRight": 549,
+      "elementsBeyondW": [
+        {
+          "selector": "span#el-id-6282-0.member-trigger.el-tooltip__trigger",
+          "right": 549
+        }
+      ],
+      "overflowingElements": [
+        {
+          "selector": "span#el-id-6282-0.member-trigger.el-tooltip__trigger",
+          "scrollWidth": 345,
+          "clientWidth": 184
+        }
+      ],
+      "elements": {
+        "areaSwitcher": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 396,
+            "right": 464,
+            "width": 68,
+            "height": 32
+          }
+        },
+        "brand": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 16,
+            "right": 88,
+            "width": 72,
+            "height": 27
+          }
+        },
+        "buyerNav": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 100,
+            "right": 128,
+            "width": 28,
+            "height": 21
+          }
+        },
+        "buyerActions": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 140,
+            "right": 464,
+            "width": 324,
+            "height": 32
+          }
+        },
+        "memberTrigger": {
+          "count": 1,
+          "visible": true,
+          "rect": {
+            "left": 204,
+            "right": 388,
+            "width": 184,
+            "height": 14
+          },
+          "text": "會會會會會會會會會會會會會會會ABCDEFGHIJKLMNO"
+        }
+      },
+      "layoutBackground": {
+        "actual": "rgb(243, 240, 234)",
+        "variable": "--color-bg",
+        "expected": "rgb(243, 240, 234)"
+      },
+      "navBackground": null,
+      "navBorderTop": null,
+      "areaLayoutBackgrounds": {
+        "organizer": "rgb(238, 242, 243)",
+        "platform": "rgb(244, 238, 241)",
+        "buyer": "rgb(243, 240, 234)"
+      },
+      "lineCounts": {
+        "brand": 1,
+        "activityLink": 1,
+        "ordersLink": 1,
+        "memberTrigger": 1
+      },
+      "memberTriggerHeights": {
+        "clientHeight": 14,
+        "scrollHeight": 16
+      },
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "invalidReasons": [],
+      "pass": false,
+      "failReasons": [
+        "navMaxRight=549 > W（span#el-id-6282-0.member-trigger.el-tooltip__trigger；超出 W 的子孫：span#el-id-6282-0.member-trigger.el-tooltip__trigger@549）",
+        "overflowingElements: span#el-id-6282-0.member-trigger.el-tooltip__trigger",
+        "會員名稱上下被裁切（scrollHeight=16 > clientHeight=14）"
+      ]
+    }
+  ],
+  "switch006": [
+    {
+      "W": 320,
+      "pathname": "/",
+      "clientWidth": 320,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 55,
+      "valid": true,
+      "pass": true
+    },
+    {
+      "W": 390,
+      "pathname": "/",
+      "clientWidth": 390,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "pass": true
+    },
+    {
+      "W": 480,
+      "pathname": "/",
+      "clientWidth": 480,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "會員前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "pass": false
+    },
+    {
+      "W": 481,
+      "pathname": "/",
+      "clientWidth": 481,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "會員前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "pass": true
+    },
+    {
+      "W": 1280,
+      "pathname": "/",
+      "clientWidth": 1280,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "會員前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "pass": true
+    }
+  ],
+  "switch006SelfCheck": [
+    {
+      "W": 320,
+      "pathname": "/",
+      "clientWidth": 320,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "會員前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 55,
+      "valid": true,
+      "pass": false
+    },
+    {
+      "W": 390,
+      "pathname": "/",
+      "clientWidth": 390,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "會員前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "pass": false
+    },
+    {
+      "W": 480,
+      "pathname": "/",
+      "clientWidth": 480,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "會員前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "pass": false
+    },
+    {
+      "W": 481,
+      "pathname": "/",
+      "clientWidth": 481,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "會員前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "pass": true
+    },
+    {
+      "W": 1280,
+      "pathname": "/",
+      "clientWidth": 1280,
+      "triggerCount": 1,
+      "ariaLabel": "會員前台",
+      "title": "會員前台",
+      "visibleText": "會員前台",
+      "headerBottom": 57,
+      "descendantMaxBottom": 44,
+      "valid": true,
+      "pass": true
+    }
+  ]
+}

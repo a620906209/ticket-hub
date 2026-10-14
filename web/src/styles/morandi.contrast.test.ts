@@ -69,7 +69,13 @@ const resolveButtonToken = (selector: string, name: string) =>
   resolveToken(name, [findBlock(blocks, selector).properties, rootScope])
 
 const white = resolveRootToken('--el-bg-color')
-const pageBackgrounds = [resolveRootToken('--el-bg-color-page'), resolveRootToken('--color-bg')]
+// 主辦方後台與平台管理的頁面底也算頁面底，所有以頁面底為對象的檢查自動涵蓋（web-area-separation）
+const pageBackgrounds = [
+  resolveRootToken('--el-bg-color-page'),
+  resolveRootToken('--color-bg'),
+  resolveRootToken('--color-bg-organizer'),
+  resolveRootToken('--color-bg-platform'),
+]
 const whiteAndPageBackgrounds = [white, ...pageBackgrounds]
 
 describe('對比度輔助函式', () => {
@@ -229,5 +235,26 @@ describe('morandi.css 色票對比度', () => {
     expect(resolveRootToken('--color-text-secondary')).toBe(resolveRootToken('--el-text-color-secondary'))
     expect(resolveRootToken('--el-border-color-light')).toBe('#e5dfd5')
     expect(resolveRootToken('--el-border-color-lighter')).toBe('#ede8df')
+  })
+
+  // 強調色用於導覽列色條與切換鈕色塊；兩個區域底色若相同或等於會員前台底色，背景就無法輔助辨識區域
+  it.each([
+    ['--color-area-organizer', '--color-bg-organizer'],
+    ['--color-area-platform', '--color-bg-platform'],
+  ])('WCC-013 區域強調色 %s 對白底與 %s', (accentToken, areaBackgroundToken) => {
+    const accent = resolveRootToken(accentToken)
+
+    expect(getContrastRatio(accent, white)).toBeGreaterThanOrEqual(4.5)
+    expect(getContrastRatio(accent, resolveRootToken(areaBackgroundToken))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('WCC-013 兩個區域底色彼此不同，且都不等於會員前台底色', () => {
+    const organizerBackground = resolveRootToken('--color-bg-organizer')
+    const platformBackground = resolveRootToken('--color-bg-platform')
+    const buyerBackground = resolveRootToken('--color-bg')
+
+    expect(organizerBackground).not.toBe(platformBackground)
+    expect(organizerBackground).not.toBe(buyerBackground)
+    expect(platformBackground).not.toBe(buyerBackground)
   })
 })
