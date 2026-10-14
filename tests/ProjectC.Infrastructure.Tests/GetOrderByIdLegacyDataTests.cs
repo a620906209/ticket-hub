@@ -34,7 +34,7 @@ public class GetOrderByIdLegacyDataTests
         var orderId = Guid.NewGuid();
         var heldUntilUtc = DateTime.UtcNow.AddMinutes(10);
         await seedDbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "HeldUntilUtc", "Status") VALUES ({orderId}, {eventId}, {buyer.Id}, {heldUntilUtc}, 0)""");
+            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "CreatedAtUtc", "HeldUntilUtc", "Status") VALUES ({orderId}, {eventId}, {buyer.Id}, {heldUntilUtc.AddMinutes(-10)}, {heldUntilUtc}, 0)""");
         // 刻意不指定 "TicketTypeId"（欄位維持 NULL）與 "Quantity"（套用 DB 端 DEFAULT 1），
         // 模擬 migration 前既有座位訂單、不回填的既有資料形狀。
         await seedDbContext.Database.ExecuteSqlInterpolatedAsync(

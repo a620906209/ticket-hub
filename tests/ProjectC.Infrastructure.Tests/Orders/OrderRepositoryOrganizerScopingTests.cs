@@ -42,7 +42,7 @@ public class OrderRepositoryOrganizerScopingTests
             var items = Enumerable.Range(0, i + 1)
                 .Select(_ => new OrderItem(Guid.NewGuid(), ticketTypeId, null, 1, 300m))
                 .ToList();
-            var order = new Order(Guid.NewGuid(), eventId, buyer.Id, DateTime.UtcNow.AddMinutes(10), items);
+            var order = new Order(Guid.NewGuid(), eventId, buyer.Id, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10), items);
             dbContext.Orders.Add(order);
 
             orderIds.Add(order.Id);

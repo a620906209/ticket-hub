@@ -133,7 +133,7 @@ public class ForeignKeyConstraintsTests
         await using var dbContext = _fixture.CreateDbContext();
 
         var act = () => dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "HeldUntilUtc", "Status") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {buyerId}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
+            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "CreatedAtUtc", "HeldUntilUtc", "Status") VALUES ({Guid.NewGuid()}, {Guid.NewGuid()}, {buyerId}, {DateTime.UtcNow}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
 
         await act.Should().ThrowAsync<Exception>("Orders.EventId 應該有 FK 約束，不存在的 EventId 不該插入成功");
     }
@@ -146,7 +146,7 @@ public class ForeignKeyConstraintsTests
 
         await using var dbContext = _fixture.CreateDbContext();
         var act = () => dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "HeldUntilUtc", "Status") VALUES ({Guid.NewGuid()}, {eventId}, {Guid.NewGuid()}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
+            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "CreatedAtUtc", "HeldUntilUtc", "Status") VALUES ({Guid.NewGuid()}, {eventId}, {Guid.NewGuid()}, {DateTime.UtcNow}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
 
         await act.Should().ThrowAsync<Exception>("Orders.BuyerId 應該有 FK 約束，不存在的 BuyerId 不該插入成功");
     }
@@ -161,7 +161,7 @@ public class ForeignKeyConstraintsTests
         var orderId = Guid.NewGuid();
         await using var orderDbContext = _fixture.CreateDbContext();
         await orderDbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "HeldUntilUtc", "Status") VALUES ({orderId}, {eventId}, {buyerId}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
+            $"""INSERT INTO "Orders" ("Id", "EventId", "BuyerId", "CreatedAtUtc", "HeldUntilUtc", "Status") VALUES ({orderId}, {eventId}, {buyerId}, {DateTime.UtcNow}, {DateTime.UtcNow.AddMinutes(10)}, 0)""");
 
         await using var dbContext = _fixture.CreateDbContext();
         var act = () => dbContext.Database.ExecuteSqlInterpolatedAsync(

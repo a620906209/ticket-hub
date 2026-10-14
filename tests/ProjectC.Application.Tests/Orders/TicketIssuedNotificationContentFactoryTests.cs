@@ -13,7 +13,7 @@ public class TicketIssuedNotificationContentFactoryTests
     private static Order CreateOrderWithItems(params (Guid? EventSeatId, int Quantity)[] items)
     {
         var orderItems = items.Select(i => new OrderItem(Guid.NewGuid(), Guid.NewGuid(), i.EventSeatId, i.Quantity, 500m));
-        return new Order(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Now.AddMinutes(15), orderItems);
+        return new Order(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow, Now.AddMinutes(15), orderItems);
     }
 
     private static Event CreateEvent(string title = "Concert")

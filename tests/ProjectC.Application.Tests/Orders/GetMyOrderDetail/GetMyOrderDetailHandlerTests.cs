@@ -331,7 +331,7 @@ public class GetMyOrderDetailHandlerTests
 
     private Order SeedOrder(IReadOnlyList<OrderItem> items)
     {
-        var order = new Order(Guid.NewGuid(), _event.Id, _buyerId, Now.AddMinutes(15), items);
+        var order = new Order(Guid.NewGuid(), _event.Id, _buyerId, DateTime.UtcNow, Now.AddMinutes(15), items);
         _orderRepository.Data.Add(order);
         return order;
     }

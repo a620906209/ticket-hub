@@ -30,7 +30,7 @@ public class RedeemTicketHandlerTests
             var eventId = Guid.NewGuid();
             if (isRealNameRequired) OrderRepository.RealNameRequiredEventIds.Add(eventId);
             var orderItem = new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m);
-            OrderRepository.Data.Add(new Order(Guid.NewGuid(), eventId, Guid.NewGuid(), Now.AddMinutes(10), [orderItem]));
+            OrderRepository.Data.Add(new Order(Guid.NewGuid(), eventId, Guid.NewGuid(), DateTime.UtcNow, Now.AddMinutes(10), [orderItem]));
             OrderRepository.OrganizerIdByEventId[eventId] = organizerId ?? OrganizerId;
 
             var ticket = new Ticket(Guid.NewGuid(), orderItem.Id, Now.AddDays(-1));

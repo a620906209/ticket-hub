@@ -27,6 +27,8 @@ public class RepositoryCrudRoundTripTests
         var seatMapId = Guid.NewGuid();
         var eventId = Guid.NewGuid();
         var orderId = Guid.NewGuid();
+        // 固定到秒的值：PostgreSQL 只存到微秒，用 DateTime.UtcNow 的 100ns 精度會讓等值比對失敗。
+        var orderCreatedAtUtc = new DateTime(2026, 10, 1, 8, 30, 15, DateTimeKind.Utc);
         Guid eventSeatId;
         Guid ticketTypeId;
 
@@ -65,7 +67,7 @@ public class RepositoryCrudRoundTripTests
             var buyer = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Test Buyer", "hash");
             dbContext.Members.Add(buyer);
 
-            var order = new Order(orderId, eventId, buyer.Id, DateTime.UtcNow.AddMinutes(10),
+            var order = new Order(orderId, eventId, buyer.Id, orderCreatedAtUtc, orderCreatedAtUtc.AddMinutes(10),
                 [new OrderItem(Guid.NewGuid(), ticketTypeId, eventSeatId, 1, ticketType.Price)]);
             orderRepo.Add(order);
 
@@ -105,6 +107,9 @@ public class RepositoryCrudRoundTripTests
         reloadedOrder.Should().NotBeNull();
         reloadedOrder!.Status.Should().Be(OrderStatus.Pending);
         reloadedOrder.Items.Should().ContainSingle(i => i.EventSeatId == eventSeatId && i.UnitPrice == 500m);
+        // CreatedAtUtc 經 EF 物化用的 private 建構子讀回；斷言 Kind 是因為 JSON 序列化靠 Utc 才會輸出 Z（ORD-LIST-005）。
+        reloadedOrder.CreatedAtUtc.Should().Be(orderCreatedAtUtc);
+        reloadedOrder.CreatedAtUtc.Kind.Should().Be(DateTimeKind.Utc);
     }
 
     [Fact]

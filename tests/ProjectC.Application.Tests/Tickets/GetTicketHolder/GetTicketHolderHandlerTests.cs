@@ -32,7 +32,7 @@ public class GetTicketHolderHandlerTests
             var eventId = Guid.NewGuid();
             var buyerId = Guid.NewGuid();
             var orderItem = new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m);
-            OrderRepository.Data.Add(new Order(Guid.NewGuid(), eventId, buyerId, Now.AddMinutes(10), [orderItem]));
+            OrderRepository.Data.Add(new Order(Guid.NewGuid(), eventId, buyerId, DateTime.UtcNow, Now.AddMinutes(10), [orderItem]));
             OrderRepository.OrganizerIdByEventId[eventId] = organizerId ?? OrganizerId;
             if (isRealNameRequired) OrderRepository.RealNameRequiredEventIds.Add(eventId);
             if (isBuyerRegistered) MemberRealNameRepository.Data[buyerId] = HolderRealName;
