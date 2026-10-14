@@ -349,17 +349,6 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 - **WHEN** 已登入買家開啟「我的訂單」列表，列表中有 Pending、Paid、Cancelled 訂單
 - **THEN** 三者狀態分別以警示色、成功色、中性色的標籤呈現，且標籤內分別顯示「待付款」「已付款」「已取消」
 
-### Requirement: 角色為 Admin 的使用者可從買家端版面進入主辦方審核頁
-買家端版面的會員下拉選單 SHALL 在登入者角色為 `Admin` 時顯示「主辦方審核」入口，點選後導向 `/admin/organizers`；此入口不要求已切換 Organizer（與該頁面路由守衛規則一致）。角色非 `Admin` 的使用者 MUST NOT 看到此入口。
-
-#### Scenario: BW-ADMIN-ENTRY-001 尚未切換 Organizer 的 Admin 從買家端進入審核頁
-- **WHEN** 角色為 `Admin`、尚未切換至任何 Organizer 的使用者在買家端開啟會員下拉選單並點選「主辦方審核」
-- **THEN** 系統導向 `/admin/organizers` 並顯示審核頁內容
-
-#### Scenario: BW-ADMIN-ENTRY-002 非 Admin 使用者看不到審核入口
-- **WHEN** 角色非 `Admin` 的已登入使用者開啟買家端會員下拉選單
-- **THEN** 選單中不顯示「主辦方審核」
-
 ### Requirement: 買家可透過「實名資料」頁查看與登記實名
 系統 SHALL 提供需登入的「實名資料」頁（未登入時依既有規則導向登入頁），並在買家端會員選單提供「實名資料」入口。頁面載入時 SHALL 呼叫查詢個人資料 API。
 
@@ -748,4 +737,19 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 #### Scenario: BW-SEAT-A11Y-007 方向鍵移動後焦點座位不被結帳列遮住
 - **WHEN** 使用者以 390px 與 1280px 寬、700px 高的視窗，在第一個分區至少有 400 個座位的活動中，於該分區第一個可選座位按 `End`
 - **THEN** 焦點移到該分區最後一個可選座位（按鍵前它位於視窗下緣之外），它的上緣位於視窗上緣或其下方，下緣位於結帳列上緣或其上方（含相等）
+
+### Requirement: 角色為 Admin 的使用者可從買家端版面經區域切換選單進入平台管理
+買家端版面 SHALL 在已登入時顯示區域切換選單（規則見 admin-web-ui「三個區域的版面可由區域名稱與背景色辨識，並可由區域切換選單互相前往」Requirement）；登入者角色為 `Admin` 時，選單 SHALL 有「平台管理」項目，點選後導向 `/platform`（最終為 `/platform/organizers` 審核頁）；此入口不要求已切換 Organizer（與審核頁路由守衛規則一致）。角色非 `Admin` 的使用者 MUST NOT 看到「平台管理」。會員下拉選單 MUST NOT 再包含「主辦方審核」項目；「我的主辦方」項目保留。
+
+#### Scenario: BW-ADMIN-ENTRY-001 尚未切換 Organizer 的 Admin 從買家端進入平台管理
+- **WHEN** 角色為 `Admin`、尚未切換至任何 Organizer 的使用者在買家端展開區域切換選單並點選「平台管理」
+- **THEN** 系統導向 `/platform/organizers` 並顯示審核頁內容
+
+#### Scenario: BW-ADMIN-ENTRY-002 非 Admin 使用者看不到平台管理入口
+- **WHEN** 角色非 `Admin` 的已登入使用者展開買家端區域切換選單
+- **THEN** 選單中不顯示「平台管理」
+
+#### Scenario: BW-ADMIN-ENTRY-003 會員下拉選單不再有主辦方審核
+- **WHEN** 角色為 `Admin` 與非 `Admin` 的已登入使用者分別開啟買家端會員下拉選單
+- **THEN** 兩者的選單中都不顯示「主辦方審核」，都顯示「我的主辦方」
 
