@@ -6,6 +6,7 @@ import { createSeatMap, createVenue, getSeatMapById, getVenueById, getVenues } f
 import type { SeatDetail, SeatMapSummary, VenueSummary } from '../../types/apiResponses'
 import { maxLengthRule, requiredRule } from '../../utils/validators'
 import { toErrorMessage } from '../../utils/errors'
+import { buildSeatMapOptions, type SeatMapOption } from '../../utils/seatMapLabel'
 
 const venues = ref<VenueSummary[]>([])
 const venuesLoading = ref(false)
@@ -26,7 +27,7 @@ async function loadVenues(): Promise<void> {
 onMounted(loadVenues)
 
 const selectedVenueId = ref('')
-const selectedVenueSeatMaps = ref<SeatMapSummary[]>([])
+const selectedVenueSeatMaps = ref<SeatMapOption[]>([])
 const venueDetailLoading = ref(false)
 const venueDetailError = ref('')
 // 記錄目前這次 getVenueById 呼叫對應的場館，回應抵達時如果選定的場館已經變了（快速切換場館），
@@ -43,7 +44,7 @@ async function loadSelectedVenueDetail(): Promise<void> {
   try {
     const detail = await getVenueById(venueId)
     if (venueDetailRequestVenueId !== venueId) return
-    selectedVenueSeatMaps.value = detail.seatMaps
+    selectedVenueSeatMaps.value = buildSeatMapOptions(detail.seatMaps)
   } catch (error) {
     if (venueDetailRequestVenueId !== venueId) return
     venueDetailError.value = toErrorMessage(error, '載入場館明細失敗')
@@ -231,6 +232,7 @@ async function handleCreateSeatMap(): Promise<void> {
             </div>
           </template>
         </el-table-column>
+        <el-table-column prop="label" label="座位圖" />
         <el-table-column prop="id" label="座位圖 Id" />
         <el-table-column prop="seatCount" label="座位數" width="120" />
       </el-table>

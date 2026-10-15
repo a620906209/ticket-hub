@@ -1,8 +1,9 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RouteLocationNormalized } from 'vue-router'
 import router from './index'
 import { useAuthStore } from '../stores/auth'
+import { cancelPendingScrollRestoration } from './scrollRestoration'
 
 // 建一個帶指定 payload 的假 JWT 字串（不需要合法簽章，decodeJwtPayload 只解碼不驗證），
 // 供測試 authStore.organizerId 這個從 Access Token claim 解碼出來的計算屬性。
@@ -34,43 +35,6 @@ describe('router guard', { timeout: 30_000 }, () => {
     await router.push('/no-such-page/deep')
 
     expect(router.currentRoute.value.name).toBe('events')
-  })
-
-  // 換頁沒回頁首時，從長列表點進詳情會停在頁面中段；上一頁則要還原原本的位置。
-  it('scrollBehavior_WithOrWithoutSavedPosition_RestoresSavedOrScrollsToTop', () => {
-    const scrollBehavior = router.options.scrollBehavior!
-    const route = router.currentRoute.value
-
-    expect(scrollBehavior(route, route, null)).toEqual({ top: 0 })
-    expect(scrollBehavior(route, route, { left: 0, top: 480 })).toEqual({ left: 0, top: 480 })
-  })
-
-  // [BW-NAV-STEP-001] 進出確認步驟只換 step query；若照常捲到頁首或還原 savedPosition，
-  // 會與元件把焦點移到標題／「下一步」的捲動互相競爭（order-confirmation-page design.md 決策 6）。
-  it('[BW-NAV-STEP-001] scrollBehavior_WhenOnlyStepQueryChanges_DoesNotScroll', () => {
-    const scrollBehavior = router.options.scrollBehavior!
-    // scrollBehavior 只讀 path、query、hash，resolve 的結果已含這些欄位
-    const at = (path: string) => router.resolve(path) as RouteLocationNormalized
-    const selection = at('/events/event-1?zone=A')
-    const confirm = at('/events/event-1?zone=A&step=confirm')
-    const saved = { left: 0, top: 480 }
-
-    expect(scrollBehavior(confirm, selection, null)).toBe(false)
-    expect(scrollBehavior(confirm, selection, saved)).toBe(false)
-    expect(scrollBehavior(selection, confirm, null)).toBe(false)
-    expect(scrollBehavior(selection, confirm, saved)).toBe(false)
-    // 其他 query 的 key 順序不同仍視為只切換 step
-    const reordered = at('/events/event-1?step=confirm&page=2&zone=A')
-    expect(scrollBehavior(reordered, at('/events/event-1?zone=A&page=2'), null)).toBe(false)
-
-    // 反例：路徑、其他 query 或 hash 不同時，仍是一般換頁
-    const otherPath = at('/events/event-2?zone=A&step=confirm')
-    const otherQuery = at('/events/event-1?zone=B&step=confirm')
-    const otherHash = at('/events/event-1?zone=A&step=confirm#seats')
-    for (const to of [otherPath, otherQuery, otherHash]) {
-      expect(scrollBehavior(to, selection, null)).toEqual({ top: 0 })
-      expect(scrollBehavior(to, selection, saved)).toEqual(saved)
-    }
   })
 
   // 已寄出的通知或書籤可能還留著舊的結果頁網址，結果頁移除後要導到同一筆訂單的明細頁。
@@ -240,5 +204,167 @@ describe('router guard', { timeout: 30_000 }, () => {
 
     expect(router.currentRoute.value.name).toBe('login')
     expect(router.currentRoute.value.query.redirect).toBe('/admin/redeem')
+  })
+})
+
+describe('router scrollBehavior', () => {
+  const scrollBehavior = router.options.scrollBehavior!
+  // scrollBehavior 只讀 path、query、hash，resolve 的結果已含這些欄位
+  const at = (path: string) => router.resolve(path) as RouteLocationNormalized
+  const VIEWPORT_HEIGHT = 500
+  let contentHeight = 0
+
+  function setScrollableRange(range: number): void {
+    contentHeight = VIEWPORT_HEIGHT + range
+  }
+
+  function trackSettlement(result: unknown): { readonly isSettled: boolean; readonly value: unknown } {
+    const state = { isSettled: false, value: undefined as unknown }
+    void Promise.resolve(result).then((value) => {
+      state.isSettled = true
+      state.value = value
+    })
+    return state
+  }
+
+  // 讓已 resolve 的 Promise 回呼跑完，才能檢查結果
+  async function flushMicrotasks(): Promise<void> {
+    for (let i = 0; i < 3; i++) await Promise.resolve()
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    // jsdom 沒有版面配置，以可變的 getter 模擬內容載入前後的頁面高度
+    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, get: () => contentHeight })
+    Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, get: () => VIEWPORT_HEIGHT })
+    setScrollableRange(0)
+  })
+
+  // 模組層級的 waiter 若留到下一個案例，會汙染 vi.getTimerCount() 的斷言
+  afterEach(() => {
+    cancelPendingScrollRestoration()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    delete (document.documentElement as unknown as Record<string, unknown>).scrollHeight
+    delete (document.documentElement as unknown as Record<string, unknown>).clientHeight
+  })
+
+  // 換頁沒回頁首時，從長列表點進詳情會停在頁面中段；上一頁則要還原原本的位置。
+  it('scrollBehavior_WithOrWithoutSavedPosition_RestoresSavedOrScrollsToTop', async () => {
+    const route = router.currentRoute.value
+    expect(scrollBehavior(route, route, null)).toEqual({ top: 0 })
+
+    const saved = { left: 0, top: 480 }
+    const restored = scrollBehavior(route, route, saved)
+    expect(restored).toBeInstanceOf(Promise)
+    setScrollableRange(480)
+    vi.advanceTimersToNextFrame()
+    expect(await restored).toBe(saved)
+  })
+
+  // [BW-NAV-RESTORE-001] 資料非同步載入的頁面在導覽完成當下高度不足，須等內容載入後才還原。
+  it('[BW-NAV-RESTORE-001] scrollBehavior_WithSavedPosition_WaitsForContentBeforeRestoring', async () => {
+    const saved = { left: 0, top: 900 }
+    const result = trackSettlement(scrollBehavior(at('/orders'), at('/orders/order-1'), saved))
+
+    vi.advanceTimersToNextFrame()
+    await flushMicrotasks()
+    expect(result.isSettled).toBe(false)
+
+    setScrollableRange(900)
+    vi.advanceTimersToNextFrame()
+    await flushMicrotasks()
+    expect(result.value).toBe(saved)
+  })
+
+  // [BW-NAV-STEP-001] 進出確認步驟只換 step query；若照常捲到頁首或還原 savedPosition，
+  // 會與元件把焦點移到標題／「下一步」的捲動互相競爭（order-confirmation-page design.md 決策 6）。
+  it('[BW-NAV-STEP-001] scrollBehavior_WhenOnlyStepQueryChanges_DoesNotScroll', async () => {
+    const selection = at('/events/event-1?zone=A')
+    const confirm = at('/events/event-1?zone=A&step=confirm')
+    const saved = { left: 0, top: 480 }
+
+    expect(scrollBehavior(confirm, selection, null)).toBe(false)
+    expect(scrollBehavior(confirm, selection, saved)).toBe(false)
+    expect(scrollBehavior(selection, confirm, null)).toBe(false)
+    expect(scrollBehavior(selection, confirm, saved)).toBe(false)
+    // 其他 query 的 key 順序不同仍視為只切換 step
+    const reordered = at('/events/event-1?step=confirm&page=2&zone=A')
+    expect(scrollBehavior(reordered, at('/events/event-1?zone=A&page=2'), null)).toBe(false)
+
+    // 反例：路徑、其他 query 或 hash 不同時，仍是一般換頁
+    setScrollableRange(480)
+    const otherPath = at('/events/event-2?zone=A&step=confirm')
+    const otherQuery = at('/events/event-1?zone=B&step=confirm')
+    const otherHash = at('/events/event-1?zone=A&step=confirm#seats')
+    for (const to of [otherPath, otherQuery, otherHash]) {
+      expect(scrollBehavior(to, selection, null)).toEqual({ top: 0 })
+      const restored = scrollBehavior(to, selection, saved)
+      vi.advanceTimersToNextFrame()
+      expect(await restored).toEqual(saved)
+    }
+  })
+
+  // [BW-NAV-RESTORE-003] 等待中又換頁時，舊頁的位置若之後才 resolve，會把新頁捲到不相干的位置。
+  it('[BW-NAV-RESTORE-003] scrollBehavior_WhenNextNavigationCompletesWhileWaiting_ResolvesPreviousToFalse', async () => {
+    const savedA = { left: 0, top: 900 }
+    const first = trackSettlement(scrollBehavior(at('/orders'), at('/orders/order-1'), savedA))
+
+    expect(scrollBehavior(at('/orders/order-2'), at('/orders'), null)).toEqual({ top: 0 })
+    await flushMicrotasks()
+    expect(first.isSettled).toBe(true)
+    expect(first.value).toBe(false)
+
+    setScrollableRange(900)
+    vi.advanceTimersToNextFrame()
+    vi.advanceTimersByTime(3000)
+    await flushMicrotasks()
+    expect(first.value).toBe(false)
+  })
+
+  // [BW-NAV-RESTORE-003] 連續快速上一頁時，只有最後到達的頁面可以還原自己記錄的位置。
+  // 兩次都帶 savedPosition，waitForRestorableScrollPosition 本身就會取消前一個等待（design 決策 3.4），
+  // 所以這個案例驗證的是「最後一次導覽勝出」；scrollBehavior 開頭的取消由不帶 savedPosition 的案例驗證。
+  it('[BW-NAV-RESTORE-003] scrollBehavior_WhenNavigatingRapidlyWithSavedPositions_OnlyLatestRestores', async () => {
+    const savedA = { left: 0, top: 700 }
+    const savedB = { left: 0, top: 800 }
+    const savedC = { left: 0, top: 900 }
+    const first = trackSettlement(scrollBehavior(at('/orders'), at('/orders/order-1'), savedA))
+    const second = trackSettlement(scrollBehavior(at('/'), at('/orders'), savedB))
+    const third = trackSettlement(scrollBehavior(at('/events/event-1'), at('/'), savedC))
+    await flushMicrotasks()
+    expect(first.value).toBe(false)
+    expect(second.value).toBe(false)
+    expect(third.isSettled).toBe(false)
+
+    setScrollableRange(900)
+    vi.advanceTimersToNextFrame()
+    await flushMicrotasks()
+    expect(third.value).toBe(savedC)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  // [BW-NAV-RESTORE-003] 只切換確認步驟也是新的導覽，前一頁等待中的還原同樣要放棄。
+  it('[BW-NAV-RESTORE-003] scrollBehavior_WhenOnlyStepChangesWhileWaiting_ResolvesPreviousToFalse', async () => {
+    const first = trackSettlement(scrollBehavior(at('/events/event-1?zone=A'), at('/'), { left: 0, top: 900 }))
+
+    expect(scrollBehavior(at('/events/event-1?zone=A&step=confirm'), at('/events/event-1?zone=A'), null)).toBe(false)
+    await flushMicrotasks()
+    expect(first.value).toBe(false)
+  })
+
+  // [BW-NAV-RESTORE-003] vue-router 對「前往目前頁面」的重複導覽以 handleScroll(from, from, true) 呼叫，savedPosition 為 null。
+  it('[BW-NAV-RESTORE-003] scrollBehavior_WhenNavigatingToCurrentPageWhileWaiting_ResolvesPreviousToFalse', async () => {
+    const ordersPage = at('/orders')
+    const first = trackSettlement(scrollBehavior(ordersPage, at('/orders/order-1'), { left: 0, top: 900 }))
+
+    expect(scrollBehavior(ordersPage, ordersPage, null)).toEqual({ top: 0 })
+    await flushMicrotasks()
+    expect(first.value).toBe(false)
+
+    setScrollableRange(900)
+    vi.advanceTimersByTime(3000)
+    await flushMicrotasks()
+    expect(first.value).toBe(false)
   })
 })

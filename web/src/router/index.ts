@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { cancelPendingScrollRestoration, waitForRestorableScrollPosition } from './scrollRestoration'
 
 // 頁面一律延遲載入，買家首屏才不會下載後台頁面與 jsqr（bundle-splitting）；BuyerLayout 是首頁外框，
 // 維持靜態 import 以省一次 chunk 請求
@@ -16,10 +17,15 @@ function isOnlyStepQueryChanged(to: RouteLocationNormalized, from: RouteLocation
 const router = createRouter({
   history: createWebHistory(),
   // 沒設定時 SPA 換頁會沿用上一頁的捲動位置，從長列表點進詳情頁會停在頁面中段。上一頁／下一頁交回 savedPosition，
-  // 但資料非同步載入的頁面在還原當下高度不足，實際會停在頁首附近（2026-10-13 走查實測），收尾階段不另外處理
+  // 但資料非同步載入的頁面在導覽完成當下高度不足，所以等高度足夠（最多 3 秒）才還原（frontend-minor-polish design.md 決策 3）
   // 只切換確認步驟（step query）時不捲動、也不還原 savedPosition，捲動交給元件移焦點處理，避免兩者競爭
   // （order-confirmation-page design.md 決策 6）
-  scrollBehavior: (to, from, savedPosition) => (isOnlyStepQueryChanged(to, from) ? false : (savedPosition ?? { top: 0 })),
+  scrollBehavior: (to, from, savedPosition) => {
+    // 每次導覽完成都先放棄上一次等待中的還原，不靠 vue-router 的 currentRoute 檢查擋下舊位置
+    cancelPendingScrollRestoration()
+    if (isOnlyStepQueryChanged(to, from)) return false
+    return savedPosition ? waitForRestorableScrollPosition(savedPosition) : { top: 0 }
+  },
   routes: [
     {
       path: '/',

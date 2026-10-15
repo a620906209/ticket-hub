@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance } from 'element-plus'
-import { createTicketType, getAdminEvents } from '../../api/admin'
+import { createTicketType, getAdminEvents, getVenues } from '../../api/admin'
 import { getTicketTypes } from '../../api/events'
 import type { AdminEventSummary, TicketType } from '../../types/apiResponses'
 import { maxLengthRule, positiveNumberRule, requiredPositiveIntegerRule, requiredRule } from '../../utils/validators'
@@ -31,7 +31,31 @@ async function loadEvents(): Promise<void> {
   }
 }
 
-onMounted(loadEvents)
+// 場館名稱另外查，與活動列表各自處理失敗，場地查詢失敗不能讓活動列表無法顯示（frontend-minor-polish design.md 決策 1）。
+// 兩者都只在 onMounted 呼叫一次，不存在舊回應覆蓋新結果的情況，不加過期回應防護。
+const venueNamesById = ref<Map<string, string> | null>(null)
+const isVenueLookupFailed = ref(false)
+
+async function loadVenueNames(): Promise<void> {
+  try {
+    const venues = await getVenues()
+    venueNamesById.value = new Map(venues.map((venue) => [venue.id, venue.name]))
+  } catch {
+    // 錯誤不需提示或記錄：「場館」欄顯示「無法載入場館名稱」就是對這個失敗的處理
+    isVenueLookupFailed.value = true
+  }
+}
+
+function getVenueLabel(venueId: string): string {
+  if (isVenueLookupFailed.value) return '無法載入場館名稱'
+  if (!venueNamesById.value) return '載入中…'
+  return venueNamesById.value.get(venueId) ?? '未知場館'
+}
+
+onMounted(() => {
+  void loadEvents()
+  void loadVenueNames()
+})
 
 // 活動還沒有座位理論上不會發生（建立活動當下就會依座位圖產生 EventSeat），仍防呆處理（見設計文件決策 6）。
 function totalSeatCount(row: AdminEventSummary): number {
@@ -123,7 +147,6 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
         <el-button type="primary">建立活動</el-button>
       </router-link>
     </div>
-    <p class="hint">活動列表的場館／座位圖欄位顯示原始 Id，無法顯示名稱。</p>
 
     <el-alert v-if="listError" :title="listError" type="error" show-icon style="margin-bottom: 16px" />
     <el-table v-loading="loading" :data="events" empty-text="目前沒有活動" @expand-change="(row: AdminEventSummary) => loadTicketTypesIfNeeded(row.id)">
@@ -160,8 +183,9 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
       <el-table-column label="販售期間">
         <template #default="{ row }"><span class="sales-window">{{ formatSalesWindow(row) }}</span></template>
       </el-table-column>
-      <el-table-column prop="venueId" label="場館 Id" />
-      <el-table-column prop="seatMapId" label="座位圖 Id" />
+      <el-table-column label="場館">
+        <template #default="{ row }"><span class="venue-name">{{ getVenueLabel(row.venueId) }}</span></template>
+      </el-table-column>
       <el-table-column label="建立者">
         <template #default="{ row }">{{ row.createdByDisplayName ?? '—' }}</template>
       </el-table-column>
@@ -244,9 +268,6 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-.hint {
-  color: var(--el-text-color-secondary);
 }
 .currency-prefix {
   margin-right: 8px;

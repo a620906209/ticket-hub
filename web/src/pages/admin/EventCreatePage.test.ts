@@ -68,6 +68,32 @@ describe('EventCreatePage 建立活動：場館／座位圖下拉選單', () => 
     expect(seatMapSelect.findAll('option').map((o) => o.attributes('value'))).toContain('seatmap-1')
   })
 
+  // [AWU-SEATMAP-LABEL-001] 選項原本顯示 Id 前 8 碼，操作者無從辨識；後端也沒有排序，標籤須依 Id 排序後編號，
+  // 與場館管理頁（VenueListPage.test.ts 同一組 fixture）指向同一張座位圖。
+  it('[AWU-SEATMAP-LABEL-001] seatMapOptions_WhenApiReturnsUnsortedSeatMaps_ShowsNumberedLabelsWithoutId', async () => {
+    const seatMaps = [
+      { id: 'f0e1d2c3-0000-4000-8000-000000000002', seatCount: 120 },
+      { id: '0a1b2c3d-0000-4000-8000-000000000001', seatCount: 40 },
+    ]
+    vi.mocked(adminApi.getVenues).mockResolvedValue([{ id: 'venue-a', name: 'Venue A' }])
+    vi.mocked(adminApi.getVenueById).mockResolvedValue({ id: 'venue-a', name: 'Venue A', seatMaps })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const [venueSelect, seatMapSelect] = wrapper.findAll('select')
+    await venueSelect.setValue('venue-a')
+    await flushPromises()
+
+    const options = seatMapSelect.findAll('option').filter((option) => option.attributes('value'))
+    expect(options.map((option) => [option.attributes('value'), option.text()])).toEqual([
+      ['0a1b2c3d-0000-4000-8000-000000000001', '座位圖 1（40 個座位）'],
+      ['f0e1d2c3-0000-4000-8000-000000000002', '座位圖 2（120 個座位）'],
+    ])
+    for (const seatMap of seatMaps) {
+      expect(seatMapSelect.text()).not.toContain(seatMap.id.slice(0, 8))
+    }
+  })
+
   it('場館或座位圖尚無可選項目時，欄位為空且無法送出表單', async () => {
     vi.mocked(adminApi.getVenues).mockResolvedValue([])
     const wrapper = mountPage()
