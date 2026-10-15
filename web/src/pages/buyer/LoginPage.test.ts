@@ -8,8 +8,9 @@ import * as captchaApi from '../../api/captcha'
 vi.mock('../../api/captcha')
 
 const pushMock = vi.fn()
+let mockRouteQuery: Record<string, string> = {}
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: {} }),
+  useRoute: () => ({ query: mockRouteQuery }),
   useRouter: () => ({ push: pushMock }),
 }))
 
@@ -43,6 +44,7 @@ describe('LoginPage', () => {
   beforeEach(() => {
     loginMock.mockReset()
     pushMock.mockReset()
+    mockRouteQuery = {}
     vi.mocked(captchaApi.getCaptcha).mockReset()
     vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-1', imageBase64: 'base64-image-1' })
   })
@@ -75,6 +77,18 @@ describe('LoginPage', () => {
 
     expect(loginMock).toHaveBeenCalledWith('user@example.com', 'Password123', 'captcha-token-1', 'TEST')
     expect(pushMock).toHaveBeenCalledWith('/')
+  })
+
+  // 活動詳情頁未登入或下單 401 時帶 redirect 導來，登入後必須回到原活動，而不是首頁。
+  it('submit_WithRedirectQuery_PushesRedirectAfterLogin', async () => {
+    mockRouteQuery = { redirect: '/events/event-1' }
+    loginMock.mockResolvedValue(undefined)
+    const wrapper = mountPage()
+
+    await fillAndSubmit(wrapper)
+
+    expect(pushMock).toHaveBeenCalledOnce()
+    expect(pushMock).toHaveBeenCalledWith('/events/event-1')
   })
 
   // CAPTCHA-BW-004：登入頁載入時顯示驗證碼圖片與輸入欄位。

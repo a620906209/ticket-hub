@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from './auth'
+import { usePlacedOrderNoticeStore } from './placedOrderNotice'
 import { ApiError } from '../api/httpClient'
 import * as authApi from '../api/auth'
 
@@ -51,6 +52,34 @@ describe('auth store', () => {
     expect(store.member).toBeNull()
     expect(store.isAuthenticated).toBe(false)
     expect(localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBeNull()
+  })
+
+  // 付款提示屬於前一個登入者：登出或換發失敗後不清掉，換帳號回到活動列表會看到別人的訂單連結
+  // （order-confirmation-page design.md 決策 4）。
+  it.each([
+    {
+      when: '登出',
+      act: async (store: ReturnType<typeof useAuthStore>) => {
+        vi.mocked(authApi.logout).mockResolvedValue(undefined)
+        localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, 'refresh-1')
+        await store.logout()
+      },
+    },
+    {
+      when: '換發失敗',
+      act: async (store: ReturnType<typeof useAuthStore>) => {
+        localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, 'expired-refresh')
+        vi.mocked(authApi.refresh).mockRejectedValue(new ApiError(401, { status: 401, detail: 'invalid' }))
+        await store.refreshSession()
+      },
+    },
+  ])('clearSession_AfterLogoutOrFailedRefresh_ClearsPlacedOrderNotice（$when）', async ({ act }) => {
+    const store = useAuthStore()
+    usePlacedOrderNoticeStore().setPlacedOrder('order-previous-member')
+
+    await act(store)
+
+    expect(usePlacedOrderNoticeStore().placedOrderId).toBeNull()
   })
 
   // 後端只憑 refresh token 撤銷（logout-revoke-by-refresh-token），store 只需要帶 refresh token；

@@ -5,12 +5,16 @@ import type { EventSummary } from '../../types/apiResponses'
 import { toErrorMessage } from '../../utils/errors'
 import { getSalesStatus } from '../../utils/salesWindow'
 import SalesStatusTag from '../../components/SalesStatusTag.vue'
+import { usePlacedOrderNoticeStore } from '../../stores/placedOrderNotice'
+import { ORDER_HOLD_MINUTES } from '../../utils/orderHold'
 
 const events = ref<EventSummary[]>([])
 const loading = ref(false)
 const errorMessage = ref('')
 // 列表只在載入時計算一次販售狀態，不需每秒更新（停留跨越邊界時以詳情頁的即時判斷為準）
 const loadedAtMs = ref(Date.now())
+// setup 時就取出並清空，提示只顯示一次（design.md 決策 4）
+const placedOrderId = ref(usePlacedOrderNoticeStore().consumePlacedOrder())
 
 async function loadEvents(): Promise<void> {
   loading.value = true
@@ -31,6 +35,17 @@ onMounted(loadEvents)
 <template>
   <div class="event-list-page">
     <h1>活動列表</h1>
+    <el-alert
+      v-if="placedOrderId"
+      class="placed-order-notice"
+      role="status"
+      type="success"
+      show-icon
+      :title="`訂單已建立，已為你保留 ${ORDER_HOLD_MINUTES} 分鐘，請在期限內完成付款`"
+      @close="placedOrderId = null"
+    >
+      <router-link :to="`/orders/${placedOrderId}`">前往付款</router-link>
+    </el-alert>
     <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon style="margin-bottom: 16px" />
     <el-empty v-else-if="!loading && events.length === 0" description="目前沒有活動" />
     <div v-else v-loading="loading" class="event-grid">
@@ -48,6 +63,9 @@ onMounted(loadEvents)
   max-width: 1080px;
   margin: 32px auto;
   padding: 0 16px;
+}
+.placed-order-notice {
+  margin-bottom: 16px;
 }
 .event-grid {
   display: grid;

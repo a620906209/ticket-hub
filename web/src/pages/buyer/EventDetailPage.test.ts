@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { defineComponent } from 'vue'
-import ElementPlus from 'element-plus'
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
+import { defineComponent, reactive } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import type { Pinia } from 'pinia'
+import ElementPlus, { ElMessage } from 'element-plus'
 import EventDetailPage from './EventDetailPage.vue'
+import { usePlacedOrderNoticeStore } from '../../stores/placedOrderNotice'
 import * as eventsApi from '../../api/events'
 import * as ordersApi from '../../api/orders'
 import * as queueApi from '../../api/queue'
@@ -18,11 +21,107 @@ vi.mock('../../api/queue')
 vi.mock('../../api/captcha')
 vi.mock('../../api/members')
 
-const pushMock = vi.fn()
+// 確認步驟以 `step` query 區分（order-confirmation-page design.md 決策 1），route 必須可反應，
+// push／replace／back 也要真的改 query，元件的 watch 與正規化才會被觸發。
+// 只有「同頁、只帶 query」的導覽會改 route；導向登入頁、活動列表等跨頁導覽只記錄呼叫。
+type RouteQuery = Record<string, string>
+const EVENT_PATH = '/events/event-1'
+const mockRoute = reactive({ params: { id: 'event-1' }, query: {} as RouteQuery, path: EVENT_PATH, fullPath: EVENT_PATH })
+let queryHistory: RouteQuery[] = [{}]
+let historyIndex = 0
+
+function applyQuery(query: RouteQuery) {
+  mockRoute.query = query
+  const search = new URLSearchParams(query).toString()
+  mockRoute.fullPath = search ? `${EVENT_PATH}?${search}` : EVENT_PATH
+}
+
+function getInPageQuery(location: unknown): RouteQuery | null {
+  if (typeof location !== 'object' || location === null) return null
+  const { path, name, query } = location as { path?: string; name?: string; query?: RouteQuery }
+  return path === undefined && name === undefined && query ? { ...query } : null
+}
+
+const pushMock = vi.fn(async (location: unknown) => {
+  const query = getInPageQuery(location)
+  if (!query) return
+  queryHistory = [...queryHistory.slice(0, historyIndex + 1), query]
+  historyIndex = queryHistory.length - 1
+  applyQuery(query)
+})
+const replaceMock = vi.fn(async (location: unknown) => {
+  const query = getInPageQuery(location)
+  if (!query) return
+  queryHistory[historyIndex] = query
+  applyQuery(query)
+})
+const backMock = vi.fn(() => {
+  if (historyIndex === 0) return
+  historyIndex -= 1
+  applyQuery(queryHistory[historyIndex])
+})
+
+// 模擬瀏覽器下一頁：回到前一次 push 的紀錄，不經過元件的任何按鈕。
+function browserForward() {
+  if (historyIndex >= queryHistory.length - 1) throw new Error('沒有下一頁紀錄')
+  historyIndex += 1
+  applyQuery(queryHistory[historyIndex])
+}
+
+function browserBack() {
+  backMock()
+}
+
+// 記下最近掛載頁面註冊的離開守衛，測試呼叫它來模擬「離開導覽已開始、頁面尚未卸載」。
+let routeLeaveGuard: ((to: unknown) => void) | undefined
+// 記下頁面註冊的 afterEach／onError，測試以此模擬「離開導覽失敗、仍停在本頁」。
+let afterEachHook: ((to: unknown, from: unknown, failure?: unknown) => void) | undefined
+let navigationErrorHook: ((error: unknown, to: unknown) => void) | undefined
+
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ params: { id: 'event-1' }, fullPath: '/events/event-1' }),
-  useRouter: () => ({ push: pushMock }),
+  useRoute: () => mockRoute,
+  useRouter: () => ({
+    push: pushMock,
+    replace: replaceMock,
+    back: backMock,
+    afterEach: (hook: typeof afterEachHook) => {
+      afterEachHook = hook
+      return () => {}
+    },
+    onError: (hook: typeof navigationErrorHook) => {
+      navigationErrorHook = hook
+      return () => {}
+    },
+  }),
+  onBeforeRouteLeave: (guard: (to: unknown) => void) => {
+    routeLeaveGuard = guard
+  },
 }))
+
+// 真實 vue-router 傳給離開守衛與 afterEach／onError 的 to 是同一個物件；回傳它供測試回報該次導覽失敗。
+function startLeavingPage(to: object = { path: '/orders' }) {
+  if (!routeLeaveGuard) throw new Error('頁面沒有註冊離開守衛')
+  routeLeaveGuard(to)
+  return to
+}
+
+// 所有頁面實例共用同一個 mock route：上一個測試留下的實例會對 step 變化執行正規化並移除 step，必須逐一卸載。
+enableAutoUnmount(afterEach)
+
+let testPinia: Pinia
+
+// 每個 describe 自己的 beforeEach 會 mockReset pushMock；Vitest 4 的 mockReset 會還原成 vi.fn 傳入的實作，
+// 所以路由紀錄的模擬仍有效，這裡只重設狀態。
+beforeEach(() => {
+  queryHistory = [{}]
+  historyIndex = 0
+  applyQuery({})
+  pushMock.mockClear()
+  replaceMock.mockClear()
+  backMock.mockClear()
+  testPinia = createPinia()
+  setActivePinia(testPinia)
+})
 
 let mockIsAuthenticated = true
 vi.mock('../../stores/auth', () => ({
@@ -102,7 +201,7 @@ function mountPage(options: { attachTo?: HTMLElement } = {}) {
   return mount(EventDetailPage, {
     attachTo: options.attachTo,
     global: {
-      plugins: [ElementPlus],
+      plugins: [ElementPlus, testPinia],
       stubs: {
         ElInputNumber: ElInputNumberStub,
         ElSelect: ElSelectStub,
@@ -114,10 +213,68 @@ function mountPage(options: { attachTo?: HTMLElement } = {}) {
   })
 }
 
-function submitButton(wrapper: ReturnType<typeof mount>) {
-  const button = wrapper.findAll('button').find((b) => b.text() === '送出訂單')
-  if (!button) throw new Error('找不到「送出訂單」按鈕')
+function findButtonByText(wrapper: ReturnType<typeof mount>, text: string) {
+  const button = wrapper.findAll('button').find((b) => b.text() === text)
+  if (!button) throw new Error(`找不到「${text}」按鈕`)
   return button
+}
+
+function nextButton(wrapper: ReturnType<typeof mount>) {
+  return findButtonByText(wrapper, '下一步')
+}
+
+function confirmButton(wrapper: ReturnType<typeof mount>) {
+  return findButtonByText(wrapper, '確認訂單')
+}
+
+function backToSelectionButton(wrapper: ReturnType<typeof mount>) {
+  return findButtonByText(wrapper, '返回改選')
+}
+
+function confirmStep(wrapper: ReturnType<typeof mount>) {
+  return wrapper.find('.confirm-step')
+}
+
+function confirmStepError(wrapper: ReturnType<typeof mount>) {
+  return wrapper.find('.confirm-step .action-error')
+}
+
+function noticeCheckbox(wrapper: ReturnType<typeof mount>) {
+  return wrapper.find('.confirm-step input[type="checkbox"]')
+}
+
+// 按「下一步」並勾選注意事項；沒進入確認步驟就直接失敗，避免後續斷言在錯的畫面上假通過。
+async function goToConfirmStep(wrapper: ReturnType<typeof mount>) {
+  await nextButton(wrapper).trigger('click')
+  await flushPromises()
+  if (!confirmStep(wrapper).exists()) throw new Error('按「下一步」後沒有進入確認步驟')
+  await noticeCheckbox(wrapper).setValue(true)
+}
+
+async function confirmOrder(wrapper: ReturnType<typeof mount>) {
+  await confirmButton(wrapper).trigger('click')
+  await flushPromises()
+}
+
+// 送出路徑：「下一步」→ 勾選注意事項 →「確認訂單」。
+async function submitOrder(wrapper: ReturnType<typeof mount>) {
+  await goToConfirmStep(wrapper)
+  await confirmOrder(wrapper)
+}
+
+// 成功下單只以取代紀錄的方式回到活動列表，並把 API 回應的 Id 交給列表的付款提示（BW-CONFIRM-015）。
+function expectOrderPlacedAndReturnedToEventList(orderId: string) {
+  expect(replaceMock).toHaveBeenCalledTimes(1)
+  expect(replaceMock).toHaveBeenCalledWith({ name: 'events' })
+  // 唯一的 push 是進入確認步驟；成功後不得再 push 任何頁面。
+  expect(pushMock.mock.calls).toEqual([[{ query: { step: 'confirm' } }]])
+  expect(usePlacedOrderNoticeStore().placedOrderId).toBe(orderId)
+}
+
+// 退回選位步驟一律以 replace 移除 step（BW-CONFIRM-007、008）。
+function expectReplacedToSelectionStep() {
+  expect(replaceMock).toHaveBeenCalledWith({ query: {} })
+  expect(mockRoute.query.step).toBeUndefined()
 }
 
 function quickPickButton(wrapper: ReturnType<typeof mount>) {
@@ -163,17 +320,16 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
-    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
+    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-seat-1' })
     const wrapper = mountPage()
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([{ eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' }])
-    // 結果頁改由明細 API 取得伺服器端持有到期時間（order-pending-actions），導頁不得再帶前端推算的值。
-    expect(pushMock).toHaveBeenCalledWith({ path: '/order-result/order-1' })
+    expectOrderPlacedAndReturnedToEventList('order-seat-1')
   })
 
   it('下單時座位已被搶先鎖定：顯示錯誤、清空已選座位、重新整理資料', async () => {
@@ -185,9 +341,9 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expectReplacedToSelectionStep()
     expect(wrapper.text()).toContain('下單失敗')
     expect(wrapper.text()).toContain('已選 0 個座位')
     expect(eventsApi.getEvents).toHaveBeenCalledTimes(2)
@@ -208,11 +364,13 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
 
     await wrapper.find('.seat-btn').trigger('click')
     await countInputFor(wrapper, '站立區').setValue(2)
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    // redirect 不帶 step：登入後回到選位步驟，而不是被正規化掉的確認步驟網址（BW-CONFIRM-009）。
     expect(pushMock).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/events/event-1' } })
     expect(wrapper.text()).not.toContain('下單失敗')
+    browserBack()
+    await flushPromises()
     expect(wrapper.text()).toContain('已選 1 個座位、2 張計數票券')
     expect(eventsApi.getEvents).toHaveBeenCalledTimes(1)
     expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
@@ -255,7 +413,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   })
 
   // 自動選位只填入已選清單、不直接下單（purchase-flow-ux 決策 3）：買家要先看到抽到哪些座位，
-  // 由買家自己按「送出訂單」才建立訂單，避免抽到不想要的座位就被持有。
+  // 由買家自己按「確認訂單」才建立訂單，避免抽到不想要的座位就被持有。
   // 後端不保證座位順序（event-management spec）；2026-10-13 走查時同區座位亂序、找不到想要的位置。
   // 刻意用 2／10 驗證是數字自然排序而不是字串排序（字串排序會得到 1、10、2）。
   it('seatGrid_WhenApiReturnsSeatsUnordered_ShowsEachZoneInNaturalSeatOrder', async () => {
@@ -300,13 +458,12 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     const pickedLabel = checkoutSeatList(wrapper).text()
     expect(Object.keys(seatIdByLabel)).toContain(pickedLabel)
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     const selections = vi.mocked(ordersApi.placeOrder).mock.calls[0][0]
     expect(selections.map((s) => s.eventSeatId)).toEqual([seatIdByLabel[pickedLabel]])
-    expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ path: '/order-result/order-1' }))
+    expectOrderPlacedAndReturnedToEventList('order-1')
   })
 
   it('[BW-QUICK-003] 自動選位後手動取消其中一個座位，送出的請求不包含該座位', async () => {
@@ -334,8 +491,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     await cancelledSeat.trigger('click')
     expect(selectedSeatCount(wrapper)).toBe(1)
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     const selections = vi.mocked(ordersApi.placeOrder).mock.calls[0][0]
@@ -369,14 +525,13 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     expect(checkoutSeatList(wrapper).text()).toContain('A-2')
     expect(checkoutSeatList(wrapper).text()).not.toContain('B-')
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     const selections = vi.mocked(ordersApi.placeOrder).mock.calls[0][0]
     expect(selections).toHaveLength(2)
     expect(selections.every((s) => s.eventSeatId === 'seat-a1' || s.eventSeatId === 'seat-a2')).toBe(true)
-    expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ path: '/order-result/order-1' }))
+    expectOrderPlacedAndReturnedToEventList('order-1')
   })
 
   it('區域隨選：分區有可售座位但沒有對應的座位制票種時，不出現在分區選單與抽選池中，也不會縮減數量後下單', async () => {
@@ -481,7 +636,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     expect(ordersApi.placeOrder).not.toHaveBeenCalled()
   })
 
-  it('[BW-FLOW-007] 手動點選座位成功不清除結帳列的既有錯誤（只有「自動選位」與「送出訂單」會清除）', async () => {
+  it('[BW-FLOW-007] 手動點選座位成功不清除結帳列的既有錯誤（只有「自動選位」與「下一步」會清除）', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
@@ -552,35 +707,36 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   it('純計數票種輸入購買數量並成功下單', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType()])
-    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
+    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-count-1' })
     const wrapper = mountPage()
     await flushPromises()
 
     await countInputFor(wrapper, '站立區').setValue(3)
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([{ eventSeatId: null, ticketTypeId: 'tt-count-1', quantity: 3 }])
-    expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ path: '/order-result/order-1' }))
+    expectOrderPlacedAndReturnedToEventList('order-count-1')
   })
 
   it('混合座位選購與純計數購買並成功下單', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
-    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
+    vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-mixed-1' })
     const wrapper = mountPage()
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
     await countInputFor(wrapper, '站立區').setValue(2)
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([
       { eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' },
       { eventSeatId: null, ticketTypeId: 'tt-count-1', quantity: 2 },
     ])
+    expectOrderPlacedAndReturnedToEventList('order-mixed-1')
   })
 
   it('純計數購買數量達到每筆訂單限購張數：輸入元件限制上限，不顯示提示訊息（限制型，與可售總量的互動模式一致）', async () => {
@@ -620,9 +776,9 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
 
     const input = countInputFor(wrapper, '站立區')
     await input.setValue(3)
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expectReplacedToSelectionStep()
     expect(wrapper.text()).toContain('下單失敗')
     expect((countInputFor(wrapper, '站立區').element as HTMLInputElement).value).toBe('0')
     expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(2)
@@ -665,36 +821,37 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
 
     await countInputFor(wrapper, '站立區A').setValue(2)
     // 站立區B 維持 0，不輸入
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([{ eventSeatId: null, ticketTypeId: 'tt-count-a', quantity: 2 }])
   })
 
-  it('送出訂單前偵測到合併總數超過限購張數：擋下送出、不呼叫下單 API', async () => {
-    // 兩個計數票種在同一個同步批次內（未等待中間 re-render）分別輸入，
-    // 模擬 design.md 決策 3 風險緩解描述的情境：個別輸入框當下的 max 還沒反映另一邊剛寫入的數量。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 3 })])
-    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
-      buildCountTicketType({ id: 'tt-count-a', zoneCode: '站立區A', availableQuantity: 10 }),
-      buildCountTicketType({ id: 'tt-count-b', zoneCode: '站立區B', availableQuantity: 10 }),
-    ])
+  it('[BW-CONFIRM-012][BW-ORDER-015] nextStep_WhenTotalExceedsLimit_ShowsErrorInCheckoutBarAndStays', async () => {
+    // 選座位與計數輸入在同一個同步區段內完成（未等待中間 re-render），
+    // 計數輸入框當下的 max 還沒反映剛選的座位，才能製造出合計超過限購的狀態。
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 2 })])
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
     const wrapper = mountPage()
     await flushPromises()
 
-    const inputA = countInputFor(wrapper, '站立區A').element as HTMLInputElement
-    const inputB = countInputFor(wrapper, '站立區B').element as HTMLInputElement
-    inputA.value = '2'
-    inputA.dispatchEvent(new Event('input'))
-    inputB.value = '2'
-    inputB.dispatchEvent(new Event('input'))
+    const countInput = countInputFor(wrapper, '站立區').element as HTMLInputElement
+    ;(wrapper.find('.seat-btn').element as HTMLButtonElement).click()
+    countInput.value = '2'
+    countInput.dispatchEvent(new Event('input'))
+    await flushPromises()
+    // 確認輸入沒有被夾住，否則下方斷言會在未超量的情況下假通過。
+    expect(wrapper.find('.checkout-bar').text()).toContain('已選 1 個座位、2 張計數票券')
+
+    await nextButton(wrapper).trigger('click')
     await flushPromises()
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
-
-    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('每筆訂單最多購買 3 張')
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(replaceMock).not.toHaveBeenCalled()
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(actionError(wrapper).text()).toContain('每筆訂單最多購買 2 張')
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(0)
   })
 
   it('已輸入純計數購買數量時，區域隨選的剩餘額度隨之減少', async () => {
@@ -747,8 +904,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([{ eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' }])
   })
@@ -772,15 +928,14 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
     expect(checkoutSeatList(wrapper).text()).toBe('A-1')
     expect(wrapper.text()).toContain('已選 1 個座位、2 張計數票券')
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([
       { eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' },
       { eventSeatId: null, ticketTypeId: 'tt-count-1', quantity: 2 },
     ])
-    expect(pushMock).toHaveBeenCalledWith(expect.objectContaining({ path: '/order-result/order-1' }))
+    expectOrderPlacedAndReturnedToEventList('order-1')
   })
 
   it('已手動選取座位佔用額度後，計數購買輸入上限隨之減少', async () => {
@@ -954,9 +1109,10 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expectReplacedToSelectionStep()
+    expect(queueApi.getMyQueueStatus).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).not.toContain('下單失敗')
     expect(wrapper.text()).toContain('排隊中')
     expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
@@ -983,8 +1139,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
 
     vi.mocked(captchaApi.getCaptcha).mockResolvedValue({ token: 'captcha-token-2', imageBase64: 'base64-image-2' })
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(wrapper.find('img[alt="驗證碼圖片"]').attributes('src')).toContain('base64-image-2')
     expect((captchaAnswerInput(wrapper).element as HTMLInputElement).value).toBe('')
@@ -1033,7 +1188,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     expect((captchaAnswerInput(wrapper).element as HTMLInputElement).value).toBe('')
   })
 
-  it('BW-QUEUE-005：下單因請求頻率限制被拒絕（429），顯示提示、不清空已選內容、不重新整理資料', async () => {
+  it('BW-QUEUE-005：下單因請求頻率限制被拒絕（429），停在確認步驟顯示提示、不清空已選內容、不重新整理資料', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
@@ -1041,11 +1196,11 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
-    expect(wrapper.text()).toContain('請求過於頻繁')
-    expect(wrapper.text()).toContain('已選 1 個座位')
+    expect(replaceMock).not.toHaveBeenCalled()
+    expect(confirmStepError(wrapper).text()).toContain('請求過於頻繁')
+    expect(wrapper.findAll('.confirm-seat-item')).toHaveLength(1)
     expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
   })
 
@@ -1057,9 +1212,9 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expectReplacedToSelectionStep()
     // 沿用一般失敗處理：顯示錯誤（訊息內容取自 ApiError 本身，不是排隊專屬文案）、清空已選座位、重新整理資料。
     expect(wrapper.text()).toContain('非本人操作')
     expect(wrapper.text()).toContain('已選 0 個座位')
@@ -1192,12 +1347,14 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
     expect(wrapper.text()).not.toContain('購票前需先登記實名')
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expectReplacedToSelectionStep()
     expect(wrapper.text()).toContain('購票前需先登記實名')
     expect(registerLinkTarget(wrapper)).toBe('/me/real-name?redirect=/events/event-1')
-    expect(pushMock).not.toHaveBeenCalled()
+    // 唯一一次 push 是進入確認步驟，沒有導向其他頁面。
+    expect(pushMock).toHaveBeenCalledOnce()
+    expect(pushMock).toHaveBeenCalledWith({ query: { step: 'confirm' } })
     expect(wrapper.find('.el-alert--error').exists()).toBe(false)
     expect(wrapper.find('.seat-btn.selected').exists()).toBe(true)
   })
@@ -1225,7 +1382,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
     expect(captchaApi.getCaptcha).toHaveBeenCalledTimes(2)
   })
 
-  it('[BW-RN-EVENT-007] 個人資料查詢失敗時不顯示提示，送出訂單按鈕可用且會呼叫建立訂單 API', async () => {
+  it('[BW-RN-EVENT-007] 個人資料查詢失敗時不顯示提示，「下一步」可用且確認後會呼叫建立訂單 API', async () => {
     vi.mocked(membersApi.getMyProfile).mockRejectedValue(new ApiError(500, null))
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
     vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
@@ -1235,12 +1392,11 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
     expect(wrapper.text()).not.toContain('購票前需先登記實名')
     expect(wrapper.find('.el-alert--error').exists()).toBe(false)
     await wrapper.find('.seat-btn').trigger('click')
-    expect(submitButton(wrapper).attributes('disabled')).toBeUndefined()
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    expect(nextButton(wrapper).attributes('disabled')).toBeUndefined()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
-    expect(pushMock).toHaveBeenCalledWith({ path: '/order-result/order-1' })
+    expectOrderPlacedAndReturnedToEventList('order-1')
   })
 
   it('未登記者仍可送出訂單，前端不自行擋下（以後端判斷為準）', async () => {
@@ -1251,8 +1407,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
   })
@@ -1264,8 +1419,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(wrapper.text()).not.toContain('購票前需先登記實名')
     expect(wrapper.find('.el-alert--error').exists()).toBe(true)
@@ -1391,8 +1545,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     expect(salesTagText(wrapper)).toBe('販售中')
 
     await wrapper.findAll('.seat-btn')[0].trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
   })
 
@@ -1415,7 +1568,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     await quickPickButton(wrapper).trigger('click')
     await flushPromises()
     expect(ordersApi.placeOrder).not.toHaveBeenCalled()
-    expect(isDisabled(submitButton(wrapper))).toBe(true)
+    expect(isDisabled(nextButton(wrapper))).toBe(true)
 
     expect(salesPrompt(wrapper).text()).toContain(promptText)
   })
@@ -1431,7 +1584,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     expect(salesPrompt(wrapper).text()).toContain(`尚未開賣，將於 ${localized(SALES_START)} 開放購票`)
   })
 
-  it('[BW-SALES-007] 停留到開賣時間自動解鎖，手動選位後可送出訂單', async () => {
+  it('[BW-SALES-007] 停留到開賣時間自動解鎖，手動選位後可經確認步驟送出訂單', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
     const wrapper = mountPage()
     await flushPromises()
@@ -1443,8 +1596,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     expectPurchaseControlsDisabled(wrapper, false)
     await wrapper.findAll('.seat-btn')[0].trigger('click')
     expect(wrapper.findAll('.seat-btn')[0].classes()).toContain('selected')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
     expect(ordersApi.placeOrder).toHaveBeenCalledWith([{ eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' }])
   })
@@ -1536,7 +1688,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     await crossTo(SALES_END)
     expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
     expect(salesTagText(wrapper)).toBe('已停售')
-    expect(isDisabled(submitButton(wrapper))).toBe(true)
+    expect(isDisabled(nextButton(wrapper))).toBe(true)
   })
 
   it('[BW-SALES-019] 熱門搶購開賣後排隊等待時隱藏「現在開放購票」，放行後重新顯示並可下單', async () => {
@@ -1564,8 +1716,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     const prompt = firstElementAfterHeading(wrapper)
     expect(prompt.textContent).toContain('現在開放購票')
     await wrapper.findAll('.seat-btn')[0].trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
   })
 
@@ -1580,11 +1731,12 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
 
     expect(salesTagText(wrapper)).toBe('已停售')
     expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
-    expect(isDisabled(submitButton(wrapper))).toBe(true)
+    expect(isDisabled(nextButton(wrapper))).toBe(true)
     expectPurchaseControlsDisabled(wrapper, true)
     await quickPickButton(wrapper).trigger('click')
-    await submitButton(wrapper).trigger('click')
+    await nextButton(wrapper).trigger('click')
     await flushPromises()
+    expect(confirmStep(wrapper).exists()).toBe(false)
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(0)
   })
 
@@ -1637,19 +1789,19 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     const wrapper = await mountWithSeatAndCountSelected()
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesWindowError('SalesNotOpen'))
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
-    expect(errorAlert(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
+    // SalesNotOpen 停在確認步驟（BW-CONFIRM-006），保留的選擇以確認清單呈現。
+    expect(replaceMock).not.toHaveBeenCalled()
+    expect(confirmStepError(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
     expect(wrapper.text()).not.toContain('english detail')
-    expect(wrapper.findAll('.seat-btn')[0].classes()).toContain('selected')
-    expect((countInputFor(wrapper, '站立區').element as HTMLInputElement).value).toBe('2')
+    expect(wrapper.findAll('.confirm-seat-item')).toHaveLength(1)
+    expect(wrapper.find('.confirm-count-item').text()).toContain('2')
     expectNoReload()
     expect(salesTagText(wrapper)).toBe('販售中')
-    expect(isDisabled(submitButton(wrapper))).toBe(false)
+    expect(isDisabled(confirmButton(wrapper))).toBe(false)
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await confirmOrder(wrapper)
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(2)
   })
 
@@ -1663,12 +1815,11 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     await flushPromises()
     expect(ordersApi.placeOrder).not.toHaveBeenCalled()
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
-    expect(wrapper.findAll('.seat-btn.selected')).toHaveLength(1)
-    expect(actionError(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
+    expect(wrapper.findAll('.confirm-seat-item')).toHaveLength(1)
+    expect(confirmStepError(wrapper).text()).toContain('尚未開賣，請於開賣時間後再試')
     expect(pageError(wrapper).exists()).toBe(false)
     expectNoReload()
   })
@@ -1677,9 +1828,9 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     const wrapper = await mountWithSeatAndCountSelected()
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesWindowError('SalesClosed'))
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expectReplacedToSelectionStep()
     // 已停售只在販售提示顯示一次；若又設 errorMessage，畫面會重複出現同一句。
     expect(errorAlert(wrapper).exists()).toBe(false)
     expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
@@ -1688,7 +1839,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     expect((countInputFor(wrapper, '站立區').element as HTMLInputElement).value).toBe('2')
     expectNoReload()
     expect(salesTagText(wrapper)).toBe('已停售')
-    expect(isDisabled(submitButton(wrapper))).toBe(true)
+    expect(isDisabled(nextButton(wrapper))).toBe(true)
     expectPurchaseControlsDisabled(wrapper, true)
   })
 
@@ -1702,9 +1853,9 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     await flushPromises()
     expect(ordersApi.placeOrder).not.toHaveBeenCalled()
 
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
+    expectReplacedToSelectionStep()
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
     expect(wrapper.findAll('.seat-btn.selected')).toHaveLength(1)
     expect(salesTagText(wrapper)).toBe('已停售')
@@ -1799,7 +1950,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
 
     expect(wrapper.findComponent(QueueWaitingPanel).exists()).toBe(false)
     expect(salesPrompt(wrapper).text()).toContain('本活動已停售')
-    expect(isDisabled(submitButton(wrapper))).toBe(true)
+    expect(isDisabled(nextButton(wrapper))).toBe(true)
   })
 
   it('卸載時清除販售時鐘 interval 並移除 visibilitychange 監聽', async () => {
@@ -1855,10 +2006,6 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
     expect(pageError(wrapper).exists()).toBe(false)
   }
 
-  function salesNotOpenError() {
-    return new ApiError(409, { status: 409, title: 'SalesNotOpen', detail: 'english detail' })
-  }
-
   // BW-FLOW-007 的前置狀態：一般下單失敗且重新載入也失敗，頁面層級與操作層級錯誤並存。
   // 重新載入失敗時 event 仍保留上一次的值（loadData 只在全部成功後才寫入），頁面不會變成「找不到活動」。
   async function mountWithPageAndActionErrors(event: EventSummary = buildEvent()) {
@@ -1868,8 +2015,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(pageError(wrapper).text()).toContain('載入活動資訊失敗')
     expect(actionError(wrapper).text()).toContain('下單失敗')
@@ -1946,7 +2092,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
     const wrapper = mountPage()
     await flushPromises()
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
+    await submitOrder(wrapper)
     return wrapper
   }
 
@@ -2013,24 +2159,8 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
         const wrapper = mountPage()
         await flushPromises()
         await fillTwoCountTicketsInOneBatch(wrapper)
-        await submitButton(wrapper).trigger('click')
+        await nextButton(wrapper).trigger('click')
         return wrapper
-      },
-    ],
-    [
-      '(f) 送出時回傳 429',
-      '請求過於頻繁',
-      async () => {
-        vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
-        return mountAndSubmitOneSeat()
-      },
-    ],
-    [
-      '(g) 送出時回傳 409 SalesNotOpen',
-      '尚未開賣，請於開賣時間後再試',
-      async () => {
-        vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesNotOpenError())
-        return mountAndSubmitOneSeat()
       },
     ],
     [
@@ -2057,7 +2187,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
     const wrapper = await mountWithPageAndActionErrors(buildEvent({ maxTicketsPerOrder: 3 }))
 
     await fillTwoCountTicketsInOneBatch(wrapper)
-    await submitButton(wrapper).trigger('click')
+    await nextButton(wrapper).trigger('click')
     await flushPromises()
 
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
@@ -2095,32 +2225,32 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
   })
 
-  it('[BW-FLOW-003] (k) 沒有已選內容：「送出訂單」停用，兩處錯誤都不清除', async () => {
+  it('[BW-FLOW-003] (k) 沒有已選內容：「下一步」停用，兩處錯誤都不清除', async () => {
     const wrapper = await mountWithPageAndActionErrors()
 
     expect(wrapper.text()).toContain('已選 0 個座位')
-    expect(submitButton(wrapper).attributes('disabled')).toBeDefined()
-    await submitButton(wrapper).trigger('click')
+    expect(nextButton(wrapper).attributes('disabled')).toBeDefined()
+    await nextButton(wrapper).trigger('click')
     await flushPromises()
     expectBothErrorsRemain(wrapper)
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
   })
 
-  it('[BW-FLOW-007] 一般失敗且重新載入也失敗時兩處錯誤並存，重新送出時兩處舊錯誤都清除', async () => {
+  it('[BW-FLOW-007] 一般失敗且重新載入也失敗時兩處錯誤並存，按「下一步」後兩處舊錯誤都清除並進入確認步驟', async () => {
     const wrapper = await mountWithPageAndActionErrors()
     expect(wrapper.text()).toContain('已選 0 個座位')
 
     await wrapper.find('.seat-btn').trigger('click')
     expectBothErrorsRemain(wrapper)
 
-    vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
-    await submitButton(wrapper).trigger('click')
+    await nextButton(wrapper).trigger('click')
     await flushPromises()
 
-    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(2)
+    expect(confirmStep(wrapper).exists()).toBe(true)
     expect(pageError(wrapper).exists()).toBe(false)
-    expect(actionError(wrapper).text()).toContain('請求過於頻繁')
-    expect(actionError(wrapper).text()).not.toContain('下單失敗')
+    expect(confirmStepError(wrapper).exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('下單失敗')
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
   })
 
   it('[BW-FLOW-004] 活動載入失敗：錯誤顯示在頁面頂端並帶 role="alert"，不出現在結帳列', async () => {
@@ -2172,8 +2302,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
     await flushPromises()
 
     await wrapper.find('.seat-btn').trigger('click')
-    await submitButton(wrapper).trigger('click')
-    await flushPromises()
+    await submitOrder(wrapper)
 
     expect(pageError(wrapper).text()).toContain('排隊資格已逾時或尚未入場')
     expect(wrapper.find('.checkout-bar').exists()).toBe(false)
@@ -2181,14 +2310,14 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
     wrapper.unmount()
   })
 
-  it.each(['NotJoined', 'Waiting'])('[BW-FLOW-006] 排隊狀態為 %s 時不顯示結帳列與「送出訂單」', async (status) => {
+  it.each(['NotJoined', 'Waiting'])('[BW-FLOW-006] 排隊狀態為 %s 時不顯示結帳列與「下一步」', async (status) => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status, waitingCount: 1 }))
     const wrapper = mountPage()
     await flushPromises()
 
     expect(wrapper.find('.checkout-bar').exists()).toBe(false)
-    expect(wrapper.findAll('button').some((b) => b.text() === '送出訂單')).toBe(false)
+    expect(wrapper.findAll('button').some((b) => b.text() === '下一步')).toBe(false)
     wrapper.unmount()
   })
 
@@ -2263,6 +2392,21 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
     await soldSeat.trigger('click')
 
     expect(pushMock).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/events/event-1' } })
+  })
+
+  it('seatClick_WhenSignedOutOnAvailableSeat_RedirectsToLoginWithoutSelecting', async () => {
+    mockIsAuthenticated = false
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.seat-btn').trigger('click')
+    await flushPromises()
+
+    expect(pushMock).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/events/event-1' } })
+    expect(wrapper.find('.seat-btn.selected').exists()).toBe(false)
+    expect(wrapper.text()).toContain('已選 0 個座位')
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(0)
   })
 
   it('[BW-SEAT-A11Y-004] 保留中（Held）座位同樣標示 aria-disabled、沒有原生 disabled，已登入點選不加入已選清單', async () => {
@@ -2422,11 +2566,837 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
       expect(tabStopNumbers(wrapper, 0)).toEqual(['5'])
 
       vi.mocked(eventsApi.getEventSeats).mockResolvedValue(buildRovingSeats({ 5: 'Sold' }))
-      await submitButton(wrapper).trigger('click')
-      await flushPromises()
+      await submitOrder(wrapper)
 
       expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
       expect(tabStopNumbers(wrapper, 0)).toEqual(['2'])
     })
+  })
+})
+
+describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
+  type PlaceOrderResult = Awaited<ReturnType<typeof ordersApi.placeOrder>>
+  const NOW = new Date('2030-01-01T00:00:00.000Z').getTime()
+  let attachedWrapper: ReturnType<typeof mount> | null = null
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return { promise, resolve, reject }
+  }
+
+  function mountAttached() {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    attachedWrapper = mountPage({ attachTo: host })
+    return attachedWrapper
+  }
+
+  function checkoutSummary(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.checkout-bar [aria-live="polite"]').text()
+  }
+
+  function isChecked(wrapper: ReturnType<typeof mount>) {
+    return (noticeCheckbox(wrapper).element as HTMLInputElement).checked
+  }
+
+  function isDisabled(element: { attributes: (name: string) => string | undefined }) {
+    return element.attributes('disabled') !== undefined
+  }
+
+  // 一個座位＋計數 2 張：混合內容才能同時檢查兩類項目在步驟切換後都保留。
+  async function selectSeatAndCount(wrapper: ReturnType<typeof mount>) {
+    await wrapper.find('.seat-btn').trigger('click')
+    await countInputFor(wrapper, '站立區').setValue(2)
+  }
+
+  function expectSelectionsKept(wrapper: ReturnType<typeof mount>) {
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(checkoutSummary(wrapper)).toContain('已選 1 個座位、2 張計數票券')
+  }
+
+  async function mountWithSelectionsOnConfirmStep() {
+    const wrapper = mountPage()
+    await flushPromises()
+    await selectSeatAndCount(wrapper)
+    await goToConfirmStep(wrapper)
+    return wrapper
+  }
+
+  beforeEach(() => {
+    mockIsAuthenticated = true
+    pushMock.mockReset()
+    vi.mocked(eventsApi.getEvents).mockReset().mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventSeats).mockReset().mockResolvedValue([
+      buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
+      buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
+    ])
+    vi.mocked(eventsApi.getTicketTypes).mockReset().mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
+    vi.mocked(ordersApi.placeOrder).mockReset().mockResolvedValue({ id: 'order-1' } as PlaceOrderResult)
+    vi.mocked(queueApi.getMyQueueStatus).mockReset()
+    vi.mocked(captchaApi.getCaptcha).mockReset().mockResolvedValue({ token: 'captcha-token-1', imageBase64: 'base64-image-1' })
+    vi.mocked(membersApi.getMyProfile).mockReset()
+  })
+
+  afterEach(() => {
+    attachedWrapper?.unmount()
+    attachedWrapper = null
+    vi.useRealTimers()
+  })
+
+  // BW-CONFIRM-001：「下一步」只切換畫面，不建單；建單一定要等買家看過內容並確認。
+  it('[BW-CONFIRM-001] nextStep_WithSeatsAndCountSelections_ShowsConfirmStepWithoutPlacingOrder', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    const seatButtons = wrapper.findAll('.seat-btn')
+    await seatButtons[0].trigger('click')
+    await seatButtons[1].trigger('click')
+    await countInputFor(wrapper, '站立區').setValue(2)
+
+    await nextButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(pushMock).toHaveBeenCalledWith({ query: { step: 'confirm' } })
+    expect(mockRoute.query.step).toBe('confirm')
+    const seatItems = wrapper.findAll('.confirm-seat-item')
+    expect(seatItems).toHaveLength(2)
+    expect(seatItems[0].text()).toContain('A-1')
+    expect(seatItems[0].text()).toContain('NT$1,000')
+    expect(seatItems[1].text()).toContain('A-2')
+    const countItems = wrapper.findAll('.confirm-count-item')
+    expect(countItems).toHaveLength(1)
+    expect(countItems[0].text()).toContain('站立區')
+    expect(countItems[0].text()).toContain('× 2')
+    expect(countItems[0].text()).toContain('NT$1,000')
+    expect(wrapper.find('.confirm-total').text()).toContain('NT$3,000')
+    expect(isChecked(wrapper)).toBe(false)
+    expect(wrapper.find('.seat-btn').exists()).toBe(false)
+    expect(wrapper.find('.checkout-bar').exists()).toBe(false)
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+  })
+
+  // 只列有選的那一類，數量 0 的計數票種不列；總金額必須與結帳列一致，買家才不會看到兩個不同金額。
+  it.each([
+    { kind: '純座位', seatClicks: 1, countQuantity: 0, presentList: '.confirm-seat-list', absentList: '.confirm-count-list' },
+    { kind: '純計數', seatClicks: 0, countQuantity: 3, presentList: '.confirm-count-list', absentList: '.confirm-seat-list' },
+  ])(
+    '[BW-CONFIRM-001] confirmStep_WithSeatsOnlyOrCountOnly_ShowsMatchingItemsAndTotal（$kind）',
+    async ({ seatClicks, countQuantity, presentList, absentList }) => {
+      vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
+        buildSeatTicketType(),
+        buildCountTicketType(),
+        buildCountTicketType({ id: 'tt-count-2', zoneCode: '搖滾區', price: 800 }),
+      ])
+      const wrapper = mountPage()
+      await flushPromises()
+      if (seatClicks > 0) await wrapper.find('.seat-btn').trigger('click')
+      if (countQuantity > 0) await countInputFor(wrapper, '站立區').setValue(countQuantity)
+      const checkoutTotal = checkoutSummary(wrapper).match(/NT\$[\d,]+/)?.[0]
+      expect(checkoutTotal).toMatch(/NT\$[1-9]/)
+
+      await nextButton(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find(presentList).exists()).toBe(true)
+      expect(wrapper.find(absentList).exists()).toBe(false)
+      expect(confirmStep(wrapper).text()).not.toContain('搖滾區')
+      expect(wrapper.find('.confirm-total').text()).toContain(checkoutTotal)
+    },
+  )
+
+  it('[BW-CONFIRM-002] confirmOrder_BeforeAgreeingNotice_IsDisabled', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await selectSeatAndCount(wrapper)
+    await nextButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(isDisabled(confirmButton(wrapper))).toBe(true)
+    ;(confirmButton(wrapper).element as HTMLButtonElement).click()
+    await flushPromises()
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+  })
+
+  it('[BW-CONFIRM-002] confirmOrder_AfterAgreeingNotice_PlacesOrderOnceWithSelections', async () => {
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+
+    expect(isDisabled(confirmButton(wrapper))).toBe(false)
+    await confirmOrder(wrapper)
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
+    expect(ordersApi.placeOrder).toHaveBeenCalledWith([
+      { eventSeatId: 'seat-1', ticketTypeId: 'tt-seat-a' },
+      { eventSeatId: null, ticketTypeId: 'tt-count-1', quantity: 2 },
+    ])
+  })
+
+  // 「返回改選」與瀏覽器上一頁走同一條路徑（design.md 決策 1），兩者都要保留內容並把焦點交回「下一步」。
+  it.each([
+    { via: '返回改選', goBack: (wrapper: ReturnType<typeof mount>) => backToSelectionButton(wrapper).trigger('click') },
+    { via: '瀏覽器上一頁', goBack: async () => browserBack() },
+  ])('[BW-CONFIRM-003] backToSelection_FromConfirmStep_KeepsSelectionsAndFocusesNextButton（$via）', async ({ goBack }) => {
+    const wrapper = mountAttached()
+    await flushPromises()
+    await selectSeatAndCount(wrapper)
+    await goToConfirmStep(wrapper)
+
+    await goBack(wrapper)
+    await flushPromises()
+
+    expect(mockRoute.query.step).toBeUndefined()
+    expectSelectionsKept(wrapper)
+    expect(document.activeElement).toBe(nextButton(wrapper).element)
+    expect(ordersApi.placeOrder).not.toHaveBeenCalled()
+  })
+
+  it('[BW-CONFIRM-003] nextStep_AfterReturning_ResetsNoticeAgreement', async () => {
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    expect(isChecked(wrapper)).toBe(true)
+
+    await backToSelectionButton(wrapper).trigger('click')
+    await flushPromises()
+    await nextButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(confirmStep(wrapper).exists()).toBe(true)
+    expect(isChecked(wrapper)).toBe(false)
+    expect(isDisabled(confirmButton(wrapper))).toBe(true)
+  })
+
+  it('[BW-CONFIRM-003] forward_BackToConfirmStep_ResetsNoticeAgreement', async () => {
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    expect(isChecked(wrapper)).toBe(true)
+
+    browserBack()
+    await flushPromises()
+    browserForward()
+    await flushPromises()
+
+    expect(confirmStep(wrapper).exists()).toBe(true)
+    expect(isChecked(wrapper)).toBe(false)
+  })
+
+  it('[BW-CONFIRM-011] nextStep_EnteringConfirmStep_FocusesConfirmHeading', async () => {
+    const wrapper = mountAttached()
+    await flushPromises()
+    await selectSeatAndCount(wrapper)
+
+    await nextButton(wrapper).trigger('click')
+    await flushPromises()
+
+    const heading = wrapper.find('.confirm-step h2')
+    expect(heading.text()).toBe('確認訂單內容')
+    expect(document.activeElement).toBe(heading.element)
+  })
+
+  it.each([
+    { isRealNameRequired: true, shouldShow: true },
+    { isRealNameRequired: false, shouldShow: false },
+  ])(
+    '[BW-CONFIRM-013] confirmStep_RealNameRequiredEvent_ShowsRealNameNotice（需實名：$isRealNameRequired）',
+    async ({ isRealNameRequired, shouldShow }) => {
+      vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired })])
+      vi.mocked(membersApi.getMyProfile).mockResolvedValue({ hasRegisteredRealName: true } as MemberProfile)
+      const wrapper = await mountWithSelectionsOnConfirmStep()
+
+      const confirmText = confirmStep(wrapper).text()
+      expect(confirmText).toContain('確認訂單後，系統為你保留 10 分鐘；期限內未付款，訂單會自動取消並釋出座位與票券。')
+      expect(confirmText).toContain('付款完成後才會出票，票券與 QR Code 可在「我的訂單」查看。')
+      expect(confirmText).toContain('我已閱讀並同意注意事項')
+      expect(confirmText.includes('本活動需實名，入場時須出示與登記資料相符的證件。')).toBe(shouldShow)
+    },
+  )
+
+  it('[BW-CONFIRM-004] mount_WithConfirmStepQueryAndNoSelections_ReplacesToSelectionStep', async () => {
+    applyQuery({ step: 'confirm' })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(replaceMock).toHaveBeenCalledWith({ query: {} })
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(wrapper.find('.seat-btn').exists()).toBe(true)
+  })
+
+  it('[BW-CONFIRM-010] confirmStep_WhenSalesEndPasses_ReplacesToSelectionAndDisablesNext', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ salesEndAtUtc: new Date(NOW + 60_000).toISOString() })])
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+
+    vi.setSystemTime(NOW + 61_000)
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+
+    expect(replaceMock).toHaveBeenCalledWith({ query: {} })
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(wrapper.find('.purchase-column .sales-prompt').text()).toContain('本活動已停售')
+    expect(isDisabled(nextButton(wrapper))).toBe(true)
+  })
+
+  it('[BW-CONFIRM-005] confirmOrder_WhilePlacingOrder_CallsApiOnceAndDisablesBack', async () => {
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+
+    await confirmButton(wrapper).trigger('click')
+    await flushPromises()
+    ;(confirmButton(wrapper).element as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledOnce()
+    expect(isDisabled(backToSelectionButton(wrapper))).toBe(true)
+    pending.resolve({ id: 'order-1' } as PlaceOrderResult)
+    await flushPromises()
+  })
+
+  // 照原樣重試就可能成功的錯誤停在確認步驟（design.md 決策 3），不清空、不重新查詢。
+  it.each([
+    { kind: '429', error: () => new ApiError(429, { status: 429, title: 'TooManyRequests' }), message: '請求過於頻繁，請稍後再試' },
+    {
+      kind: 'SalesNotOpen',
+      error: () => new ApiError(409, { status: 409, title: 'SalesNotOpen', detail: 'english detail' }),
+      message: '尚未開賣，請於開賣時間後再試',
+    },
+  ])('[BW-CONFIRM-006] confirmOrder_When429OrSalesNotOpen_StaysOnConfirmStepWithError（$kind）', async ({ error, message }) => {
+    vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(error())
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+
+    await confirmOrder(wrapper)
+
+    expect(replaceMock).not.toHaveBeenCalled()
+    expect(mockRoute.query.step).toBe('confirm')
+    expect(isChecked(wrapper)).toBe(true)
+    expect(wrapper.findAll('.confirm-seat-item')).toHaveLength(1)
+    expect(wrapper.find('.confirm-count-item').text()).toContain('× 2')
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
+    expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(1)
+    expect(confirmStepError(wrapper).text()).toContain(message)
+    expect(wrapper.find('.checkout-bar').exists()).toBe(false)
+    expect(isDisabled(confirmButton(wrapper))).toBe(false)
+  })
+
+  it('[BW-CONFIRM-007] confirmOrder_WhenGenericFailure_ReturnsToSelectionClearsAndReloads', async () => {
+    vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(new Error('座位已被搶'))
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+
+    await confirmOrder(wrapper)
+
+    expectReplacedToSelectionStep()
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(actionError(wrapper).text()).toContain('下單失敗')
+    expect(checkoutSummary(wrapper)).toContain('已選 0 個座位、0 張計數票券')
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+    expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(2)
+  })
+
+  // 三種錯誤都退回選位、保留內容；各自的提示沿用原 Requirement 的位置（design.md 決策 3）。
+  it.each([
+    {
+      kind: 'QueueAdmissionRequired',
+      arrange: () => {
+        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+        vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+        return new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' })
+      },
+      verify: (wrapper: ReturnType<typeof mount>) => {
+        expect(pageError(wrapper).text()).toContain('排隊資格已逾時或尚未入場')
+        expect(queueApi.getMyQueueStatus).toHaveBeenCalledTimes(2)
+      },
+    },
+    {
+      kind: 'RealNameRequired',
+      arrange: () => {
+        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+        vi.mocked(membersApi.getMyProfile).mockResolvedValue({ hasRegisteredRealName: true } as MemberProfile)
+        return new ApiError(403, { status: 403, title: 'RealNameRequired', detail: '此活動需實名登記後才能購票。' })
+      },
+      verify: (wrapper: ReturnType<typeof mount>) => {
+        expect(wrapper.text()).toContain('購票前需先登記實名')
+        expect(wrapper.text()).not.toContain('下單失敗')
+        expect(actionError(wrapper).exists()).toBe(false)
+      },
+    },
+    {
+      kind: 'SalesClosed',
+      arrange: () => new ApiError(409, { status: 409, title: 'SalesClosed', detail: 'english detail' }),
+      verify: (wrapper: ReturnType<typeof mount>) => {
+        expect(wrapper.find('.purchase-column .sales-prompt').text()).toContain('本活動已停售')
+        expect(isDisabled(nextButton(wrapper))).toBe(true)
+      },
+    },
+  ])(
+    '[BW-CONFIRM-008] confirmOrder_WhenQueueRealNameOrSalesClosed_ReturnsToSelectionKeepingSelections（$kind）',
+    async ({ arrange, verify }) => {
+      vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(arrange())
+      const wrapper = await mountWithSelectionsOnConfirmStep()
+
+      await confirmOrder(wrapper)
+
+      expectReplacedToSelectionStep()
+      expectSelectionsKept(wrapper)
+      expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
+      verify(wrapper)
+    },
+  )
+
+  it('[BW-CONFIRM-009] confirmOrder_When401_RedirectsToLoginWithoutStepQuery', async () => {
+    vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(new ApiError(401, { detail: 'unauthorized' }))
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    expect(mockRoute.fullPath).toContain('step=confirm')
+
+    await confirmOrder(wrapper)
+
+    expect(pushMock).toHaveBeenLastCalledWith({ path: '/login', query: { redirect: '/events/event-1' } })
+  })
+
+  // 已離開頁面時不能把買家拉回活動列表，也不能留下延後顯示的付款提示（design.md 決策 4）。
+  // 換頁尚未完成（守衛已觸發、元件還在）與已卸載都算已離開：兩者都不能把買家拉回列表。
+  it.each([
+    { when: '已卸載', leave: (wrapper: ReturnType<typeof mount>) => wrapper.unmount() },
+    { when: '離開導覽進行中', leave: () => startLeavingPage() },
+  ])('[BW-CONFIRM-014] confirmOrder_WhenPageLeftBeforeSuccess_ShowsMessageWithoutNavigatingOrRecordingNotice（$when）', async ({ leave }) => {
+    const successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} }) as never)
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    pushMock.mockClear()
+    replaceMock.mockClear()
+
+    leave(wrapper)
+    pending.resolve({ id: 'order-late' } as PlaceOrderResult)
+    await flushPromises()
+
+    expect(replaceMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(usePlacedOrderNoticeStore().placedOrderId).toBeNull()
+    expect(successSpy).toHaveBeenCalledWith('訂單已建立，請到「我的訂單」完成付款')
+    successSpy.mockRestore()
+  })
+
+  it('[BW-CONFIRM-009] confirmOrder_When401AfterLeavingPage_DoesNotRedirectToLogin', async () => {
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    pushMock.mockClear()
+    replaceMock.mockClear()
+
+    startLeavingPage()
+    pending.reject(new ApiError(401, { detail: 'unauthorized' }))
+    await flushPromises()
+
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(replaceMock).not.toHaveBeenCalled()
+  })
+
+  it('[BW-CONFIRM-015] confirmOrder_WhenSucceeded_RecordsNoticeAndReplacesToEventList', async () => {
+    vi.mocked(ordersApi.placeOrder).mockResolvedValueOnce({ id: 'order-123' } as PlaceOrderResult)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+
+    await confirmOrder(wrapper)
+
+    expect(usePlacedOrderNoticeStore().placedOrderId).toBe('order-123')
+    expect(replaceMock).toHaveBeenCalledTimes(1)
+    expect(replaceMock).toHaveBeenCalledWith({ name: 'events' })
+    // 唯一一次 push 是進入確認步驟；成功後不新增瀏覽紀錄。
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    expect(pushMock).toHaveBeenCalledWith({ query: { step: 'confirm' } })
+  })
+
+  describe('[BW-CONFIRM-016] confirmOrder_WhenBackPressedBeforeResponse_HandlesSuccessAnd429OnSelectionStep', () => {
+    async function confirmThenGoBack() {
+      const pending = deferred<PlaceOrderResult>()
+      vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+      const wrapper = await mountWithSelectionsOnConfirmStep()
+      await confirmButton(wrapper).trigger('click')
+      browserBack()
+      await flushPromises()
+      expect(confirmStep(wrapper).exists()).toBe(false)
+      return { wrapper, pending }
+    }
+
+    it('成功', async () => {
+      const { pending } = await confirmThenGoBack()
+
+      pending.resolve({ id: 'order-back-1' } as PlaceOrderResult)
+      await flushPromises()
+
+      expect(usePlacedOrderNoticeStore().placedOrderId).toBe('order-back-1')
+      expect(replaceMock).toHaveBeenCalledWith({ name: 'events' })
+    })
+
+    it('429', async () => {
+      const { wrapper, pending } = await confirmThenGoBack()
+
+      pending.reject(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
+      await flushPromises()
+
+      expect(replaceMock).not.toHaveBeenCalled()
+      expectSelectionsKept(wrapper)
+      expect(actionError(wrapper).text()).toContain('請求過於頻繁，請稍後再試')
+    })
+  })
+
+  // 送出中「下一步」是 loading（disabled），返回當下 focus() 無效；必須等送出結束才把焦點交給它（design.md 決策 7）。
+  it('[BW-CONFIRM-016] backToSelection_WhileSubmitting_FocusesNextButtonAfterResponse', async () => {
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = mountAttached()
+    await flushPromises()
+    await selectSeatAndCount(wrapper)
+    await goToConfirmStep(wrapper)
+    await confirmButton(wrapper).trigger('click')
+    browserBack()
+    await flushPromises()
+
+    pending.reject(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
+    await flushPromises()
+
+    expect(isDisabled(nextButton(wrapper))).toBe(false)
+    expect(document.activeElement).toBe(nextButton(wrapper).element)
+  })
+
+  // 錯誤退回只以 role="alert" 公告，不搶焦點（design.md 決策 7）；送出結束後也不能延後把焦點移到「下一步」。
+  it('[BW-CONFIRM-008] confirmOrder_WhenErrorReturnsToSelection_DoesNotMoveFocusToNextButton', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+    vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' }))
+    const wrapper = mountAttached()
+    await flushPromises()
+    await selectSeatAndCount(wrapper)
+    await goToConfirmStep(wrapper)
+    ;(confirmButton(wrapper).element as HTMLElement).focus()
+
+    await confirmOrder(wrapper)
+
+    expectSelectionsKept(wrapper)
+    expect(isDisabled(nextButton(wrapper))).toBe(false)
+    expect(document.activeElement).not.toBe(nextButton(wrapper).element)
+  })
+
+  // 離開導覽失敗（目標頁載入失敗或被取消）時買家仍在本頁：確認訂單成功必須照常回到列表，不能停在可再按一次的確認步驟。
+  it.each([
+    { via: '導覽被取消', failLeaving: (to: object) => afterEachHook?.(to, {}, { type: 4 }) },
+    { via: '目標頁載入失敗', failLeaving: (to: object) => navigationErrorHook?.(new Error('chunk load failed'), to) },
+  ])('[BW-CONFIRM-015] confirmOrder_AfterLeavingNavigationFailed_ReturnsToEventList（$via）', async ({ failLeaving }) => {
+    vi.mocked(ordersApi.placeOrder).mockResolvedValueOnce({ id: 'order-after-failed-leave' } as PlaceOrderResult)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+
+    failLeaving(startLeavingPage())
+    await confirmOrder(wrapper)
+
+    expect(replaceMock).toHaveBeenCalledWith({ name: 'events' })
+    expect(usePlacedOrderNoticeStore().placedOrderId).toBe('order-after-failed-leave')
+  })
+
+  // 訂單已建立後導頁失敗，不能顯示「下單失敗」讓買家重下；也不能停在確認步驟讓買家再按一次（design.md 決策 4）。
+  it.each([
+    {
+      via: '導覽 reject',
+      failNavigation: async (to: object) => {
+        navigationErrorHook?.(new Error('chunk load failed'), to)
+        throw new Error('chunk load failed')
+      },
+    },
+    {
+      via: '導覽被取消',
+      failNavigation: async (to: object) => {
+        const failure = { type: 4 }
+        afterEachHook?.(to, {}, failure)
+        return failure
+      },
+    },
+  ])('[BW-CONFIRM-015] confirmOrder_WhenNavigationToEventListFails_ShowsSuccessAndReturnsToRefreshedSelection（$via）', async ({ failNavigation }) => {
+    const successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} }) as never)
+    vi.mocked(ordersApi.placeOrder).mockResolvedValueOnce({ id: 'order-nav-failed' } as PlaceOrderResult)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    const applyReplace = replaceMock.getMockImplementation()
+    replaceMock.mockImplementation(async (location: unknown) => {
+      if ((location as { name?: string }).name !== 'events') return applyReplace?.(location as never)
+      // replaceMock 宣告回傳 Promise<void>；真實 router.replace 被取消時會 resolve 成 NavigationFailure。
+      return failNavigation(startLeavingPage({ name: 'events' })) as Promise<never>
+    })
+
+    await confirmOrder(wrapper)
+
+    expect(successSpy).toHaveBeenCalledWith('訂單已建立，請到「我的訂單」完成付款')
+    expect(usePlacedOrderNoticeStore().placedOrderId).toBeNull()
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(checkoutSummary(wrapper)).toContain('已選 0 個座位、0 張計數票券')
+    expect(wrapper.text()).not.toContain('下單失敗')
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+    successSpy.mockRestore()
+  })
+
+  // 連點離頁連結：前一個導覽被後一個取代而回報失敗，買家仍在離開途中，成功回應不能把他拉回列表（design.md 決策 4）。
+  it('[BW-CONFIRM-014] confirmOrder_WhenEarlierLeavingNavigationSuperseded_StillTreatsPageAsLeft', async () => {
+    const successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} }) as never)
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    replaceMock.mockClear()
+
+    const firstClick = startLeavingPage({ path: '/orders' })
+    startLeavingPage({ path: '/orders' })
+    afterEachHook?.(firstClick, {}, { type: 8 })
+    pending.resolve({ id: 'order-superseded' } as PlaceOrderResult)
+    await flushPromises()
+
+    expect(replaceMock).not.toHaveBeenCalled()
+    expect(usePlacedOrderNoticeStore().placedOrderId).toBeNull()
+    expect(successSpy).toHaveBeenCalledWith('訂單已建立，請到「我的訂單」完成付款')
+    successSpy.mockRestore()
+  })
+
+  // 導回列表途中買家另點連結取代了這次導頁：只告知成功，不能再改步驟（會取消買家的導覽）或重新載入。
+  it('[BW-CONFIRM-018] confirmOrder_WhenNavigationToEventListSupersededByBuyer_OnlyShowsSuccess', async () => {
+    const successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} }) as never)
+    vi.mocked(ordersApi.placeOrder).mockResolvedValueOnce({ id: 'order-superseded-nav' } as PlaceOrderResult)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    const applyReplace = replaceMock.getMockImplementation()
+    replaceMock.mockImplementation(async (location: unknown) => {
+      if ((location as { name?: string }).name !== 'events') return applyReplace?.(location as never)
+      const toEventList = startLeavingPage({ name: 'events' })
+      startLeavingPage({ path: '/orders' })
+      const failure = { type: 8 }
+      afterEachHook?.(toEventList, {}, failure)
+      return failure as never
+    })
+
+    await confirmOrder(wrapper)
+
+    expect(successSpy).toHaveBeenCalledWith('訂單已建立，請到「我的訂單」完成付款')
+    expect(usePlacedOrderNoticeStore().placedOrderId).toBeNull()
+    expect(replaceMock).toHaveBeenCalledTimes(1)
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
+    successSpy.mockRestore()
+  })
+
+  // 回應落在離頁途中、之後離頁才失敗：買家留在本頁，不能停在仍可再按的確認步驟（計數票會重複下單）。
+  it.each([
+    { via: '導覽被取消', failLeaving: (to: object) => afterEachHook?.(to, {}, { type: 4 }) },
+    { via: '目標頁載入失敗', failLeaving: (to: object) => navigationErrorHook?.(new Error('chunk load failed'), to) },
+  ])('[BW-CONFIRM-020] confirmOrder_WhenLeavingFailsAfterSuccess_ReturnsToRefreshedSelection（$via）', async ({ failLeaving }) => {
+    const successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} }) as never)
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    const leavingTarget = startLeavingPage()
+    pending.resolve({ id: 'order-before-failed-leave' } as PlaceOrderResult)
+    await flushPromises()
+
+    failLeaving(leavingTarget)
+    await flushPromises()
+
+    expect(successSpy).toHaveBeenCalledWith('訂單已建立，請到「我的訂單」完成付款')
+    expect(usePlacedOrderNoticeStore().placedOrderId).toBeNull()
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(checkoutSummary(wrapper)).toContain('已選 0 個座位、0 張計數票券')
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+
+    // 重載只補一次：之後沒有新訂單的離頁失敗不再重載。
+    failLeaving(startLeavingPage())
+    await flushPromises()
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+    successSpy.mockRestore()
+  })
+
+  // 可重試的錯誤（BW-CONFIRM-006）落在離頁途中、之後離頁失敗：確認步驟仍可顯示，維持停在確認步驟讓買家重試。
+  it('[BW-CONFIRM-020] confirmOrder_WhenLeavingFailsAfter429_StaysOnConfirmStepForRetry', async () => {
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    const leavingTarget = startLeavingPage()
+    pending.reject(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
+    await flushPromises()
+
+    afterEachHook?.(leavingTarget, {}, { type: 4 })
+    await flushPromises()
+
+    expect(mockRoute.query.step).toBe('confirm')
+    expect(confirmStep(wrapper).exists()).toBe(true)
+    expect(isDisabled(confirmButton(wrapper))).toBe(false)
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
+  })
+
+  // 需退回選位但確認步驟仍可顯示的錯誤（403 RealNameRequired）落在離頁途中：離頁失敗後要補做退回（spec 的錯誤分流）。
+  it('[BW-CONFIRM-020] confirmOrder_WhenLeavingFailsAfterRealNameRequired_ReturnsToSelectionStep', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    const leavingTarget = startLeavingPage()
+    pending.reject(new ApiError(403, { status: 403, title: 'RealNameRequired', detail: '此活動需實名登記後才能購票。' }))
+    await flushPromises()
+    expect(mockRoute.query.step).toBe('confirm')
+
+    afterEachHook?.(leavingTarget, {}, { type: 4 })
+    await flushPromises()
+
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(confirmStep(wrapper).exists()).toBe(false)
+  })
+
+  // 補做退回後旗標須清掉：否則下一次離頁途中收到可重試的 429，離頁失敗時會被錯誤退回（違反 BW-CONFIRM-006）。
+  it('[BW-CONFIRM-020] confirmOrder_WhenSecondLeaveFailsAfter429_StaysOnConfirmStepDespiteEarlierReturn', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    const first = deferred<PlaceOrderResult>()
+    const second = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    const firstLeave = startLeavingPage()
+    first.reject(new ApiError(403, { status: 403, title: 'RealNameRequired', detail: '此活動需實名登記後才能購票。' }))
+    await flushPromises()
+    afterEachHook?.(firstLeave, {}, { type: 4 })
+    await flushPromises()
+    expect(mockRoute.query.step).toBeUndefined()
+
+    await goToConfirmStep(wrapper)
+    await confirmButton(wrapper).trigger('click')
+    const secondLeave = startLeavingPage()
+    second.reject(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
+    await flushPromises()
+    afterEachHook?.(secondLeave, {}, { type: 4 })
+    await flushPromises()
+
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(2)
+    expect(mockRoute.query.step).toBe('confirm')
+    expect(confirmStep(wrapper).exists()).toBe(true)
+  })
+
+  // 送出中離頁、頁面已卸載後才收到 403 QueueAdmissionRequired：查一次排隊狀態無妨，但不能再排程輪詢。
+  it('[BW-CONFIRM-014] confirmOrder_WhenQueueAdmissionRequiredAfterUnmount_DoesNotStartQueuePolling', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    wrapper.unmount()
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Waiting' }))
+    vi.useFakeTimers()
+    try {
+      pending.reject(new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' }))
+      await vi.advanceTimersByTimeAsync(0)
+      const callsAfterResponse = vi.mocked(queueApi.getMyQueueStatus).mock.calls.length
+
+      await vi.advanceTimersByTimeAsync(15000)
+
+      expect(vi.mocked(queueApi.getMyQueueStatus).mock.calls.length).toBe(callsAfterResponse)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // 導回列表被買家的連結取代、買家的導覽又失敗：同樣要退回選位並重新載入。
+  it('[BW-CONFIRM-020] confirmOrder_WhenBuyerLinkFailsAfterSupersedingEventList_ReturnsToRefreshedSelection', async () => {
+    vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} }) as never)
+    vi.mocked(ordersApi.placeOrder).mockResolvedValueOnce({ id: 'order-superseded-then-failed' } as PlaceOrderResult)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    const applyReplace = replaceMock.getMockImplementation()
+    let buyerTarget: object = {}
+    replaceMock.mockImplementation(async (location: unknown) => {
+      if ((location as { name?: string }).name !== 'events') return applyReplace?.(location as never)
+      const toEventList = startLeavingPage({ name: 'events' })
+      buyerTarget = startLeavingPage({ path: '/orders' })
+      const failure = { type: 8 }
+      afterEachHook?.(toEventList, {}, failure)
+      return failure as never
+    })
+    await confirmOrder(wrapper)
+
+    navigationErrorHook?.(new Error('chunk load failed'), buyerTarget)
+    await flushPromises()
+
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+    vi.mocked(ElMessage.success).mockRestore()
+  })
+
+  // 離頁途中下單失敗：退回選位被略過；離頁失敗後網址不能留著 step=confirm，否則再選就跳過「下一步」直接進確認步驟。
+  it('[BW-CONFIRM-020] confirmOrder_WhenLeavingFailsAfterError_RemovesConfirmStepFromUrl', async () => {
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmButton(wrapper).trigger('click')
+    const leavingTarget = startLeavingPage()
+    pending.reject(new ApiError(500, null))
+    await flushPromises()
+    expect(mockRoute.query.step).toBe('confirm')
+
+    afterEachHook?.(leavingTarget, {}, { type: 4 })
+    await flushPromises()
+
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(confirmStep(wrapper).exists()).toBe(false)
+  })
+
+  // 送出中上一頁又下一頁回到確認步驟後，先前等送出結束才移焦點的動作必須取消，錯誤退回時不搶焦點（design.md 決策 7）。
+  it('[BW-CONFIRM-008] confirmOrder_WhenErrorAfterBackThenForward_DoesNotMoveFocusToNextButton', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
+    const pending = deferred<PlaceOrderResult>()
+    vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
+    const wrapper = mountAttached()
+    await flushPromises()
+    await selectSeatAndCount(wrapper)
+    await goToConfirmStep(wrapper)
+    await confirmButton(wrapper).trigger('click')
+    browserBack()
+    await flushPromises()
+    browserForward()
+    await flushPromises()
+    if (!confirmStep(wrapper).exists()) throw new Error('下一頁後沒有回到確認步驟')
+
+    pending.reject(new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' }))
+    await flushPromises()
+
+    expectSelectionsKept(wrapper)
+    expect(isDisabled(nextButton(wrapper))).toBe(false)
+    expect(document.activeElement).not.toBe(nextButton(wrapper).element)
+  })
+
+  it('[BW-CONFIRM-017] actionError_WhenSwitchingSteps_IsKeptUntilNextPrecheckPasses', async () => {
+    vi.mocked(ordersApi.placeOrder)
+      .mockRejectedValueOnce(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
+      .mockReturnValueOnce(new Promise(() => {}))
+    const wrapper = await mountWithSelectionsOnConfirmStep()
+    await confirmOrder(wrapper)
+    expect(confirmStepError(wrapper).text()).toContain('請求過於頻繁')
+
+    await backToSelectionButton(wrapper).trigger('click')
+    await flushPromises()
+    expect(actionError(wrapper).text()).toContain('請求過於頻繁')
+
+    browserForward()
+    await flushPromises()
+    expect(confirmStepError(wrapper).text()).toContain('請求過於頻繁')
+
+    // 未勾選注意事項時前置檢查不通過，訊息不清除。
+    ;(confirmButton(wrapper).element as HTMLButtonElement).click()
+    await flushPromises()
+    expect(confirmStepError(wrapper).text()).toContain('請求過於頻繁')
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(1)
+
+    await noticeCheckbox(wrapper).setValue(true)
+    await confirmOrder(wrapper)
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(2)
+    expect(confirmStepError(wrapper).exists()).toBe(false)
   })
 })

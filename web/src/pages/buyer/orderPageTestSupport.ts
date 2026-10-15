@@ -4,7 +4,7 @@ import { createMemoryHistory, createRouter, RouterView, type Router } from 'vue-
 import type { Component } from 'vue'
 import type { MyOrderDetail } from '../../types/apiResponses'
 
-// OrderResultPage、OrderDetailPage 與 usePendingOrderActions 的測試共用：
+// OrderDetailPage、usePendingOrderActions 與 orderResultRedirect 的測試共用：
 // 以真實記憶體路由掛載，才能驗證「同一元件實例切換 :id」時的競態處理（design.md 決策 2）。
 
 export function createDeferred<T>() {

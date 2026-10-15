@@ -9,6 +9,7 @@ allowed-tools:
   - grep
   - exec
 model: gpt-5.6-terra
+thinking: medium
 ---
 
 你是嚴格的 code reviewer,負責審查剛完成的程式碼變更。找不到問題不代表沒有
