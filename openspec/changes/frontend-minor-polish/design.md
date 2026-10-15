@@ -54,7 +54,9 @@
 
 新增 `web/src/router/scrollRestoration.ts`，匯出 `waitForRestorableScrollPosition(position)`，回傳 `Promise<ScrollPosition | false>`。模組內同一時間最多只有一個等待中的 waiter：
 
-1. **高度檢查**：每個 animation frame 檢查 `document.documentElement.scrollHeight - window.innerHeight >= position.top`，成立就 resolve。animation frame 只負責高度檢查，不負責逾時。
+1. **高度檢查**：每個 animation frame 檢查 `document.documentElement.scrollHeight - document.documentElement.clientHeight >= position.top - 1`，成立就 resolve。用 `clientHeight` 而非 `innerHeight`，是因為 `innerHeight` 含橫向捲軸高度，算出的可捲範圍會偏小。容差 1px 是因為高 DPI 下記錄的 `scrollY` 可能帶小數，而 `scrollHeight` 是整數；沒有容差的話，離開時位於最底端的頁面永遠判定為高度不足，會白等 3 秒。animation frame 只負責高度檢查，不負責逾時。
+   - `requestAnimationFrame`／`cancelAnimationFrame` 在每次開始等待時才從 `window` 讀取，不在模組載入時快取，測試的 stub 才會生效。
+   - 三個事件都掛在 `window`。`wheel`、`touchmove` 用 `{ passive: true }`，不阻擋原生捲動。`removeEventListener` 傳入與註冊時相同的 options。
 2. **逾時**：開始等待時另以 `setTimeout(…, 3000)` 設獨立計時器，觸發時 resolve（交由瀏覽器停在可捲到的最低處）。逾時不依賴 animation frame 是否執行，所以畫面不更新（背景分頁、裝置忙碌）也不會延長等待。
 3. **使用者中止**：等待期間收到 `wheel`、`touchmove` 或 `keydown` 事件，視為使用者自行捲動，resolve `false`。
 4. **新導覽取代**：匯出 `cancelPendingScrollRestoration()`，把目前等待中的 waiter 以 `false` resolve。`waitForRestorableScrollPosition` 開始新等待前也先呼叫它。
