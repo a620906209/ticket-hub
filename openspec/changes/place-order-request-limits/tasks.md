@@ -19,25 +19,40 @@
 | EVT-LIMIT-002 | `AdminEventsControllerTests`：`CreateEvent_WhenMaxTicketsPerOrderEqualsSystemLimit_Returns201`（斷言後台列表該活動 `MaxTicketsPerOrder` 為 50）；`CreateEventHandlerTests`：`HandleAsync_WhenMaxTicketsPerOrderIs50_Succeeds` | 1.1、2.2 |
 | EVT-LIMIT-003 | `AdminEventsControllerTests`：`QueryEvents_WhenStoredMaxTicketsPerOrderExceedsSystemLimit_ListsStillLoad`（Arrange 直接經 DbContext 寫入 `MaxTicketsPerOrder` 為 100 的活動，模擬規則生效前的資料；斷言公開與後台列表皆 200，回傳值為 100） | 2.2 |
 
+| TP-LIMIT-008 | `OrdersControllerTests`：`PlaceOrder_WhenFiftySeatItemsOmitQuantity_Returns201`（50 個可售座位，raw JSON 每筆只帶 `eventSeatId`／`ticketTypeId`；斷言 201、50 個座位皆為 Held）、`PlaceOrder_WhenFiftyOneSeatItemsOmitQuantity_Returns400WithOnlyCountMessage`（斷言 400、`detail` 等於筆數訊息、座位皆仍可售）；`PlaceOrderRequestValidatorTests`：`Validate_WhenFiftySeatItemsUseDefaultQuantity_IsValid`（以 `new PlaceOrderSelectionRequest(seatId, ticketTypeId)` 建構，不指定 `Quantity`） | 1.1、2.1 |
+| TP-LIMIT-009 | `OrdersControllerTests`：`PlaceOrder_WhenFiftySelectionsTotalFiftyOne_Returns400WithTotalMessage`（49 座位項目 + 1 計數項目數量 2；斷言 400、`detail` 含總張數訊息且不含筆數訊息、座位皆仍可售、可售量不變）；`PlaceOrderRequestValidatorTests`：`Validate_WhenFiftySelectionsTotalFiftyOne_ReturnsOnlyTotalError`（`Errors` 恰為 1 則總張數訊息） | 1.1、2.1 |
+| TP-LIMIT-010 | `OrdersControllerTests`：`PlaceOrder_WhenSeatItemQuantityIsTwoWithinSystemLimit_Returns400WithSeatQuantityMessage`（斷言 400、`detail` 含 `must have a quantity of exactly 1.`、不含總張數訊息、座位仍可售）；`PlaceOrderRequestValidatorTests`：`Validate_WhenSeatItemQuantityIsTwoWithinLimit_IsValid`（Validator 不負責座位數量規則，守住規則分工） | 1.1、2.1 |
+| 「開啟資料庫連線之前拒絕」（TP-LIMIT-001、003、004、006、007、008(b)、009） | `OrderServiceTests`：`PlaceOrderAsync_WhenRequestViolatesSystemLimits_RejectsBeforeOpeningConnection`（`[Theory]`，每類違規一筆資料：總張數 51、筆數 51、兩筆 `int.MaxValue`、含 null 元素、`Selections` 為 null、51 筆預設數量座位、50 筆合計 51；逐筆斷言回傳 `ErrorType.Validation`、`UnitOfWork.OpenConnectionCallCount` 為 0；3.1 加入 `GetByIdsCallCount` 後，同一 Theory 補斷言 `FakeTicketTypeRepository.GetByIdsCallCount` 為 0）。TP-LIMIT-003 原有的 `PlaceOrderAsync_WhenSelectionCountExceedsSystemLimit_DoesNotOpenConnection` 併入此 Theory。TP-LIMIT-005 已斷言 `GetForUpdateCallCount` 為 0；它在 Validator 擋下，同時列入此 Theory（活動限購 100、購買 51） | 2.1、3.1 |
+
 決策 4（票種批次查詢）沒有新的 API 可觀察行為，由下列測試守住（3.1、3.2）：
 
 - `Application.Tests/Orders/OrderServiceTests.cs`：`PlaceOrderAsync_WithMultipleTicketTypes_QueriesTicketTypesOnce`（3 個不同票種；斷言 `GetByIdsCallCount` 為 1）、`PlaceOrderAsync_WhenTwoTicketTypesMissing_ReportsFirstMissingInRequestOrder`（斷言訊息為請求順序中第一個缺漏的 Id）。
 - `Infrastructure.Tests`：`TicketTypeRepository.GetByIdsAsync` 回傳實體未被追蹤（`ChangeTracker.Entries<TicketType>()` 為空）、只回傳存在的 Id、空清單回傳空集合且不發出查詢（比照既有 `OrderDisplayLookupRepositoryTests.GetByIdsAsync_WithEmptyList_ReturnsEmptyWithoutQuery` 的驗證方式）。
 - 既有 TP-ORDER-003（不存在的票種回 404）測試維持通過。
 
+## 0. 前置依賴
+
+- [ ] 0.1 確認前置 change `request-body-size-limits` 已 archive 並 merge 到 master（design「前置依賴」的完成條件）。驗證：`openspec/changes/archive/` 下有該 change，且 master 的 git log 含其 merge commit。未完成時不得開始 1.1。
+
 ## 1. 前置確認與重現
 
-- [ ] 1.1 先寫 AC 表中 WebApi 層的 6 個測試（TP-LIMIT-001～004、EVT-LIMIT-001～002），在修正前執行。驗證：預期 TP-LIMIT-001 為 201（或 409／其他非 400，記錄實際值）、TP-LIMIT-002 為 201（修正前就會通過，屬邊界保護）、TP-LIMIT-003 為 400 但 `detail` 含逐項訊息（斷言失敗）、TP-LIMIT-004 為 400 或 500（記錄實際值）、EVT-LIMIT-001 為 201、EVT-LIMIT-002 為 201。實際結果與預期不同時停下回報，因為 proposal 的問題描述可能不成立。
+- [ ] 1.1 先寫 AC 表中 WebApi 層的 6 個測試（TP-LIMIT-001～004、EVT-LIMIT-001～002），在修正前執行。驗證：預期 TP-LIMIT-001 為 201（或 409／其他非 400，記錄實際值）、TP-LIMIT-002 為 201（修正前就會通過，屬邊界保護）、TP-LIMIT-003 為 400 但 `detail` 含逐項訊息（斷言失敗）、TP-LIMIT-004 為 400 或 500（記錄實際值）、EVT-LIMIT-001 為 201、EVT-LIMIT-002 為 201。同時寫 TP-LIMIT-008～010 的 WebApi 測試並在修正前執行：預期 008(a) 為 201（邊界保護）、008(b) 為 201、009 為 201、010 為 400 且含座位數量訊息（邊界保護）。實際結果與預期不同時停下回報，因為 proposal 的問題描述可能不成立。
 - [ ] 1.2 先寫 AC 表中 TP-LIMIT-006 的 WebApi 測試，在修正前執行，記錄兩種本文的實際狀態碼。驗證：預期為 500（Validator 的重複檢查直接存取元素屬性，見 design 決策 2）。若實際為 400（例如模型繫結已拒絕 null 元素），停下回報，因為 design 決策 2 規則 2 的理由不成立，需重新評估是否保留該規則。同時寫 TP-LIMIT-007 的 WebApi 測試並在修正前執行，記錄兩種本文的實際狀態碼與 `detail`（可能已由模型繫結回 400，屬邊界保護；若為 500 則確認 design 決策 2 `When` 段落的描述）。
 
 ## 2. Application：Validator
 
-- [ ] 2.1 新增 `PlaceOrderLimits`（design 決策 1），依 design 決策 2 修改 `PlaceOrderRequestValidator`，並新增 AC 表所列 `PlaceOrderRequestValidatorTests` 與 `OrderServiceTests`（TP-LIMIT-005）測試。另加 `Validate_WhenNegativeQuantityKeepsSumUnderLimit_IsInvalid`（`[100, -60]` 加總 40 仍須無效）與 `Validate_WhenSelectionsIsNull_IsInvalidWithoutThrowing`（`Selections` 為 null 時回傳無效、不拋 `NullReferenceException`；現行程式碼的重複檢查會拋，見 design 決策 2 規則 1～4 的 `When` 條件段落）。另加兩個規則互斥的組合測試：`Validate_WhenSelectionCountIs51WithNullItem_ReturnsOnlyCountError`（`Errors` 恰為 1 則筆數訊息）、`Validate_WhenNullItemAndQuantityIsIntMax_ReturnsOnlyNullItemError`（`Errors` 恰為 1 則 null 元素訊息，不拋例外、不含總張數訊息）。驗證：Application 測試全部通過；1.1 的 TP-LIMIT-001／003／004 與 1.2 的 TP-LIMIT-006／007 通過。
+- [ ] 2.1 新增 `PlaceOrderLimits`（design 決策 1），依 design 決策 2 修改 `PlaceOrderRequestValidator`，並新增 AC 表所列 `PlaceOrderRequestValidatorTests` 與 `OrderServiceTests`（TP-LIMIT-005）測試。另加 `Validate_WhenNegativeQuantityKeepsSumUnderLimit_IsInvalid`（`[100, -60]` 加總 40 仍須無效）與 `Validate_WhenSelectionsIsNull_IsInvalidWithoutThrowing`（`Selections` 為 null 時回傳無效、不拋 `NullReferenceException`；現行程式碼的重複檢查會拋，見 design 決策 2 規則 1～4 的 `When` 條件段落）。另加兩個規則互斥的組合測試：`Validate_WhenSelectionCountIs51WithNullItem_ReturnsOnlyCountError`（`Errors` 恰為 1 則筆數訊息）、`Validate_WhenNullItemAndQuantityIsIntMax_ReturnsOnlyNullItemError`（`Errors` 恰為 1 則 null 元素訊息，不拋例外、不含總張數訊息）。驗證：Application 測試全部通過；1.1 的 TP-LIMIT-001／003／004／008(b)／009 與 1.2 的 TP-LIMIT-006／007 轉為通過，TP-LIMIT-002／008(a)／010 維持通過。
 - [ ] 2.2 依 design 決策 3 修改 `CreateEventRequestValidator`，新增 AC 表所列 `CreateEventHandlerTests` 與 EVT-LIMIT-003 測試。驗證：Application 測試全部通過；1.1 的 EVT-LIMIT-001 轉為通過，EVT-LIMIT-002／003 通過。
 
 ## 3. 票種批次查詢
 
-- [ ] 3.1 依 design 決策 4，`ITicketTypeRepository.GetByIdAsync` 改為 `GetByIdsAsync`，更新 `TicketTypeRepository`（保留 no-tracking 與註解理由）與 `OrderService`；同步更新 7 個測試實作（`FakeTicketTypeRepository` 加 `GetByIdsCallCount`；decorator／fault-injection 實作維持原本對 `GetByIdAsync` 的語意，`MissingTicketTypeRepository` 維持直接轉呼叫）與 `RepositoryCrudRoundTripTests` 的呼叫。新增決策 4 段落所列 Application 測試。驗證：4 個測試專案編譯通過（介面移除 `GetByIdAsync` 後，漏改的實作與呼叫端會編譯失敗）；Application 測試全部通過。
+- [ ] 3.1 依 design 決策 4，`ITicketTypeRepository.GetByIdAsync` 改為 `GetByIdsAsync`，更新 `TicketTypeRepository`（保留 no-tracking 與註解理由）與 `OrderService`；同步更新 7 個測試實作，每個都移除 `GetByIdAsync`、改實作 `GetByIdsAsync`，批次版行為比照原本單筆版：
+  - `FakeTicketTypeRepository`（Application）：回傳 `Data` 中 Id 在輸入清單內的項目，加 `GetByIdsCallCount`（每次呼叫 +1，不論清單長度）。
+  - `AlwaysThrowingTicketTypeRepository`（Infrastructure `QueryCacheTtlSafetyNetTests`）：拋與原本相同的 `InvalidOperationException("MUST NOT query the database on a cache hit.")`。
+  - `AlwaysEmptyTicketTypeRepository`（Infrastructure `QueryCacheTicketTypeInvalidationOrderingTests`）：回傳空清單（對應原本回傳 null）。
+  - `CountingTicketTypeRepository`、`SlowTicketTypeRepository`（Infrastructure `QueryCacheTtlSafetyNetTests`）、`CountingTicketTypeRepository`（WebApi `TestSupport`）、`MissingTicketTypeRepository`（WebApi `OrganizerScopingFaultInjectionWebApplicationFactory`）：直接轉呼叫 `inner.GetByIdsAsync`，不計數、不過濾、不延遲。這 4 個原本對 `GetByIdAsync` 就是純轉呼叫，計數、延遲、缺漏模擬都只作用在 `GetByEventIdAsync`，改版後維持不變。
+
+  另更新 `RepositoryCrudRoundTripTests` 的呼叫。新增決策 4 段落所列 Application 測試。驗證：4 個測試專案編譯通過（介面移除 `GetByIdAsync` 後，漏改的實作與呼叫端會編譯失敗）；Application 測試全部通過。
 - [ ] 3.2 新增決策 4 段落所列 Infrastructure 測試。驗證：把 `AsNoTracking()` 暫時拿掉時 no-tracking 測試失敗，恢復後通過（記錄於完成紀錄）。
 
 ## 4. 文件與審查

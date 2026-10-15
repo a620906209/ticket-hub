@@ -13,7 +13,7 @@
 
 ## What Changes
 
-- 建立訂單：請求的選購筆數 MUST ≤ 50，且所有項目購買數量加總 MUST ≤ 50（系統上限，不論活動是否設定 `MaxTicketsPerOrder`），違反回 400，不存取資料庫。
+- 建立訂單：請求的選購筆數 MUST ≤ 50，且所有項目購買數量加總 MUST ≤ 50（系統上限，不論活動是否設定 `MaxTicketsPerOrder`），違反回 400，在開啟資料庫連線之前拒絕。未提供購買數量的項目依既有行為視為 1 計入。
 - 選購筆數超過上限時只回報筆數錯誤，不再逐項驗證，避免回應隨請求放大。
 - `Selections` 為 null 或含 null 元素時回 400，不再因 Validator 存取 null 而回 500。
 - 活動設定的 `MaxTicketsPerOrder` 仍照舊檢查；系統上限與活動限購同時適用，實際上限取兩者較小值。
@@ -38,3 +38,4 @@
 - 測試替身：`ITicketTypeRepository` 的 7 個測試實作（Application `FakeTicketTypeRepository`、Infrastructure／WebApi 的 decorator 與 fault-injection 實作）須跟著改介面。
 - 既有資料：其他環境若已有 `MaxTicketsPerOrder` > 50 的活動，讀取不受影響（不加 Domain 守衛），實際下單上限為 50。本機開發 DB 2026-10-16 查過，現有活動限購最大值為 6。
 - 前端、API 回應格式、資料庫 schema：不變。
+- 前置依賴：請求本文大小限制由前置 change `request-body-size-limits` 處理，須先 merge；本 change 單獨不保護模型繫結前的反序列化成本（見 design「前置依賴」）。

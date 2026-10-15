@@ -3,7 +3,7 @@
 ### Requirement: 建立訂單時每筆訂單限購張數以購買數量加總計算
 系統 SHALL 在活動設定每筆訂單限購張數（`Event.MaxTicketsPerOrder`）時，於建立訂單前檢查本次請求所有項目的購買數量總和（座位項目每筆固定計為 1，計數項目依指定數量計入）是否超過該上限；超過 MUST 拒絕建立訂單並回報驗證錯誤，不對任何座位或庫存執行變更。活動未設定此上限時不受活動限購限制，但仍受下述系統上限限制。
 
-不論活動是否設定限購，系統 SHALL 對每次建立訂單請求套用系統上限 50：選購項目筆數 MUST ≤ 50，所有項目購買數量（依請求中的指定值）的總和 MUST ≤ 50；總和 MUST 以不會溢位的方式計算，購買數量接近整數最大值時 MUST 回報驗證錯誤而非伺服器錯誤。違反時系統 MUST 回傳 400，ProblemDetails 的 `detail` MUST 包含對應訊息：筆數超過為 `An order cannot contain more than 50 selections.`，總張數超過為 `An order cannot contain more than 50 tickets in total.`；不對任何座位或庫存執行變更。選購項目筆數超過上限時，`detail` MUST 只包含筆數訊息，不包含逐項驗證的訊息，避免回應大小隨請求項目數增加。活動限購與系統上限同時適用，實際可購買張數取兩者較小值。系統上限依請求中的指定值加總，座位項目指定了非 1 的購買數量時，若加總超過 50 會先以總張數訊息拒絕，未超過時才依「座位項目購買數量須為 1」的規則拒絕，兩者皆為 400。`Selections` 缺少或為 null 時 MUST 回報驗證錯誤（400），不得回傳 500。`Selections` 含 null 元素時 MUST 回傳 400，`detail` MUST 包含 `Selections must not contain null items.`，不得回傳 500。
+不論活動是否設定限購，系統 SHALL 對每次建立訂單請求套用系統上限 50：選購項目筆數 MUST ≤ 50，所有項目購買數量（依請求中的指定值）的總和 MUST ≤ 50；未提供購買數量的項目依 TP-ORDER-010 既有行為視為 1，並以 1 計入總和；總和 MUST 以不會溢位的方式計算，購買數量接近整數最大值時 MUST 回報驗證錯誤而非伺服器錯誤。違反時系統 MUST 在開啟資料庫連線、查詢任何票種／座位／活動之前拒絕，並回傳 400，ProblemDetails 的 `detail` MUST 包含對應訊息：筆數超過為 `An order cannot contain more than 50 selections.`，總張數超過為 `An order cannot contain more than 50 tickets in total.`；不對任何座位或庫存執行變更。選購項目筆數超過上限時，`detail` MUST 只包含筆數訊息，不包含逐項驗證的訊息，避免回應大小隨請求項目數增加。活動限購與系統上限同時適用，實際可購買張數取兩者較小值。系統上限依請求中的指定值加總，座位項目指定了非 1 的購買數量時，若加總超過 50 會先以總張數訊息拒絕，未超過時才依「座位項目購買數量須為 1」的規則拒絕，兩者皆為 400。`Selections` 缺少或為 null 時 MUST 回報驗證錯誤（400），不得回傳 500。`Selections` 含 null 元素時 MUST 回傳 400，`detail` MUST 包含 `Selections must not contain null items.`，不得回傳 500。上述筆數、總張數、null 與 null 元素的驗證錯誤，同樣 MUST 在開啟資料庫連線之前拒絕。
 
 #### Scenario: 純座位訂單超過限購張數
 - **WHEN** 活動設定每筆訂單限購 4 張，已登入會員選定 5 個座位建立訂單
@@ -48,3 +48,15 @@
 #### Scenario: TP-LIMIT-007 Selections 缺少或為 null 時回報驗證錯誤
 - **WHEN** 已登入會員送出未帶 `selections` 的建立訂單請求（`{}`），或 `selections` 為 null（`{"selections":null}`）
 - **THEN** 系統回傳 400，不回傳 500，不建立訂單
+
+#### Scenario: TP-LIMIT-008 座位項目未提供購買數量時以 1 計入系統上限
+- **WHEN** 已登入會員送出全部為座位項目、且皆未包含購買數量欄位的建立訂單請求：(a) 50 筆座位皆可售；(b) 51 筆
+- **THEN** (a) 系統成功建立 Pending 訂單，鎖定 50 個座位；(b) 系統回傳 400，`detail` 等於 `An order cannot contain more than 50 selections.`，不鎖定任何座位
+
+#### Scenario: TP-LIMIT-009 筆數未超過但總張數超過系統上限
+- **WHEN** 已登入會員送出 50 筆選購項目：49 筆座位項目（購買數量 1）加 1 筆計數項目（購買數量 2），合計 51 張
+- **THEN** 系統回傳 400，`detail` 包含 `An order cannot contain more than 50 tickets in total.`，不含筆數訊息，不建立訂單
+
+#### Scenario: TP-LIMIT-010 座位項目購買數量非 1 且總張數未超過系統上限
+- **WHEN** 已登入會員送出一筆座位項目，購買數量為 2（合計 2 張，未超過系統上限）
+- **THEN** 系統回傳 400，`detail` 包含 `must have a quantity of exactly 1.`（既有座位數量規則），不含總張數訊息，不鎖定任何座位
