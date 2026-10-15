@@ -174,6 +174,119 @@ describe('EventListPage 活動列表：建立者/建立時間/售票狀況', () 
   })
 })
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
+// 活動列表只帶 venueId／seatMapId，操作者看不懂 GUID；場館名稱改由場地查詢 API 對照（frontend-minor-polish design.md 決策 1）。
+describe('EventListPage 活動列表：場館名稱', () => {
+  const venueId = '5d3f0c2a-9b1e-4f6a-8c7d-2e4b6a8c0d1f'
+  const seatMapId = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'
+  const venueName = '城市音樂廳'
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.mocked(adminApi.getAdminEvents).mockReset()
+    vi.mocked(adminApi.getVenues).mockReset()
+  })
+
+  function venueCells(wrapper: ReturnType<typeof mountPage>): string[] {
+    return wrapper.findAll('.venue-name').map((cell) => cell.text())
+  }
+
+  function expectNoIds(text: string, ids: string[]): void {
+    for (const id of ids) {
+      expect(text).not.toContain(id)
+      expect(text).not.toContain(id.slice(0, 8))
+    }
+  }
+
+  it('[AWU-EVENT-VENUE-001] mount_WhenVenuesLoaded_ShowsVenueNameWithoutIds', async () => {
+    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([buildEvent({ venueId, seatMapId })])
+    vi.mocked(adminApi.getVenues).mockResolvedValue([{ id: venueId, name: venueName }])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(venueCells(wrapper)).toEqual([venueName])
+    const headers = wrapper.findAll('th').map((th) => th.text())
+    expect(headers).toContain('場館')
+    expect(headers.some((header) => header.includes('座位圖') || header.includes('Id'))).toBe(false)
+    expectNoIds(wrapper.find('.el-table').text(), [venueId, seatMapId])
+    // 舊提示「顯示原始 Id」與新行為矛盾，須一併移除
+    expect(wrapper.text()).not.toContain('原始 Id')
+  })
+
+  it('[AWU-EVENT-VENUE-001] mount_WhenVenuesRespondAfterEvents_ShowsLoadingThenVenueName', async () => {
+    const venues = createDeferred<{ id: string; name: string }[]>()
+    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([buildEvent({ venueId })])
+    vi.mocked(adminApi.getVenues).mockReturnValue(venues.promise)
+    const wrapper = mountPage()
+    await flushPromises()
+
+    // 活動列表不等場地查詢就先顯示
+    expect(wrapper.text()).toContain('Concert')
+    expect(venueCells(wrapper)).toEqual(['載入中…'])
+
+    venues.resolve([{ id: venueId, name: venueName }])
+    await flushPromises()
+
+    expect(venueCells(wrapper)).toEqual([venueName])
+  })
+
+  it('[AWU-EVENT-VENUE-001] mount_WhenVenuesRespondBeforeEvents_ShowsVenueName', async () => {
+    const events = createDeferred<AdminEventSummary[]>()
+    vi.mocked(adminApi.getAdminEvents).mockReturnValue(events.promise)
+    vi.mocked(adminApi.getVenues).mockResolvedValue([{ id: venueId, name: venueName }])
+    const wrapper = mountPage()
+    await flushPromises()
+    // 兩個查詢須並行發出；場地查詢若排在活動列表之後，名稱要多等一整個列表請求
+    expect(adminApi.getVenues).toHaveBeenCalledTimes(1)
+
+    events.resolve([buildEvent({ venueId })])
+    await flushPromises()
+
+    expect(venueCells(wrapper)).toEqual([venueName])
+  })
+
+  it('[AWU-EVENT-VENUE-002] mount_WhenVenueLookupFails_StillShowsEventsWithFallbackText', async () => {
+    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([buildEvent({ venueId, seatMapId })])
+    vi.mocked(adminApi.getVenues).mockRejectedValue(new Error('network'))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Concert')
+    expect(venueCells(wrapper)).toEqual(['無法載入場館名稱'])
+    expectNoIds(wrapper.text(), [venueId, seatMapId])
+    expect(wrapper.find('.el-alert').exists()).toBe(false)
+  })
+
+  // 兩個查詢的錯誤互不混用：活動列表失敗只顯示列表錯誤，不會冒出場館的後備文字。
+  it('[AWU-EVENT-VENUE-002] mount_WhenEventListFailsButVenuesLoad_ShowsListErrorOnly', async () => {
+    vi.mocked(adminApi.getAdminEvents).mockRejectedValue(new Error('network'))
+    vi.mocked(adminApi.getVenues).mockResolvedValue([{ id: venueId, name: venueName }])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('.el-alert').text()).toContain('載入活動列表失敗')
+    expect(wrapper.findAll('.el-table__body tr')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('無法載入場館名稱')
+  })
+
+  it('[AWU-EVENT-VENUE-003] mount_WhenVenueNotInList_ShowsUnknownVenue', async () => {
+    vi.mocked(adminApi.getAdminEvents).mockResolvedValue([buildEvent({ venueId })])
+    vi.mocked(adminApi.getVenues).mockResolvedValue([{ id: 'other-venue', name: '別的場館' }])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(venueCells(wrapper)).toEqual(['未知場館'])
+    expectNoIds(wrapper.text(), [venueId])
+  })
+})
+
 // 銷售報表後端已改為 RequireOrganizerContext（order-report-redemption-organizer-scoping design.md Decision 3），
 // 入口不再依角色隱藏；活動列表本身已只列出目前 Organizer 名下的活動。
 describe('EventListPage 銷售報表入口', () => {

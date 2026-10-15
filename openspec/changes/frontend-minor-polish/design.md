@@ -5,7 +5,7 @@
 - 後台活動列表 `web/src/pages/admin/EventListPage.vue` 以 `getAdminEvents()` 載入，`AdminEventSummary` 只帶 `venueId`、`seatMapId`，沒有名稱，所以第 163–164 行直接顯示 GUID。場館不分主辦方（`Venue` 沒有 `OrganizerId`），`getVenues()`（`GET /api/admin/venues`）會回傳所有場館的 Id 與名稱，可以用來對照。
 - 座位圖在 Domain（`SeatMap`）只有 `Id`、`VenueId`、座位，沒有名稱或建立時間。`SeatMapRepository` 以 `Where(m => m.VenueId == venueId).ToListAsync()` 查詢，**沒有 `OrderBy`**，所以 `getVenueById` 回傳的 `seatMaps` 順序沒有保證。
 - 座位圖出現在兩個畫面：建立活動頁的下拉選單（`EventCreatePage.vue:220`，顯示 Id 前 8 碼）與場館管理頁的座位圖摘要表（`VenueListPage.vue:234`，顯示完整 Id）。
-- 捲動：`web/src/router/index.ts:22` 的 `scrollBehavior` 在只改 `step` 時回 `false`，其餘回 `savedPosition ?? { top: 0 }`。已確認安裝的 vue-router 為 5.2.0，其 `handleScroll`（`node_modules/vue-router/dist/vue-router.js:1469-1474`）會 `await` `scrollBehavior` 的回傳值，並在捲動前檢查 `to === currentRoute.value`：導覽被新的導覽取代時，舊的 Promise 結果不會捲動。目前頁面在 `onMounted` 才開始查 API，導覽完成時內容還沒渲染，`savedPosition` 超出可捲範圍，瀏覽器就捲到當下的最低處。
+- 捲動：`web/src/router/index.ts:22` 的 `scrollBehavior` 在只改 `step` 時回 `false`，其餘回 `savedPosition ?? { top: 0 }`。已確認安裝的 vue-router 為 5.2.0，其 `handleScroll`（`node_modules/vue-router/dist/vue-router.js:1469-1474`）會 `await` `scrollBehavior` 的回傳值，並在捲動前檢查 `to === currentRoute.value`：新的導覽完成、`currentRoute` 已切換後，舊的 Promise 結果不會捲動（新導覽開始但尚未完成前不受此檢查保護，見決策 3）。目前頁面在 `onMounted` 才開始查 API，導覽完成時內容還沒渲染，`savedPosition` 超出可捲範圍，瀏覽器就捲到當下的最低處。
 - 頁面捲動容器是 `window`（`web/src` 沒有設定 `overflow-y: auto` 或 `100vh` 的捲動容器）。
 
 ## Goals / Non-Goals
@@ -65,7 +65,7 @@
 
 `scrollBehavior` 改為：**每次呼叫都先呼叫 `cancelPendingScrollRestoration()`**，之後只改 `step` → `false`（不變）；沒有 `savedPosition` → `{ top: 0 }`（不變）；有 `savedPosition` → 回傳 `waitForRestorableScrollPosition(savedPosition)`。
 
-**舊導覽競態**：vue-router 5.2.0 在每次導覽完成時（`finalizeNavigation`，`vue-router.js:1393`）呼叫一次 `scrollBehavior`。push 到目前所在位置的重複導覽也會呼叫（`vue-router.js:1303`，`savedPosition` 為 null，結果是回頁首）。被 guard 中止或改導向的導覽不會完成，因此不會呼叫，使用者仍停在等待中的頁面，讓該頁繼續還原是正確的。所以「新導覽生效」等同「下一次 `scrollBehavior` 呼叫」。舊 waiter 在新導覽的 `scrollBehavior` 一開始就被 resolve 為 `false`，vue-router 拿到 `false` 不會呼叫 `scrollTo`。阻止舊位置捲動的責任在本專案程式碼，不依賴 vue-router。vue-router 5.2.0 的 `handleScroll`（`node_modules/vue-router/dist/vue-router.js:1473`）另外會檢查 `to === currentRoute.value`，只作為第二層保護，不列為正確性前提。多次快速導覽時，每次導覽都會取消前一個 waiter，只有最後一次導覽的 waiter 可能 resolve 為捲動位置。
+**舊導覽競態**：vue-router 5.2.0 在每次導覽完成時（`finalizeNavigation`，`vue-router.js:1393`）呼叫一次 `scrollBehavior`。push 到目前所在位置的重複導覽也會呼叫（`vue-router.js:1303`，`savedPosition` 為 null，結果是回頁首）。被 guard 中止的導覽不會完成，因此不會呼叫，使用者仍停在等待中的頁面，讓該頁繼續還原是正確的；guard 改導向時，導向後的導覽完成時會呼叫。所以「新導覽生效」等同「下一次 `scrollBehavior` 呼叫」。取捨：新導覽開始到完成之間（例如延遲載入的頁面 chunk 尚在下載），舊頁仍可能完成還原、先捲回記錄位置再換頁；新頁的捲動不受影響，只有離開前畫面跳動一次，接受此行為（2026-10-15 使用者確認）。舊 waiter 在新導覽的 `scrollBehavior` 一開始就被 resolve 為 `false`，vue-router 拿到 `false` 不會呼叫 `scrollTo`。阻止舊位置捲動的責任在本專案程式碼，不依賴 vue-router。vue-router 5.2.0 的 `handleScroll`（`node_modules/vue-router/dist/vue-router.js:1473`）另外會檢查 `to === currentRoute.value`，只作為第二層保護，不列為正確性前提。多次快速導覽時，每次導覽都會取消前一個 waiter，只有最後一次導覽的 waiter 可能 resolve 為捲動位置。
 
 選 animation frame 而非 `ResizeObserver`／`MutationObserver`：只需比較一個數字，最多跑 3 秒約 180 次，邏輯最簡單。Vitest 4 的 fake timers 預設會模擬 `setTimeout`、`requestAnimationFrame` 及對應的 clear／cancel，測試可用 `vi.advanceTimersByTime` 精確推進，並用 `vi.getTimerCount()` 斷言計時器與 frame 都已清除。
 
@@ -80,6 +80,7 @@
 - **頁面內容本身比離開時短**：例如回來時訂單已被刪除或篩選結果變少，頁面永遠不夠高，等 3 秒後捲到最低處。與目前行為相同，只是晚 3 秒發生。
 - **背景分頁的計時器節流**：逾時改用獨立的 `setTimeout`，不再受 animation frame 暫停影響。但瀏覽器對背景分頁的 `setTimeout` 仍會節流，Chrome 會把觸發時間對齊到每秒一次，所以背景中實際觸發時間可能晚到約 4 秒。分頁在背景時使用者看不到畫面，這個延遲沒有可觀察的影響，因此不另外處理。
 - **任何按鍵都中止還原**：`keydown` 不分按鍵（含 Tab、修飾鍵）都視為使用者自行捲動。可能在使用者只是按 Tab 時放棄還原，結果是停在目前位置，與修改前的行為相近，不會把使用者拉走，為求邏輯簡單接受。
+- **按鍵重複與慣性滾動**：連按 Alt+← 時按鍵重複產生的 `keydown`、macOS 觸控板放開後的慣性 `wheel` 事件，都可能落在下一頁的等待期間而中止還原，結果是停在目前位置。行為與「使用者自行捲動」一致，接受此風險；未在實機驗證。
 - **影響全站**：捲動規則由路由統一處理，後台頁面也一併套用。這是預期行為，規格已明寫。
 
 ## 安全確認

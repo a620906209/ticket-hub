@@ -4,9 +4,10 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormItemRule } from 'element-plus'
 import { createEvent, getVenueById, getVenues } from '../../api/admin'
-import type { SeatMapSummary, VenueSummary } from '../../types/apiResponses'
+import type { VenueSummary } from '../../types/apiResponses'
 import { maxLengthRule, optionalPositiveIntegerRule, requiredRule } from '../../utils/validators'
 import { toErrorMessage } from '../../utils/errors'
+import { buildSeatMapOptions, type SeatMapOption } from '../../utils/seatMapLabel'
 
 const router = useRouter()
 
@@ -28,7 +29,7 @@ async function loadVenues(): Promise<void> {
 
 onMounted(loadVenues)
 
-const seatMapOptions = ref<SeatMapSummary[]>([])
+const seatMapOptions = ref<SeatMapOption[]>([])
 const seatMapOptionsLoading = ref(false)
 const seatMapOptionsError = ref('')
 // 記錄目前這次 getVenueById 呼叫對應的場館，回應抵達時如果選定的場館已經變了（快速切換場館），
@@ -46,7 +47,7 @@ async function handleVenueChange(venueId: string): Promise<void> {
   try {
     const detail = await getVenueById(venueId)
     if (seatMapOptionsRequestVenueId !== venueId) return
-    seatMapOptions.value = detail.seatMaps
+    seatMapOptions.value = buildSeatMapOptions(detail.seatMaps)
   } catch (error) {
     if (seatMapOptionsRequestVenueId !== venueId) return
     seatMapOptionsError.value = toErrorMessage(error, '載入座位圖列表失敗')
@@ -217,7 +218,7 @@ async function handleCreateEvent(): Promise<void> {
           <el-option
             v-for="seatMap in seatMapOptions"
             :key="seatMap.id"
-            :label="`${seatMap.id.slice(0, 8)}…（${seatMap.seatCount} 個座位）`"
+            :label="seatMap.label"
             :value="seatMap.id"
           />
         </el-select>
