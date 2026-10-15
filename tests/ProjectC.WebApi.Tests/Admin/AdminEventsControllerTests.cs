@@ -677,7 +677,7 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     }
 
     // 400 而不是 500：時間關係或 Kind 不合法必須由 Validator 擋下，不得落到 Domain 的 ArgumentException；且不得留下任何列。
-    private async Task AssertCreateEventRejectedWithoutRowsAsync(HttpClient organizerClient, string json)
+    private async Task<HttpResponseMessage> AssertCreateEventRejectedWithoutRowsAsync(HttpClient organizerClient, string json)
     {
         var rowsBefore = await CountEventRowsAsync();
 
@@ -685,6 +685,7 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await CountEventRowsAsync()).Should().Be(rowsBefore);
+        return response;
     }
 
     private static DateTime Today => DateTime.UtcNow.Date;
@@ -881,5 +882,98 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
 
         await AssertCreateEventRejectedWithoutRowsAsync(organizerClient, json);
         (await _factory.CreateClient().GetAsync("/api/events")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // ---- StartAtUtc 的 UTC 與最大值規則（event-start-time-validation EVT-CREATE-*）----
+
+    private const string StartAtUtcNotUtcMessage = "StartAtUtc must be a UTC time (with 'Z' designator).";
+
+    // 斷言完整句子而非只比對 "StartAtUtc"：提供開賣時間時 detail 可能另含整微秒規則的 StartAtUtc 訊息，會造成假通過。
+    // 前面補空白比對訊息邊界：Handler 以空白串接訊息，而 "StartAtUtc must be..." 是 "SalesStartAtUtc must be..." 的子字串。
+    private static async Task AssertProblemDetailContainsAsync(HttpResponseMessage response, string expectedMessage)
+    {
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        (" " + problem!.Detail).Should().Contain(" " + expectedMessage);
+    }
+
+    // EVT-CREATE-006：不帶時區的開始時間原本在寫入 timestamptz 時丟例外變 500；不論是否帶販售欄位都必須由 Validator 擋成 400。
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateEvent_WhenStartHasNoUtcDesignator_Returns400AndPublicListStillLoads(bool hasSalesWindow)
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var startAt = Today.AddDays(30).ToString("yyyy-MM-ddTHH:mm:ss");
+        var json = hasSalesWindow
+            ? CreateEventJson(venueId, seatMapId, startAt, ToUtcJson(Today.AddDays(1)), ToUtcJson(Today.AddDays(20)))
+            : CreateEventJson(venueId, seatMapId, startAt);
+
+        var response = await AssertCreateEventRejectedWithoutRowsAsync(organizerClient, json);
+
+        await AssertProblemDetailContainsAsync(response, StartAtUtcNotUtcMessage);
+        (await _factory.CreateClient().GetAsync("/api/events")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // EVT-CREATE-007：+00:00 的時間值等同 UTC，但反序列化後 Kind 為 Local；鎖住「只有 Z 才算 UTC」的契約，
+    // 日後 runtime 若改把零偏移視為 Utc，這裡會失敗，屆時再決定是否改契約（design.md 決策 1）。
+    [Theory]
+    [InlineData("+08:00")]
+    [InlineData("+00:00")]
+    public async Task CreateEvent_WhenStartHasOffset_Returns400AndCreatesNoRows(string offset)
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        var response = await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, Today.AddDays(30).ToString("yyyy-MM-ddTHH:mm:ss") + offset));
+
+        await AssertProblemDetailContainsAsync(response, StartAtUtcNotUtcMessage);
+    }
+
+    // EVT-CREATE-008：最大日期會被存成 infinity，讀回不是 UTC，前端會把不帶 Z 的時間當本地時間解讀。
+    [Fact]
+    public async Task CreateEvent_WhenStartIsMaxValue_Returns400AndPublicListStillLoads()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        var response = await AssertCreateEventRejectedWithoutRowsAsync(organizerClient,
+            CreateEventJson(venueId, seatMapId, "9999-12-31T23:59:59.9999999Z"));
+
+        await AssertProblemDetailContainsAsync(response, "StartAtUtc must not be the maximum date.");
+        (await _factory.CreateClient().GetAsync("/api/events")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // 讀原始 JSON 字串而非反序列化成 DateTime：反序列化會吞掉「缺 Z」的差異，前端看到的正是這個字串。
+    private static async Task<string> ReadStartAtUtcJsonAsync(HttpResponseMessage response, Guid eventId)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.EnumerateArray()
+            .Single(e => e.GetProperty("id").GetGuid() == eventId)
+            .GetProperty("startAtUtc").GetString()!;
+    }
+
+    // EVT-CREATE-009：EF 透過 Event 建構子具現化，Kind 守衛在讀取時也會執行；一般 UTC 資料讀回必須不受影響。
+    // 經 API 建立只是寫入資料的手段，驗證重點是三條讀取路徑。
+    [Fact]
+    public async Task QueryEvents_WhenStoredStartIsUtc_AllQueryEndpointsReturn200()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var startAtJson = ToUtcJson(Today.AddDays(30));
+        var createResponse = await PostCreateEventJsonAsync(organizerClient, CreateEventJson(venueId, seatMapId, startAtJson));
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var eventId = await ReadCreatedIdAsync(createResponse);
+        var publicClient = _factory.CreateClient();
+
+        var publicListResponse = await publicClient.GetAsync("/api/events");
+        var seatsResponse = await publicClient.GetAsync($"/api/events/{eventId}/seats");
+        var adminListResponse = await organizerClient.GetAsync("/api/admin/events");
+
+        (await ReadStartAtUtcJsonAsync(publicListResponse, eventId)).Should().Be(startAtJson);
+        seatsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadStartAtUtcJsonAsync(adminListResponse, eventId)).Should().Be(startAtJson);
     }
 }

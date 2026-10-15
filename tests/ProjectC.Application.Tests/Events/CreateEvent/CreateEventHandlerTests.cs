@@ -420,4 +420,49 @@ public class CreateEventHandlerTests
         validation.Errors.Select(e => e.PropertyName).Should().BeEquivalentTo(new[] { expectedPropertyName });
         await AssertValidationWithoutAddingEventAsync(request);
     }
+
+    private CreateEventRequest CreateRequestWithStart(DateTime startAtUtc)
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        return new CreateEventRequest("Concert", startAtUtc, venueId, seatMapId);
+    }
+
+    // EVT-CREATE-006：不帶時區的開始時間寫入 timestamptz 會丟例外，須在 Validator 擋成 Validation
+    [Fact]
+    public async Task HandleAsync_WhenStartKindIsUnspecified_ReturnsValidationOnStartAtUtc()
+        => await AssertKindValidationOnlyOnAsync(
+            CreateRequestWithStart(DateTime.SpecifyKind(_dateTimeProvider.UtcNow.AddDays(10), DateTimeKind.Unspecified)),
+            nameof(CreateEventRequest.StartAtUtc));
+
+    // EVT-CREATE-007：帶偏移的字串反序列化後為 Local，同樣不是 UTC
+    [Fact]
+    public async Task HandleAsync_WhenStartKindIsLocal_ReturnsValidationOnStartAtUtc()
+        => await AssertKindValidationOnlyOnAsync(
+            CreateRequestWithStart(DateTime.SpecifyKind(_dateTimeProvider.UtcNow.AddDays(10), DateTimeKind.Local)),
+            nameof(CreateEventRequest.StartAtUtc));
+
+    // EVT-CREATE-008：MaxValue 是合法的 UTC 值，只違反最大值規則；存成 infinity 後讀回不是 UTC
+    [Fact]
+    public async Task HandleAsync_WhenStartIsMaxValue_ReturnsValidationOnStartAtUtc()
+    {
+        var request = CreateRequestWithStart(DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc));
+
+        var validation = await new CreateEventRequestValidator().ValidateAsync(request);
+
+        validation.Errors.Select(e => e.ErrorMessage).Should().BeEquivalentTo(new[] { "StartAtUtc must not be the maximum date." });
+        await AssertValidationWithoutAddingEventAsync(request);
+    }
+
+    // 未提供開始時間時 default 的 Kind 是 Unspecified；必填錯誤已足夠，不得再疊一條 UTC 錯誤
+    [Fact]
+    public async Task HandleAsync_WhenStartIsMissing_ReturnsOnlyRequiredErrorOnStartAtUtc()
+    {
+        var request = CreateRequestWithStart(default);
+
+        var validation = await new CreateEventRequestValidator().ValidateAsync(request);
+
+        validation.Errors.Should().ContainSingle(e => e.PropertyName == nameof(CreateEventRequest.StartAtUtc))
+            .Which.ErrorMessage.Should().NotContain("UTC");
+        await AssertValidationWithoutAddingEventAsync(request);
+    }
 }

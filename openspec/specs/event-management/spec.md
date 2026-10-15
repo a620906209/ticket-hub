@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change ticketing-event-management. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: 後台管理 API 需要已切換至一個 Approved Organizer
 系統 SHALL 要求呼叫後台管理端點者持有效 JWT，且該 JWT 帶有格式合法（可解析為非 `Guid.Empty` 的 `Guid`，見 `organizer-management` 能力「`RequireOrganizerContext` Authorization Policy MUST 驗證 claim 格式並 fail-closed」需求）的 `OrganizerId` claim（即已透過 `organizer-management` 能力的切換操作情境端點，切換至一個自己所屬且狀態為 `Approved` 的 Organizer）；未提供有效 Token 或 Token 未帶合法 `OrganizerId` claim MUST 被拒絕。單純持有 `MemberRole.Admin` 角色、但尚未切換至任何 Organizer 的請求，MUST 被視同未帶 `OrganizerId` claim，同樣被拒絕。
 
@@ -99,6 +101,8 @@ TBD - created by archiving change ticketing-event-management. Update Purpose aft
 - `RequiresSeat = true`（綁座位）：`ZoneCode` MUST 存在於該活動座位圖的分區中，不接受 `AvailableQuantity`
 - `RequiresSeat = false`（純計數）：`ZoneCode` 僅作為票種顯示名稱，MUST NOT 驗證是否存在於座位圖分區中；`AvailableQuantity` MUST 為必填且為正整數
 
+建立活動時，`StartAtUtc` 經請求反序列化後的 `DateTime.Kind` MUST 為 `Utc`，不論是否提供販售時間欄位。本系統的請求反序列化只對結尾為 `Z` 的時間字串給 `Utc`；不帶時區的字串（`Unspecified`）與帶任何偏移的字串（`Local`，包含 `+08:00`、`+00:00`）皆不符合。下列 Scenario 以這些字串作為規範性範例，執行環境的反序列化行為若改變，對應測試 MUST 失敗。`StartAtUtc` MUST NOT 為 `9999-12-31T23:59:59.9999999Z`（`DateTime.MaxValue`），理由：資料庫驅動把此值存成 `infinity`，讀回時不再是 UTC，前端會把不帶 `Z` 的時間當成本地時間解讀。違反任一規則時系統 MUST 回傳 400，錯誤說明（ProblemDetails 的 `detail`）MUST 包含對應規則的訊息：非 UTC 為 `StartAtUtc must be a UTC time (with 'Z' designator).`，最大值為 `StartAtUtc must not be the maximum date.`；MUST NOT 回傳 500，且不建立活動與任何 `EventSeat`。本規則生效前已建立、`StartAtUtc` 為一般 UTC 時間的活動，MUST 仍可正常查詢。
+
 請求未提供 `RequiresSeat` 時，系統 MUST 視為 `true`（綁座位），維持本次變更前既有客戶端（未帶此欄位）的既有建立票種行為不受影響。
 
 #### Scenario: EVT-CREATE-001 建立活動成功並自動產生座位庫存
@@ -152,6 +156,22 @@ TBD - created by archiving change ticketing-event-management. Update Purpose aft
 #### Scenario: EVT-TICKET-008 建立票種時未提供 RequiresSeat（既有客戶端相容）
 - **WHEN** 已切換至 Approved Organizer 的使用者呼叫建立票種端點，請求內容比照本次變更前的既有格式，未包含 `RequiresSeat` 欄位
 - **THEN** 系統 MUST 視為 `RequiresSeat = true`（綁座位），依既有的分區存在性規則驗證，行為與本次變更前完全一致
+
+#### Scenario: EVT-CREATE-006 開始時間不帶時區被拒
+- **WHEN** 已切換至 Approved Organizer 的使用者建立活動，`StartAtUtc` 為不帶時區的時間字串（例如 `2026-12-01T10:00:00`，反序列化後 Kind 為 `Unspecified`），其餘欄位合法；分別測試不提供販售時間欄位，以及提供帶 `Z` 的合法 `SalesStartAtUtc`／`SalesEndAtUtc` 兩種情況
+- **THEN** 系統回傳 400，錯誤說明包含 `StartAtUtc must be a UTC time (with 'Z' designator).`，不建立活動與任何 `EventSeat`；之後匿名查詢活動列表仍成功
+
+#### Scenario: EVT-CREATE-007 開始時間帶偏移被拒
+- **WHEN** 已切換至 Approved Organizer 的使用者建立活動，`StartAtUtc` 為帶偏移的時間字串，分別測試 `2026-12-01T10:00:00+08:00` 與 `2026-12-01T10:00:00+00:00`（後者時間值等同 UTC，但反序列化後 Kind 為 `Local`），其餘欄位合法
+- **THEN** 系統回傳 400，錯誤說明包含 `StartAtUtc must be a UTC time (with 'Z' designator).`，不建立活動與任何 `EventSeat`
+
+#### Scenario: EVT-CREATE-008 開始時間為最大日期被拒
+- **WHEN** 已切換至 Approved Organizer 的使用者建立活動，`StartAtUtc` 為 `9999-12-31T23:59:59.9999999Z`，其餘欄位合法
+- **THEN** 系統回傳 400，錯誤說明包含 `StartAtUtc must not be the maximum date.`，不建立活動與任何 `EventSeat`；之後匿名查詢活動列表仍成功
+
+#### Scenario: EVT-CREATE-009 已儲存的一般 UTC 活動在守衛生效後仍可讀取
+- **WHEN** 資料庫中已儲存一筆 `StartAtUtc` 為一般 UTC 時間的活動（不論在本規則生效前或後寫入，讀取路徑相同：由資料庫讀回後經 `Event` 建構子具現化），匿名查詢活動列表、匿名查詢該活動座位（`GET /api/events/{id}/seats`，會讀取該活動），以及已切換至該活動所屬 Organizer 的使用者查詢後台活動列表
+- **THEN** 三者皆成功；兩個列表回傳的 `StartAtUtc` 與建立時一致且帶 `Z`
 
 ### Requirement: 透過管理 API 查詢活動列表時取得建立者與售票狀況統計
 系統 SHALL 提供一個獨立於既有公開活動列表查詢端點（`event-catalog` 能力既有的公開端點，供買家瀏覽用）的後台專用活動列表查詢端點，沿用既有「後台管理 API 需要已切換至一個 Approved Organizer」的權限規則。這個端點 SHALL 只回傳呼叫端目前切換所在 Organizer 名下的活動，不回傳其他 Organizer 的活動。每筆活動 SHALL 附帶：建立者（Member 的 MemberId 與可辨識的顯示名稱，查無對應會員或活動未記錄建立者時顯示名稱為 null）、建立時間（未記錄時為 null）、座位依 Available／Held／Sold 分類的數量統計。統計 SHALL 反映查詢當下的即時狀態（依既有座位狀態計算邏輯，Held 若已過期 MUST 視為 Available，不得沿用過期前的分類）。查詢活動列表不需要另外呼叫其他端點才能取得這份統計。既有公開的活動列表查詢端點 MUST NOT 回傳建立者、建立時間、售票狀況統計或 `OrganizerId` 這幾項——這些是後台專用資訊，不對未登入的公開查詢揭露。
@@ -321,4 +341,3 @@ TBD - created by archiving change ticketing-event-management. Update Purpose aft
 #### Scenario: EVT-SALES-019 販售時間為最小日期被拒
 - **WHEN** 使用者建立活動，`SalesStartAtUtc` 或 `SalesEndAtUtc` 為 `0001-01-01T00:00:00Z`（其餘欄位合法）
 - **THEN** 系統回傳 400，錯誤指向該欄位，不建立活動與任何 `EventSeat`；之後匿名查詢活動列表仍成功
-

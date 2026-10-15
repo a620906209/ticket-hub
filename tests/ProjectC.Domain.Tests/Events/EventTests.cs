@@ -60,6 +60,27 @@ public class EventTests
         act.Should().Throw<ArgumentException>();
     }
 
+    // event-start-time-validation design.md 決策 2：販售狀態以 UTC 比較，Event 自己保證開始時間為 UTC，不依賴呼叫端先過 Validator
+    [Fact]
+    public void Constructor_WhenStartKindIsUnspecified_ThrowsArgumentException()
+    {
+        var startAt = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(30), DateTimeKind.Unspecified);
+
+        var act = () => new Event(Guid.NewGuid(), "Concert", startAt, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        act.Should().Throw<ArgumentException>().WithParameterName("startAtUtc");
+    }
+
+    [Fact]
+    public void Constructor_WhenStartKindIsLocal_ThrowsArgumentException()
+    {
+        var startAt = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(30), DateTimeKind.Local);
+
+        var act = () => new Event(Guid.NewGuid(), "Concert", startAt, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        act.Should().Throw<ArgumentException>().WithParameterName("startAtUtc");
+    }
+
     // event-management-organizer-scoping tasks.md 1.1：Event 必定歸屬某個 Organizer，
     // 空 Guid 代表呼叫端沒有取得有效的 Organizer context，必須在 Domain 層擋下，不能寫入一筆無主活動。
     [Fact]

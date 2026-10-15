@@ -59,6 +59,17 @@ public sealed class CreateEventRequestValidator : AbstractValidator<CreateEventR
             .NotEqual(DateTime.MinValue)
             .When(x => x.SalesEndAtUtc.HasValue)
             .WithMessage("SalesEndAtUtc must not be the minimum date.");
+
+        // 比照販售欄位：非 UTC 寫入 timestamptz 會丟例外變 500；未提供時已有必填錯誤，不再疊一條 UTC 錯誤。
+        // MaxValue 會被存成 infinity、讀回不是 UTC；這是儲存限制而非 Domain 不變式，所以只在這裡擋
+        // （event-start-time-validation design.md 決策 1、2）。MinValue 等於 default，已由必填規則擋下。
+        RuleFor(x => x.StartAtUtc)
+            .Must(value => value.Kind == DateTimeKind.Utc)
+            .When(x => x.StartAtUtc != default)
+            .WithMessage("StartAtUtc must be a UTC time (with 'Z' designator).");
+        RuleFor(x => x.StartAtUtc)
+            .NotEqual(DateTime.MaxValue)
+            .WithMessage("StartAtUtc must not be the maximum date.");
     }
 
     private static bool IsWholeMicrosecond(DateTime value) => value.Ticks % TimeSpan.TicksPerMicrosecond == 0;

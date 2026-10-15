@@ -48,6 +48,8 @@ public sealed class Event
             throw new ArgumentException("Event title is required.", nameof(title));
         if (startAtUtc == default)
             throw new ArgumentException("Event start time is required.", nameof(startAtUtc));
+        if (startAtUtc.Kind != DateTimeKind.Utc)
+            throw new ArgumentException("Event start time must be UTC.", nameof(startAtUtc));
         if (venueId == Guid.Empty)
             throw new ArgumentException("Venue is required.", nameof(venueId));
         if (seatMapId == Guid.Empty)
