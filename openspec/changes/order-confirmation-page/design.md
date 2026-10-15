@@ -66,12 +66,16 @@
 
 ### 決策 4：成功後回活動列表，以一次性 Pinia store 傳遞提示
 
-新增 `stores/placedOrderNotice.ts`：`placedOrderId: string | null`、`setPlacedOrder(id)`、`consumePlacedOrder(): string | null`（取出並清空）。
+新增 `stores/placedOrderNotice.ts`：`placedOrderId: string | null`、`setPlacedOrder(id)`、`consumePlacedOrder(): string | null`（取出並清空）、`clearPlacedOrder()`。
 
 - 建單成功：`setPlacedOrder(id)`，接著 `router.replace({ name: 'events' })`（取代確認步驟這筆紀錄，按上一頁回到活動詳情頁的選位步驟，不會回到已送出的確認畫面）。
 - 活動列表 `setup` 時呼叫 `consumePlacedOrder()`，有值就顯示頂端橫幅：`el-alert type="success"`、可關閉、`role="status"`，文字「訂單已建立，已為你保留 10 分鐘，請在期限內完成付款」，附 `router-link`「前往付款」指向 `/orders/{id}`。
 - 橫幅只顯示一次：關閉、重新整理或再次進入列表都不再出現。重新整理會讓 store 清空，這是預期行為，訂單仍可在「我的訂單」找到。
-- 送出中買家已離開活動詳情頁（元件卸載）時，成功回應不導頁，避免把買家從其他頁面拉走；也不 `setPlacedOrder`，因為延後到下次進入列表才顯示時「保留 10 分鐘」可能已過期，store 為全域也可能在換帳號後露出前一人的訂單連結。改用 `ElMessage.success`「訂單已建立，請到「我的訂單」完成付款」。
+- 送出中買家已離開活動詳情頁（離開導覽已開始，即 `onBeforeRouteLeave` 已觸發，或元件已卸載）時，成功回應不導頁，避免把買家從其他頁面拉走；也不 `setPlacedOrder`，因為延後到下次進入列表才顯示時「保留 10 分鐘」可能已過期，store 為全域也可能在換帳號後露出前一人的訂單連結。改用 `ElMessage.success`「訂單已建立，請到「我的訂單」完成付款」。同樣情形下的 401 也不導向登入頁。離開導覽失敗時（`router.afterEach` 帶 failure，或 `router.onError`，例如目標頁檔案載入失敗）買家仍在本頁，恢復為未離開，否則確認步驟仍可再按、計數票會重複下單。兩個 hook 是全域的，只在失敗的 `to` 與最近一次 `onBeforeRouteLeave` 收到的 `to` 為同一物件時才恢復（vue-router 傳給兩者的是同一物件）：連點連結時前一次導覽被後一次取代（cancelled），買家仍在離開途中。
+- 導向活動列表失敗（`replace` reject，或 resolve 成 NavigationFailure）時，訂單已建立，不落入下單失敗處理：清除 store 中的提示、顯示上述成功訊息、清空已選內容、退回選位並重新載入，已下單的座位顯示為不可選，避免重複下單。若此時頁面已視為離開（買家另點連結取代了這次導頁），只清提示、顯示成功訊息並清空已選內容，不改步驟、不重新載入，避免取消買家的導覽或在卸載後重啟輪詢。
+- 回應落在離開途中、之後離開導覽才失敗（恢復為未離開時）：離開途中被略過的「退回選位」此時補做（離開途中有錯誤分流要求退回、或確認步驟無法顯示而網址仍帶 `step` 時移除），離開途中訂單已成立者另重新載入；成功回應在離開途中即清空已選內容，所以恢復後不會停在可再按的確認步驟（BW-CONFIRM-020）。
+- 卸載後才回來的下單錯誤（例如 403 QueueAdmissionRequired 查排隊狀態仍為 Waiting）不得再排程排隊輪詢：`startQueuePolling` 於卸載後不再建立 timer，避免已卸載頁面持續輪詢（此漏洞 master 上的輪詢回應晚於卸載時亦存在，一併修正）。
+- 登出或換發失敗時（auth store `clearSession()`）呼叫 `clearPlacedOrder()`：成功後的 `replace` 被取消等情形留下的提示屬於前一個登入者，不得在換帳號後顯示。
 
 替代方案：
 - 用 query（`/events?placed=:id`）：重新整理或分享網址會重複顯示，還要驗證 query 內容。
@@ -116,7 +120,9 @@
 - [橫幅寫死 10 分鐘，後端常數改變時會不一致] → 決策 5；後端不動，前端集中成單一常數（橫幅與注意事項共用），常數旁註解寫明對應 `CreateOrderHandler.HoldDuration`。
 - [多一步操作，搶票時多一次點擊] → 這是使用者要求的確認步驟，取捨已接受。
 - [測試 mock 的 `useRoute` 是靜態物件] → 既有約 40 個測試（`submitButton(` 共 47 處）要改成可反應的 route mock 才能驗證 `step` 切換；tasks 1.x 先處理測試基礎。
-- [瀏覽器上一頁在送出中回到選位步驟] → 請求繼續完成：成功依決策 4 導向活動列表；失敗依決策 3 的分流，退回選位對已在選位步驟的頁面不產生作用；停在確認步驟類的訊息因共用 `actionErrorMessage` 顯示在結帳列（BW-CONFIRM-016）。
+- [守衛把離開導覽導回目前所在網址] → vue-router 判為重複導覽（不重跑離開守衛，afterEach 的 `to` 與離開守衛收到的不是同一物件），`hasLeftPage` 不會恢復，之後下單成功只顯示訊息、不導頁。現有 `router/index.ts` 的守衛只導向登入頁、活動列表、我的主辦方，碰不到；之後新增會導回活動詳情頁的守衛時須處理。
+- [以瀏覽紀錄跳轉（popstate）離頁失敗後補做退回選位] → vue-router 先非同步走回原紀錄，才呼叫 afterEach／onError；此時補做的 `replace` 可能改到錯誤的那筆紀錄，只影響瀏覽紀錄，不會重複下單。需同時在確認步驟、一次跳多筆紀錄、離頁失敗、且離頁途中訂單已成立，記為已知限制，未在真實瀏覽器驗證。
+- [瀏覽器上一頁在送出中回到選位步驟] → 請求繼續完成：成功依決策 4 導向活動列表；失敗依決策 3 的分流，退回選位對已在選位步驟的頁面不產生作用；停在確認步驟類的訊息因共用 `actionErrorMessage` 顯示在結帳列（BW-CONFIRM-016）。送出中「下一步」為 loading，焦點等送出結束、按鈕可用後才移過去；送出中又以下一頁回到確認步驟時取消這個延後動作，避免之後的錯誤退回搶走焦點。已知限制：此情形成功導向列表後，瀏覽紀錄的下一頁仍是 `?step=confirm`（瀏覽器無法刪除前進紀錄）；從列表按上一頁回到的是選位步驟那筆紀錄之前的位置，不影響訂單，不處理。
 
 ## 安全確認
 

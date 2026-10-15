@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
+import { createPinia, setActivePinia } from 'pinia'
 import EventListPage from './EventListPage.vue'
 import * as eventsApi from '../../api/events'
 import type { EventSummary } from '../../types/apiResponses'
+import { usePlacedOrderNoticeStore } from '../../stores/placedOrderNotice'
 
 vi.mock('../../api/events')
 
@@ -28,11 +30,16 @@ function buildEvent(overrides: Partial<EventSummary> = {}): EventSummary {
 }
 
 // RouterLink: true 的 stub 預設不渲染 slot，卡片內容會消失；改用保留 slot 的 stub。
-const RouterLinkStub = { props: ['to'], template: '<a class="event-card"><slot /></a>' }
+// 輸出 href 才能斷言連結目標；class 由使用端的 attribute fallthrough 帶入。本頁的 to 都是字串。
+const RouterLinkStub = { props: ['to'], template: '<a :href="to"><slot /></a>' }
 
 function mountPage() {
   return mount(EventListPage, { global: { plugins: [ElementPlus], stubs: { RouterLink: RouterLinkStub } } })
 }
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 
 describe('EventListPage（買家）販售狀態', () => {
   beforeEach(() => {
@@ -60,5 +67,83 @@ describe('EventListPage（買家）販售狀態', () => {
     const cards = wrapper.findAll('.event-card')
     expect(cards.map((card) => card.find('h2').text())).toEqual(['NotOpen Event', 'Open Event', 'Closed Event'])
     expect(cards.map((card) => card.find('.el-tag').text())).toEqual(['尚未開賣', '販售中', '已停售'])
+  })
+})
+
+describe('EventListPage（買家）下單成功付款提示（order-confirmation-page）', () => {
+  const NOTICE_TEXT = '訂單已建立，已為你保留 10 分鐘，請在期限內完成付款'
+
+  beforeEach(() => {
+    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([])
+  })
+
+  function findNotice(wrapper: ReturnType<typeof mountPage>) {
+    return wrapper.find('.placed-order-notice')
+  }
+
+  // 買家剛建立的 Pending 訂單只保留 10 分鐘；連結若指向錯的 Id 或不顯示，買家就找不到要付款的訂單。
+  it('[BW-LOBBY-NOTICE-001] mount_AfterOrderPlaced_ShowsPaymentNoticeLinkingToOrderDetail', async () => {
+    const store = usePlacedOrderNoticeStore()
+    store.setPlacedOrder('order-456')
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const notice = findNotice(wrapper)
+    expect(notice.exists()).toBe(true)
+    expect(notice.attributes('role')).toBe('status')
+    expect(notice.text()).toContain(NOTICE_TEXT)
+    const payLink = notice.findAll('a').find((link) => link.text() === '前往付款')
+    expect(payLink?.attributes('href')).toBe('/orders/order-456')
+    expect(store.placedOrderId).toBeNull()
+  })
+
+  it('[BW-LOBBY-NOTICE-002] closeNotice_WhenClicked_HidesNotice', async () => {
+    usePlacedOrderNoticeStore().setPlacedOrder('order-456')
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await findNotice(wrapper).find('.el-alert__close-btn').trigger('click')
+
+    expect(findNotice(wrapper).exists()).toBe(false)
+  })
+
+  // 提示若重複出現，買家會在保留期過後仍看到「已為你保留 10 分鐘」而誤以為還能付款。
+  it('[BW-LOBBY-NOTICE-003] mount_SecondTimeAfterNoticeShown_DoesNotShowNotice', async () => {
+    usePlacedOrderNoticeStore().setPlacedOrder('order-456')
+    const first = mountPage()
+    await flushPromises()
+    expect(findNotice(first).exists()).toBe(true)
+    first.unmount()
+
+    const second = mountPage()
+    await flushPromises()
+
+    expect(findNotice(second).exists()).toBe(false)
+    expect(second.text()).not.toContain(NOTICE_TEXT)
+  })
+
+  it('[BW-LOBBY-NOTICE-004] mount_WithoutPlacedOrder_DoesNotShowNotice', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(findNotice(wrapper).exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(NOTICE_TEXT)
+  })
+
+  // 列表載入失敗與訂單無關；若錯誤分支蓋掉提示，買家會失去唯一的付款入口提示。
+  it('[BW-LOBBY-NOTICE-005] mount_AfterOrderPlacedAndListFails_ShowsErrorAndNotice', async () => {
+    vi.mocked(eventsApi.getEvents).mockRejectedValue(new Error('network down'))
+    usePlacedOrderNoticeStore().setPlacedOrder('order-456')
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('載入活動列表失敗')
+    const notice = findNotice(wrapper)
+    expect(notice.exists()).toBe(true)
+    const payLink = notice.findAll('a').find((link) => link.text() === '前往付款')
+    expect(payLink?.attributes('href')).toBe('/orders/order-456')
   })
 })

@@ -25,8 +25,8 @@ function isUserDismissal(reason: unknown): boolean {
   return reason === 'cancel' || reason === 'close'
 }
 
-// OrderResultPage 與 OrderDetailPage 共用「載入明細＋確認＋取消＋重新查詢」流程
-// （order-pending-actions design.md 決策 2）。操作後一律重新查詢、以伺服器狀態為準，
+// OrderDetailPage 的「載入明細＋確認＋取消＋重新查詢」流程（原與結果頁共用，結果頁已由 order-confirmation-page 移除；
+// order-pending-actions design.md 決策 2）。操作後一律重新查詢、以伺服器狀態為準，
 // 前端不依錯誤類型推測訂單新狀態。
 export function usePendingOrderActions() {
   const route = useRoute()

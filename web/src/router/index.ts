@@ -1,15 +1,25 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 // 頁面一律延遲載入，買家首屏才不會下載後台頁面與 jsqr（bundle-splitting）；BuyerLayout 是首頁外框，
 // 維持靜態 import 以省一次 chunk 請求
 import BuyerLayout from '../layouts/BuyerLayout.vue'
 
+function isOnlyStepQueryChanged(to: RouteLocationNormalized, from: RouteLocationNormalized): boolean {
+  if (to.path !== from.path || to.hash !== from.hash || to.query.step === from.query.step) return false
+  // 逐 key 比對，query 物件的 key 順序不同不影響結果
+  const otherKeys = new Set([...Object.keys(to.query), ...Object.keys(from.query)])
+  otherKeys.delete('step')
+  return [...otherKeys].every((key) => JSON.stringify(to.query[key]) === JSON.stringify(from.query[key]))
+}
+
 const router = createRouter({
   history: createWebHistory(),
   // 沒設定時 SPA 換頁會沿用上一頁的捲動位置，從長列表點進詳情頁會停在頁面中段。上一頁／下一頁交回 savedPosition，
   // 但資料非同步載入的頁面在還原當下高度不足，實際會停在頁首附近（2026-10-13 走查實測），收尾階段不另外處理
-  scrollBehavior: (_to, _from, savedPosition) => savedPosition ?? { top: 0 },
+  // 只切換確認步驟（step query）時不捲動、也不還原 savedPosition，捲動交給元件移焦點處理，避免兩者競爭
+  // （order-confirmation-page design.md 決策 6）
+  scrollBehavior: (to, from, savedPosition) => (isOnlyStepQueryChanged(to, from) ? false : (savedPosition ?? { top: 0 })),
   routes: [
     {
       path: '/',
@@ -19,12 +29,9 @@ const router = createRouter({
         { path: 'login', name: 'login', component: () => import('../pages/buyer/LoginPage.vue') },
         { path: 'register', name: 'register', component: () => import('../pages/buyer/RegisterPage.vue') },
         { path: 'events/:id', name: 'event-detail', component: () => import('../pages/buyer/EventDetailPage.vue') },
-        {
-          path: 'order-result/:id',
-          name: 'order-result',
-          component: () => import('../pages/buyer/OrderResultPage.vue'),
-          meta: { requiresAuth: true },
-        },
+        // 結果頁已移除（order-confirmation-page design.md 決策 9），舊網址與書籤導向同一筆訂單的明細頁；
+        // 登入要求、權限與找不到訂單由 order-detail 的守衛與頁面處理
+        { path: 'order-result/:id', redirect: (to) => ({ name: 'order-detail', params: { id: to.params.id } }) },
         { path: 'orders', name: 'my-orders', component: () => import('../pages/buyer/MyOrdersPage.vue'), meta: { requiresAuth: true } },
         { path: 'orders/:id', name: 'order-detail', component: () => import('../pages/buyer/OrderDetailPage.vue'), meta: { requiresAuth: true } },
         { path: 'me/real-name', name: 'real-name', component: () => import('../pages/buyer/RealNamePage.vue'), meta: { requiresAuth: true } },

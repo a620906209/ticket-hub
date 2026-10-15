@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import type { RouteLocationNormalized } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import type { ButtonInstance } from 'element-plus'
 import { getEvents, getEventSeats, getTicketTypes } from '../../api/events'
 import { placeOrder } from '../../api/orders'
 import type { PlaceOrderSelection } from '../../api/orders'
@@ -8,11 +11,13 @@ import { getMyQueueStatus, joinQueue } from '../../api/queue'
 import { getMyProfile } from '../../api/members'
 import { ApiError } from '../../api/httpClient'
 import { useAuthStore } from '../../stores/auth'
+import { usePlacedOrderNoticeStore } from '../../stores/placedOrderNotice'
 import { useCaptcha } from '../../composables/useCaptcha'
 import type { EventSeat, EventSummary, QueueStatus, TicketType } from '../../types/apiResponses'
 import type { SelectedSeat } from '../../types/ui'
 import { toErrorMessage } from '../../utils/errors'
 import { formatCurrency } from '../../utils/currency'
+import { ORDER_HOLD_MINUTES } from '../../utils/orderHold'
 import { getEffectiveSalesEndAtUtc, getSalesStatus } from '../../utils/salesWindow'
 import type { SalesStatus } from '../../utils/salesWindow'
 import QueueWaitingPanel from '../../components/QueueWaitingPanel.vue'
@@ -25,6 +30,7 @@ const SALES_CLOCK_INTERVAL_MS = 1000
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const placedOrderNoticeStore = usePlacedOrderNoticeStore()
 const eventId = route.params.id as string
 
 const event = ref<EventSummary | null>(null)
@@ -364,6 +370,120 @@ const totalPrice = computed(
     countTicketTypes.value.reduce((sum, t) => sum + (countQuantities[t.id] ?? 0) * t.price, 0),
 )
 
+const hasSelections = computed(() => selectedSeats.value.length > 0 || countTotal.value > 0)
+
+// 確認步驟以 `step=confirm` query 表示，與選位步驟同一頁、共用已選內容（order-confirmation-page design.md 決策 1）。
+// 只與字串 'confirm' 比對，其他值一律視為選位步驟。
+const isConfirmStepRequested = computed(() => route.query.step === 'confirm')
+const canShowConfirmStep = computed(() => authStore.isAuthenticated && canPurchase.value && hasSelections.value)
+const showConfirmStep = computed(() => isConfirmStepRequested.value && canShowConfirmStep.value)
+const confirmCountTicketTypes = computed(() => countTicketTypes.value.filter((t) => (countQuantities[t.id] ?? 0) > 0))
+const isNoticeAgreed = ref(false)
+const confirmHeadingRef = ref<HTMLElement | null>(null)
+const nextStepButtonRef = ref<ButtonInstance | null>(null)
+// 錯誤導致的退回不移動焦點，由 role="alert" 公告訊息（design.md 決策 7）；只有買家自己返回時才把焦點交回「下一步」。
+let isReturningByError = false
+// 離開導覽一開始就視為已離頁，不等卸載：換頁尚未完成時回來的下單回應也不能把買家拉回列表或登入頁。
+let hasLeftPage = false
+let latestLeavingTarget: RouteLocationNormalized | null = null
+// 離頁途中訂單已成立：座位與票種餘量已變，離頁若失敗、買家留在本頁，須重新載入。
+let isReloadNeededAfterFailedLeave = false
+// 離頁途中被略過的錯誤退回（例如 403 RealNameRequired）：確認步驟仍可顯示，只靠 canShowConfirmStep 判斷不到。
+let isReturnToSelectionNeededAfterFailedLeave = false
+// 卸載後才回來的請求（下單錯誤分流、輪詢回應）不得再排程輪詢，否則已卸載的頁面會一直打排隊狀態。
+let isUnmounted = false
+onBeforeRouteLeave((to) => {
+  hasLeftPage = true
+  latestLeavingTarget = to
+})
+// 最近一次離開導覽失敗（目標頁載入失敗、被守衛取消）時買家仍在本頁，要恢復成未離頁；
+// 否則確認訂單成功後不導頁、按鈕還能再按，計數票會重複下單。
+// 只認最近一次的目標：連點連結時前一個導覽會被後一個取代而回報失敗，此時買家仍在離開途中。
+function restoreIfLatestLeavingFailed(to: RouteLocationNormalized): void {
+  if (to !== latestLeavingTarget) return
+  hasLeftPage = false
+  latestLeavingTarget = null
+  void resyncAfterFailedLeave()
+}
+// 離頁途中退回選位會被略過（避免取消買家的導覽）；離頁失敗、買家仍在本頁時補做，
+// 否則網址留著 step=confirm，計數票等內容一旦再選就直接跳進確認步驟、甚至能重複下單。
+async function resyncAfterFailedLeave(): Promise<void> {
+  if (isReturnToSelectionNeededAfterFailedLeave || !canShowConfirmStep.value) {
+    isReturnToSelectionNeededAfterFailedLeave = false
+    await returnToSelectionStep()
+  }
+  if (!isReloadNeededAfterFailedLeave) return
+  isReloadNeededAfterFailedLeave = false
+  await loadData()
+}
+const removeAfterEachHook = router.afterEach((to, _from, failure) => {
+  if (failure) restoreIfLatestLeavingFailed(to)
+})
+const removeErrorHook = router.onError((_error, to) => {
+  restoreIfLatestLeavingFailed(to)
+})
+let stopPendingNextStepFocus: (() => void) | null = null
+
+// 網址帶 step=confirm 但條件不成立（直接開啟、停留期間停售、內容被清空）時移除 step，不留下無法顯示的紀錄。
+watch(
+  [isConfirmStepRequested, canShowConfirmStep],
+  ([isRequested, canShow]) => {
+    if (isRequested && !canShow) void returnToSelectionStep()
+  },
+  { immediate: true },
+)
+
+watch(
+  showConfirmStep,
+  (isShown) => {
+    if (isShown) {
+      // 送出中上一頁又下一頁回到確認步驟時，取消先前等送出結束才移焦點的動作，避免之後錯誤退回時搶走焦點。
+      stopPendingNextStepFocus?.()
+      stopPendingNextStepFocus = null
+      confirmHeadingRef.value?.focus()
+      return
+    }
+    // 每次進入都要重新勾選：返回改選後內容可能已變，不能沿用上一次的同意（design.md 決策 2）。
+    isNoticeAgreed.value = false
+    if (!isReturningByError && canShowConfirmStep.value) focusNextStepButtonWhenEnabled()
+    isReturningByError = false
+  },
+  { flush: 'post' },
+)
+
+// 送出中按上一頁回到選位時，「下一步」仍是 loading（disabled）無法取得焦點，要等送出結束、按鈕重新可用才移過去。
+function focusNextStepButtonWhenEnabled(): void {
+  if (!submitting.value) {
+    nextStepButtonRef.value?.ref?.focus()
+    return
+  }
+  stopPendingNextStepFocus?.()
+  const stop = watch(
+    submitting,
+    (isSubmitting) => {
+      if (isSubmitting) return
+      stop()
+      stopPendingNextStepFocus = null
+      nextStepButtonRef.value?.ref?.focus()
+    },
+    { flush: 'post' },
+  )
+  stopPendingNextStepFocus = stop
+}
+
+// 一律用 replace：錯誤退回不依賴瀏覽紀錄，也不會讓上一頁回到已失效的確認步驟。
+async function returnToSelectionStep(): Promise<void> {
+  if (hasLeftPage) {
+    isReturnToSelectionNeededAfterFailedLeave = true
+    return
+  }
+  if (!isConfirmStepRequested.value) return
+  if (showConfirmStep.value) isReturningByError = true
+  const query = { ...route.query }
+  delete query.step
+  await router.replace({ query })
+}
+
 // 結帳列依選取順序列出前幾個座位，太多時只顯示總數，避免結帳列高到擋住座位（design.md 決策 2）。
 const CHECKOUT_SEAT_PREVIEW_LIMIT = 6
 const checkoutSeatPreview = computed(() =>
@@ -447,7 +567,7 @@ function stopQueuePolling(): void {
 // 請求耗時超過輪詢間隔時多個請求重疊送出、回應順序顛倒導致較舊的 Waiting 回應覆蓋較新的 Admitted
 // 回應、誤將已結束的輪詢重新啟動。
 function startQueuePolling(): void {
-  if (queuePollTimer !== null) return
+  if (isUnmounted || queuePollTimer !== null) return
   queuePollTimer = setTimeout(() => {
     queuePollTimer = null
     void refreshQueueStatus()
@@ -584,16 +704,64 @@ function clearSelections(): void {
   }
 }
 
-async function handleSubmit(): Promise<void> {
-  const countSelections = buildCountSelections()
-  if (selectedSeats.value.length === 0 && countSelections.length === 0) return
-
-  // 送出前重新加總，不只依賴各輸入元件的 max 屬性把關（design.md 決策 3 風險緩解）。
-  const totalCount = selectedSeats.value.length + countSelections.reduce((sum, s) => sum + (s.quantity ?? 0), 0)
+// 送出前重新加總，不只依賴各輸入元件的 max 屬性把關（design.md 決策 3 風險緩解）。
+// 「下一步」與「確認訂單」共用；未通過時不清除既有錯誤，只覆寫為限購提示。
+function isWithinOrderLimit(): boolean {
+  const totalCount = selectedSeats.value.length + countTotal.value
   if (maxTicketsPerOrder.value !== null && totalCount > maxTicketsPerOrder.value) {
     actionErrorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請調整已選座位或購買數量`
-    return
+    return false
   }
+  return true
+}
+
+function handleNextStep(): void {
+  if (!canPurchase.value || !hasSelections.value) return
+  if (!isWithinOrderLimit()) return
+
+  errorMessage.value = ''
+  actionErrorMessage.value = ''
+  void router.push({ query: { ...route.query, step: 'confirm' } })
+}
+
+// 與瀏覽器上一頁同一路徑：確認步驟只能由「下一步」push 進入，上一筆紀錄一定是本活動的選位步驟（design.md 決策 1）。
+function handleBackToSelection(): void {
+  router.back()
+}
+
+const ORDER_PLACED_MESSAGE = '訂單已建立，請到「我的訂單」完成付款'
+
+async function returnToEventListAfterOrderPlaced(orderId: string): Promise<void> {
+  placedOrderNoticeStore.setPlacedOrder(orderId)
+  // 導頁失敗有兩種形式：檔案載入失敗等錯誤會 reject，被守衛取消則 resolve 成 NavigationFailure。
+  let isNavigated: boolean
+  try {
+    // replace 取代確認步驟這筆紀錄，上一頁回到選位步驟，不回到已送出的確認畫面。
+    isNavigated = !(await router.replace({ name: 'events' }))
+  } catch {
+    isNavigated = false
+  }
+  if (!isNavigated) {
+    // 訂單已建立，不能落入下單失敗處理讓買家以為要重下。提示改以訊息告知、不留在 store；
+    // 退回選位並重新載入，已下單的座位顯示為不可選，避免再按一次重複下單。
+    placedOrderNoticeStore.clearPlacedOrder()
+    ElMessage.success(ORDER_PLACED_MESSAGE)
+    // 買家另點連結取代了這次導頁：頁面正在離開，不再改步驟或重新載入（避免取消買家的導覽、卸載後重啟輪詢）。
+    clearSelections()
+    if (hasLeftPage) {
+      isReloadNeededAfterFailedLeave = true
+      return
+    }
+    await returnToSelectionStep()
+    await loadData()
+  }
+}
+
+async function handleConfirmOrder(): Promise<void> {
+  if (submitting.value || !isNoticeAgreed.value) return
+  const countSelections = buildCountSelections()
+  if (selectedSeats.value.length === 0 && countSelections.length === 0) return
+  if (!isWithinOrderLimit()) return
 
   submitting.value = true
   errorMessage.value = ''
@@ -603,32 +771,46 @@ async function handleSubmit(): Promise<void> {
       ...selectedSeats.value.map((s) => ({ eventSeatId: s.eventSeatId, ticketTypeId: s.ticketTypeId })),
       ...countSelections,
     ])
-    await router.push({ path: `/order-result/${id}` })
+    // 買家已離開本頁時不導頁、不記錄提示：延後到下次進入列表才顯示時「保留 10 分鐘」可能已過期，
+    // store 為全域也可能在換帳號後露出前一人的訂單連結（design.md 決策 4）。
+    if (hasLeftPage) {
+      ElMessage.success(ORDER_PLACED_MESSAGE)
+      clearSelections()
+      isReloadNeededAfterFailedLeave = true
+      return
+    }
+    await returnToEventListAfterOrderPlaced(id)
   } catch (error) {
     // 401（換發也失敗）不能指望 App.vue 的全域 watcher 導頁——那個 watcher 只在目前路由
     // 的 meta 標示 requiresAuth/requiresAdmin 時才會導向登入頁，而活動詳情頁是公開頁
     // （未登入也能瀏覽選位，見 buyer-web-ui spec），route meta 沒有這個標記，watcher 不會
     // 處理這裡的登入失效。必須在這個元件自己攔截 401，直接導向登入頁，不落入下面「下單
     // 失敗」的一般錯誤處理，否則會顯示誤導訊息、還把使用者的選購狀態清空。
+    // redirect 用不含 query 的 path：登入後回到選位步驟，而不是會被正規化掉的確認步驟（BW-CONFIRM-009）。
     if (error instanceof ApiError && error.status === 401) {
-      router.push({ path: '/login', query: { redirect: route.fullPath } })
+      if (hasLeftPage) return
+      router.push({ path: '/login', query: { redirect: route.path } })
       return
     }
+    // 以下分流的訊息、清空、刷新行為不變，只補上停在哪一步：照原樣重試就可能成功的錯誤（429、SalesNotOpen）
+    // 停在確認步驟，其他退回選位（design.md 決策 3）。
     // 排隊資格不足（未入場或已逾時）：導回排隊等待畫面重新查詢狀態，不清空已選內容、不刷新座位/
     // 票種資料——這不代表座位或庫存資料有變動（buyer-web-ui spec BW-QUEUE-004，MUST 同時檢查
     // status 與 title 兩者，title 不符時落入下方一般失敗處理，見 BW-QUEUE-006）。
     if (error instanceof ApiError && error.status === 403 && error.problem?.title === 'QueueAdmissionRequired') {
       errorMessage.value = '排隊資格已逾時或尚未入場，請重新等待排隊'
+      await returnToSelectionStep()
       await refreshQueueStatus()
+      return
+    }
+    // 未登記實名：顯示登記引導，不顯示泛用錯誤、不清空已選內容——登記後回到本頁即可再送出（BW-RN-EVENT-005）。
+    if (isRealNameRequiredError(error)) {
+      isRealNameRejectedByServer.value = true
+      await returnToSelectionStep()
       return
     }
     // 請求頻率限制：顯示提示但不清空已選內容、不刷新資料——這代表發送過快，不是資料已變動
     // （buyer-web-ui spec BW-QUEUE-005）。
-    // 未登記實名：顯示登記引導，不顯示泛用錯誤、不清空已選內容——登記後回到本頁即可再送出（BW-RN-EVENT-005）。
-    if (isRealNameRequiredError(error)) {
-      isRealNameRejectedByServer.value = true
-      return
-    }
     if (error instanceof ApiError && error.status === 429) {
       actionErrorMessage.value = '請求過於頻繁，請稍後再試'
       return
@@ -639,6 +821,7 @@ async function handleSubmit(): Promise<void> {
     // 已停售訊息由販售提示（salesPromptTitle）顯示，不再設 errorMessage，避免同一句出現兩次。
     if (salesWindowErrorTitle === 'SalesClosed') {
       isSalesClosedByServer.value = true
+      await returnToSelectionStep()
       return
     }
     if (salesWindowErrorTitle === 'SalesNotOpen') {
@@ -651,6 +834,7 @@ async function handleSubmit(): Promise<void> {
     // 再設定訊息」的順序是為了不依賴這個細節。若 loadData() 本身也失敗，它的載入錯誤顯示在頂端、
     // 下單失敗顯示在結帳列，兩則並存，買家兩件事都看得到（purchase-flow-ux BW-FLOW-007）。
     const message = toErrorMessage(error, '下單失敗，可能有座位已被搶先鎖定或售出，請重新選擇')
+    await returnToSelectionStep()
     await loadData()
     actionErrorMessage.value = message
     clearSelections()
@@ -667,6 +851,10 @@ onMounted(() => {
   void loadData()
 })
 onUnmounted(() => {
+  hasLeftPage = true
+  isUnmounted = true
+  removeAfterEachHook()
+  removeErrorHook()
   stopQueuePolling()
   if (salesClockTimer !== null) {
     window.clearInterval(salesClockTimer)
@@ -745,6 +933,45 @@ onUnmounted(() => {
               <el-button type="primary" :loading="joiningQueue" :disabled="!captchaToken" @click="handleJoinQueue">加入排隊</el-button>
             </div>
           </template>
+
+          <section v-else-if="showConfirmStep" class="confirm-step" aria-labelledby="confirm-step-heading">
+            <h2 id="confirm-step-heading" ref="confirmHeadingRef" tabindex="-1">確認訂單內容</h2>
+            <ul v-if="selectedSeats.length > 0" class="confirm-seat-list">
+              <li v-for="seat in selectedSeats" :key="seat.eventSeatId" class="confirm-seat-item">
+                <span>{{ seat.zoneCode }}-{{ seat.seatNumber }}</span>
+                <span>{{ formatCurrency(seat.price) }}</span>
+              </li>
+            </ul>
+            <ul v-if="confirmCountTicketTypes.length > 0" class="confirm-count-list">
+              <li v-for="ticketType in confirmCountTicketTypes" :key="ticketType.id" class="confirm-count-item">
+                <span>{{ ticketType.zoneCode }}</span>
+                <span class="confirm-count-unit">{{ formatCurrency(ticketType.price) }} × {{ countQuantities[ticketType.id] }}</span>
+                <span>{{ formatCurrency(ticketType.price * countQuantities[ticketType.id]) }}</span>
+              </li>
+            </ul>
+            <p class="confirm-total">總金額 {{ formatCurrency(totalPrice) }}</p>
+            <ul class="confirm-notice">
+              <li>確認訂單後，系統為你保留 {{ ORDER_HOLD_MINUTES }} 分鐘；期限內未付款，訂單會自動取消並釋出座位與票券。</li>
+              <li>付款完成後才會出票，票券與 QR Code 可在「我的訂單」查看。</li>
+              <li v-if="event.isRealNameRequired">本活動需實名，入場時須出示與登記資料相符的證件。</li>
+            </ul>
+            <el-checkbox v-model="isNoticeAgreed">我已閱讀並同意注意事項</el-checkbox>
+            <el-alert
+              v-if="actionErrorMessage"
+              class="action-error"
+              role="alert"
+              :title="actionErrorMessage"
+              type="error"
+              show-icon
+              :closable="false"
+            />
+            <div class="confirm-actions">
+              <el-button :disabled="submitting" @click="handleBackToSelection">返回改選</el-button>
+              <el-button type="primary" :disabled="!isNoticeAgreed" :loading="submitting" @click="handleConfirmOrder">
+                確認訂單
+              </el-button>
+            </div>
+          </section>
 
           <template v-else>
           <p v-if="maxTicketsPerOrder !== null" class="limit-hint">每筆訂單限購 {{ maxTicketsPerOrder }} 張</p>
@@ -841,12 +1068,14 @@ onUnmounted(() => {
             </p>
             <p aria-live="polite">已選 {{ selectedSeats.length }} 個座位、{{ countTotal }} 張計數票券，總金額 {{ formatCurrency(totalPrice) }}</p>
             <el-button
+              ref="nextStepButtonRef"
+              class="next-step-button"
               type="primary"
-              :disabled="!canPurchase || (selectedSeats.length === 0 && countTotal === 0)"
+              :disabled="!canPurchase || !hasSelections"
               :loading="submitting"
-              @click="handleSubmit"
+              @click="handleNextStep"
             >
-              送出訂單
+              下一步
             </el-button>
           </div>
           </template>
@@ -1066,6 +1295,60 @@ onUnmounted(() => {
 }
 .action-error {
   margin-bottom: 8px;
+}
+.confirm-seat-list,
+.confirm-count-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.confirm-seat-item,
+.confirm-count-item {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.confirm-count-item > :first-child {
+  flex: 1;
+}
+.confirm-count-unit {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.confirm-total {
+  margin: 0 0 16px;
+  font-weight: 600;
+}
+.confirm-notice {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.confirm-notice li {
+  margin-bottom: 4px;
+}
+.confirm-step .el-checkbox {
+  margin-bottom: 12px;
+  /* 勾選框文字預設不換行，窄螢幕會撐出橫向捲動 */
+  white-space: normal;
+  height: auto;
+}
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.confirm-actions .el-button + .el-button {
+  margin-left: 0;
+}
+.confirm-step h2:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 .captcha-row {
   display: flex;

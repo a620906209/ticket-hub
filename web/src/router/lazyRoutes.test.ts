@@ -47,7 +47,8 @@ const EXPECTED_ROUTE_TREE: RouteShape[] = [
       child('login', 'login'),
       child('register', 'register'),
       child('events/:id', 'event-detail'),
-      child('order-result/:id', 'order-result', { requiresAuth: true }),
+      // order-confirmation-page 移除結果頁，舊網址改為 redirect 到明細頁；函式行為由 orderResultRedirect.test.ts 驗證
+      child('order-result/:id', undefined, undefined, expect.any(Function)),
       child('orders', 'my-orders', { requiresAuth: true }),
       child('orders/:id', 'order-detail', { requiresAuth: true }),
       child('me/real-name', 'real-name', { requiresAuth: true }),
@@ -95,7 +96,6 @@ const EXPECTED_COMPONENTS: Record<string, () => Promise<{ default: unknown }>> =
   login: () => import('../pages/buyer/LoginPage.vue'),
   register: () => import('../pages/buyer/RegisterPage.vue'),
   'event-detail': () => import('../pages/buyer/EventDetailPage.vue'),
-  'order-result': () => import('../pages/buyer/OrderResultPage.vue'),
   'my-orders': () => import('../pages/buyer/MyOrdersPage.vue'),
   'order-detail': () => import('../pages/buyer/OrderDetailPage.vue'),
   'real-name': () => import('../pages/buyer/RealNamePage.vue'),
@@ -123,11 +123,11 @@ describe('router 延遲載入與路由設定', () => {
   })
 
   // 首次 import 全部頁面（含 inline 轉換的 Element Plus）在容器內約需數秒，超過預設 5 秒
-  it('[BS-005] 18 個頁面、AdminLayout 與 PlatformLayout 為延遲載入，且都能載入成 Vue 元件', { timeout: 30_000 }, async () => {
+  it('[BS-005] 17 個頁面、AdminLayout 與 PlatformLayout 為延遲載入，且都能載入成 Vue 元件', { timeout: 30_000 }, async () => {
     const router = await importFreshRouter()
     const lazyRecords = router.getRoutes().filter((record) => typeof record.components?.default === 'function')
 
-    expect(lazyRecords).toHaveLength(20)
+    expect(lazyRecords).toHaveLength(19)
     for (const record of lazyRecords) {
       const component = await resolveComponent(record.components!.default)
       expect(typeof component, `${record.path} 應解析成 Vue 元件物件`).toBe('object')

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import * as authApi from '../api/auth'
 import { ApiError, configureHttpClientAuth, configureHttpClientRefresh } from '../api/httpClient'
 import { decodeJwtPayload } from '../utils/jwt'
+import { usePlacedOrderNoticeStore } from './placedOrderNotice'
 import type { MemberProfile } from '../types/apiResponses'
 
 const REFRESH_TOKEN_STORAGE_KEY = 'ticketing.refreshToken'
@@ -43,6 +44,8 @@ export const useAuthStore = defineStore('auth', () => {
   function clearSession(): void {
     accessToken.value = null
     member.value = null
+    // 付款提示屬於前一個登入者；不清掉的話，換帳號後回到列表會看到別人的訂單連結（order-confirmation-page design.md 決策 4）。
+    usePlacedOrderNoticeStore().clearPlacedOrder()
   }
 
   async function login(email: string, password: string, captchaToken: string, captchaAnswer: string): Promise<void> {
