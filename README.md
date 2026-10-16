@@ -135,11 +135,44 @@ cp .env.example .env
 # 2. 啟動全部服務
 docker compose up -d
 
+# 3. 套用資料庫 migration（API 啟動時不會自動執行）
+docker compose exec api dotnet ef database update --project src/ProjectC.Infrastructure --startup-project src/ProjectC.WebApi
+
 # API：http://localhost:8080（Swagger UI 見 /swagger）
 # 前端：http://localhost:5173
 ```
 
 修改 `src`／`web/src` 下的原始碼會透過 bind mount 觸發 hot reload，不需重啟容器；新增 NuGet 套件或 npm 套件才需要 `docker compose restart api` / `web`。
+
+### 示範帳號
+
+平台沒有對外開放的 Admin 註冊管道，第一個 Admin 由開發用的 `DevelopmentDataSeeder` 建立（只在 Development 環境執行，正式環境沒有對應機制，見「已知限制」）：
+
+1. 在 `.env` 取消註解並設定 `DEV_SEED_ADMIN_EMAIL`、`DEV_SEED_ADMIN_PASSWORD`（範例見 [`.env.example`](.env.example)，密碼請自行設定）
+2. 套用 migration 後執行 `docker compose restart api`；seeder 會在啟動時建立該 Admin 帳號，以及一個由它擁有、已核准的主辦方（名稱預設 `Demo Organizer`）。若啟動當下還有未套用的 migration，seeder 會略過並在 log 留下警告
+
+買家帳號不預先建立，直接在前端「註冊」頁自行註冊（需輸入圖形驗證碼）。
+
+### Demo 流程
+
+以下流程用兩個瀏覽器視窗（或一般視窗 + 無痕視窗）分別登入 Admin 與買家，較容易觀察雙方畫面：
+
+1. **主辦方上架**（Admin 帳號）
+   - 登入後從會員選單的「我的主辦方」按「切換」，進入主辦方後台
+   - 「場館管理」：建立場館，再於同頁「建立座位圖」（可批次產生，例如 A 區 1–20 號）
+   - 「活動管理」→「建立活動」：選擇場館與座位圖，可設定開賣時間、是否需實名；建立後回到活動列表，於頁面下方「建立票種」為活動加上票種（座位制以分區代碼對應座位圖，或關閉「是否綁座位」改為純計數制）
+2. **買家購票**（買家帳號）
+   - 首頁活動列表 → 活動明細 → 選座位（或數量）→「下一步」→ 勾選注意事項後「確認訂單」，訂單進入待付款，保留 10 分鐘
+   - 點提示中的「前往付款」進入訂單明細，按「確認付款」（Mock 金流）後出票；明細的每張票會顯示 Ticket ID 與「查看 QR Code」
+   - 若活動設定需實名，下單前需先在會員選單的「實名資料」登記一次
+3. **現場核銷**（Admin 帳號）
+   - 主辦方後台「票券核銷」：進入後會啟用相機掃描 QR Code；沒有第二台裝置時按「改用手動輸入」，貼上訂單明細的 Ticket ID。同一張票再次送出會顯示「此票券已核銷過」
+4. **報表與訂單**（Admin 帳號）
+   - 「訂單管理」查看主辦方範圍內的訂單；「活動管理」列表每列的「銷售報表」顯示依票種彙總的售出張數與營收
+5. **平台審核**（選用）
+   - 用另一個買家帳號在「我的主辦方」頁前往申請建立主辦方，Admin 由右上角的區域切換進入平台管理，在「主辦方審核」核准後，該帳號即可切換到新主辦方操作後台
+
+排隊機制、限流與 CAPTCHA 的觸發條件見各自的規格（[`openspec/specs/`](openspec/specs/)）；高併發行為以 k6 驗證，見 [`docs/load-test/`](docs/load-test/)。
 
 ### 測試
 
