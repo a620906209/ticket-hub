@@ -44,6 +44,7 @@ public class OrdersController : ControllerBase
 
     [HttpPost]
     [EnableRateLimiting("place-order")]
+    [RequestSizeLimit(RequestBodyLimits.PlaceOrderBytes)]
     public async Task<IActionResult> PlaceOrder(PlaceOrderRequest request, CancellationToken cancellationToken)
     {
         var result = await _orderService.PlaceOrderAsync(User.GetMemberId(), request, cancellationToken);

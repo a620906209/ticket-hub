@@ -51,6 +51,21 @@ public class CreateSeatMapHandlerTests
     }
 
     [Fact]
+    public async Task HandleAsync_WhenSeatsExceedMax_ReturnsValidationWithoutTouchingRepositories()
+    {
+        var venueId = SeedVenue();
+        var seats = Enumerable.Range(1, SeatMapLimits.MaxSeats + 1).Select(i => new SeatRequest("A", i.ToString())).ToList();
+
+        var result = await _handler.HandleAsync(venueId, new CreateSeatMapRequest(seats), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        _venueRepository.GetByIdCallCount.Should().Be(0);
+        _seatMapRepository.Data.Should().BeEmpty();
+        _unitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task HandleAsync_WithNonExistentVenue_ReturnsNotFound()
     {
         var request = new CreateSeatMapRequest([new SeatRequest("A", "1")]);

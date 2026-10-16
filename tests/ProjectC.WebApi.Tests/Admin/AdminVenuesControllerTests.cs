@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.Application.Venues.GetSeatMapById;
@@ -96,6 +97,51 @@ public class AdminVenuesControllerTests : IClassFixture<CustomWebApplicationFact
             new CreateSeatMapRequest([new SeatRequest("A", "1"), new SeatRequest("A", "1")]));
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task CreateSeatMap_WhenSeatsExceedMax_Returns400AndCreatesNoSeatMap()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var venueId = await CreateVenueAsync(organizerClient);
+        // 含重複座位、空白與 null ZoneCode：拿掉座位數規則時會得到 409 重複或逐筆欄位錯誤；null 欄位另外確保 MVC 的隱含 [Required] 不會先逐筆回錯。
+        var seats = Enumerable.Range(1, SeatMapLimits.MaxSeats - 2)
+            .Select(i => new SeatRequest("A", i.ToString()))
+            .Append(new SeatRequest("A", "1"))
+            .Append(new SeatRequest("", "blank-zone"))
+            .Append(new SeatRequest(null, "null-zone"))
+            .ToList();
+
+        var response = await organizerClient.PostAsJsonAsync(
+            $"/api/admin/venues/{venueId}/seat-maps", new CreateSeatMapRequest(seats));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // ResultExtensions 把 Validator 錯誤以空白串接放進 Detail；Detail 恰為座位數訊息即代表只有這一筆錯誤。
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Title.Should().Be("Validation");
+        problem.Detail.Should().Be($"Seats must not contain more than {SeatMapLimits.MaxSeats} items.");
+        var detailResponse = await organizerClient.GetAsync($"/api/admin/venues/{venueId}");
+        var detail = await detailResponse.Content.ReadFromJsonAsync<VenueDetailDto>();
+        detail!.SeatMaps.Should().BeEmpty();
+    }
+
+    // FluentValidation 對 null 子元素略過子 Validator，沒有 NotNull 時 null 會進到 Handler 的 GroupBy 回 500。
+    [Fact]
+    public async Task CreateSeatMap_WhenSeatsContainNull_Returns400AndCreatesNoSeatMap()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var venueId = await CreateVenueAsync(organizerClient);
+
+        var response = await organizerClient.PostAsync(
+            $"/api/admin/venues/{venueId}/seat-maps",
+            new StringContent("""{"seats":[null]}""", new MediaTypeHeaderValue("application/json")));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        problem!.Detail.Should().Contain("Seats must not contain null items.");
+        var detailResponse = await organizerClient.GetAsync($"/api/admin/venues/{venueId}");
+        var detail = await detailResponse.Content.ReadFromJsonAsync<VenueDetailDto>();
+        detail!.SeatMaps.Should().BeEmpty();
     }
 
     [Fact]

@@ -51,7 +51,8 @@ public sealed class CreateSeatMapHandler
         {
             foreach (var seat in request.Seats)
             {
-                seatMap.AddSeat(seat.ZoneCode, seat.SeatNumber);
+                // Validator 已以 NotEmpty 拒絕 null 欄位；欄位宣告為 nullable 只是為了避開 MVC 的隱含 [Required]。
+                seatMap.AddSeat(seat.ZoneCode!, seat.SeatNumber!);
             }
         }
         catch (InvalidOperationException)
