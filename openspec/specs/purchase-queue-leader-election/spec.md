@@ -51,7 +51,7 @@ TBD - created by archiving change purchase-queue-leader-election. Update Purpose
 
 綜合以上，精確的保證邊界是：**「Redis 恢復連線後，下一次成功取得鎖執行、且該輪確實處理到目標活動的校正（依上述逐活動隔離設計，只要該輪正常執行、沒有在到達這個活動前就整個程序中止，就一定會處理到），該活動的殘留就會被校正修復」**——比字面上的「下一輪」更精確，也更誠實地反映鎖競爭、持鎖實例中止與例外隔離下的實際行為；「下一次成功執行的校正」在觀測與測試上，一律以「該次校正確實對目標活動完成了對應的 Redis 讀寫操作（例如 `ZREM` 實際執行且回應成功）」為判準，不以「輪詢次數」或「時間經過」判斷。
 
-**契約語意的明確選擇（本輪審查要求：「不設重試次數上限」與「不得無限期延遲」字面上互相矛盾——若 Redis 永久不可用，任何沒有重試上限的機制都無法迴避無限期延遲，需要明確選邊，不能兩者都宣稱）**：本能力與 `purchase-queue` 能力 `PQ-COMPLETE-003` 對「Redis 恢復後、下一次成功校正」的保證，一律採 **eventual consistency 語意**，不是「有界修復」語意（有界修復需要定義最大重試次數、退避、Error 升級後的終止或人工介入路徑，但這會與「條件式 `UPDATE`／`ZADD`／`ZREM` 永遠可安全重試」這個入場推進正確性保證的基礎互相衝突，見 `purchase-queue` 能力 `PQ-ADMIT-004`）。精確承諾為：系統 MUST 保證「只要 Redis 最終恢復連線、且存在至少一次成功處理到目標活動的校正執行，該次執行 MUST 完成收斂」，且 MUST NOT 因本設計自身邏輯（例如不必要的重試上限或降頻）額外拖延收斂；若 Redis 本身永久不可用，名額釋放確實會跟著永久延遲——這是 Redis 這項外部依賴本身故障的直接後果，不是本能力或 `PQ-COMPLETE-003` 承諾要迴避的情況。不需要人工介入才能讓機制本身持續收斂嘗試；Decision 8 的 log 等級升級（Warning 升為 Error）純粹是讓維運人員能觀察到「Redis 故障時間異常拉長」，排查 Redis 本身故障根因所需的人工介入是維運 Redis 這項外部服務的正常職責，不是收斂機制本身的責任。
+**契約語意的明確選擇（「不設重試次數上限」與「不得無限期延遲」無法同時成立——若 Redis 永久不可用，任何沒有重試上限的機制都無法迴避無限期延遲，因此明確採用下列語意）**：本能力與 `purchase-queue` 能力 `PQ-COMPLETE-003` 對「Redis 恢復後、下一次成功校正」的保證，一律採 **eventual consistency 語意**，不是「有界修復」語意（有界修復需要定義最大重試次數、退避、Error 升級後的終止或人工介入路徑，但這會與「條件式 `UPDATE`／`ZADD`／`ZREM` 永遠可安全重試」這個入場推進正確性保證的基礎互相衝突，見 `purchase-queue` 能力 `PQ-ADMIT-004`）。精確承諾為：系統 MUST 保證「只要 Redis 最終恢復連線、且存在至少一次成功處理到目標活動的校正執行，該次執行 MUST 完成收斂」，且 MUST NOT 因本設計自身邏輯（例如不必要的重試上限或降頻）額外拖延收斂；若 Redis 本身永久不可用，名額釋放確實會跟著永久延遲——這是 Redis 這項外部依賴本身故障的直接後果，不是本能力或 `PQ-COMPLETE-003` 承諾要迴避的情況。不需要人工介入才能讓機制本身持續收斂嘗試；Decision 8 的 log 等級升級（Warning 升為 Error）純粹是讓維運人員能觀察到「Redis 故障時間異常拉長」，排查 Redis 本身故障根因所需的人工介入是維運 Redis 這項外部服務的正常職責，不是收斂機制本身的責任。
 
 #### Scenario: PQLE-007 Redis 無法連線或執行結果未知時跳過本輪推進，不重試
 - **WHEN** 背景服務嘗試取得分散式鎖或執行入場推進 Lua Script 時，Redis 連線失敗（例如服務未啟動或網路中斷），或呼叫逾時導致無法確認 Lua Script 是否已在 Redis 端實際執行（結果未知）
@@ -59,7 +59,7 @@ TBD - created by archiving change purchase-queue-leader-election. Update Purpose
 
 #### Scenario: PQLE-008 Redis 故障期間排隊推進暫停，逾時後自動恢復
 - **WHEN** Redis 持續無法連線，多個實例的每一輪輪詢皆因無法連線 Redis 而跳過本輪推進
-- **THEN** 系統在 Redis 故障期間不執行任何入場推進（排隊中的 `Waiting` 紀錄維持原狀，不會超額入場，也不會被錯誤推進）；**已入場但已超過入場逾時時間的 `Admitted` 紀錄，同樣 MUST NOT 在此期間被標記為 `Expired`**（本輪審查發現的明確化：入場推進與逾時標記由同一個 Decision 4 Lua Script 呼叫驅動，Redis 無法連線時兩者一併跳過，不是只暫停推進而逾時標記照常執行）；直到 Redis 恢復連線後的下一輪輪詢，才由正常推進與校正流程一併處理這些已逾時的殘留
+- **THEN** 系統在 Redis 故障期間不執行任何入場推進（排隊中的 `Waiting` 紀錄維持原狀，不會超額入場，也不會被錯誤推進）；**已入場但已超過入場逾時時間的 `Admitted` 紀錄，同樣 MUST NOT 在此期間被標記為 `Expired`**（入場推進與逾時標記由同一個 Decision 4 Lua Script 呼叫驅動，Redis 無法連線時兩者一併跳過，不是只暫停推進而逾時標記照常執行）；直到 Redis 恢復連線後的下一輪輪詢，才由正常推進與校正流程一併處理這些已逾時的殘留
 
 #### Scenario: PQLE-009 Redis 恢復連線後回復正常推進行為
 - **WHEN** Redis 從無法連線恢復為可連線，背景服務下一輪輪詢再次嘗試取得鎖並執行推進
@@ -76,11 +76,11 @@ TBD - created by archiving change purchase-queue-leader-election. Update Purpose
 
 補齊 `waiting` 鏡像缺漏時，MUST 排除任何已存在於 Redis `admitted` 鏡像的 entryId，即使 Postgres 當下仍顯示該 entryId 為 `Waiting`（Postgres 尚未追上 Redis 端已做出的推進決策）——MUST NOT 把這類 entryId 補回 `waiting`，否則會讓同一 entryId 同時存在於 `waiting` 與 `admitted` 兩個集合，破壞兩者互斥的前提，可能被後續推進誤判為全新的等待紀錄而重複推進（見 `PQLE-REBUILD-005`）。
 
-**殘留的暫態競態與下游防禦（本次事後審查修正，2026-09-18，strict-reviewer 三輪審查皆未發現，由人工審查找出）**：上述排除規則依賴校正單次讀取的快照做出「補或不補」的決策，但**決策當下**與**實際執行 `ZADD` 寫入**之間仍有時間差——若這段時間差內插入了一次完整的並發推進（另一實例的 Redis Lua Script 完整執行），仍可能讓同一個 entryId 短暫真的同時出現在 `waiting` 與 `admitted` 兩個鏡像，不是絕對不可能發生的情況。系統 MUST NOT 假設這個暫態絕對不會發生，而是在 `purchase-queue` 能力 `PQ-ADMIT-004` 的入場推進 Lua Script 本身建立下游防禦（見該 Requirement 與 `PQ-ADMIT-007`）：即使這個暫態真的發生，入場推進機制 MUST NOT 把處於這個暫態的 entryId 當成新的推進候選、MUST NOT 重設其既有的入場逾時時間；此暫態本身則由下一輪校正的清除步驟自然收斂，不需要也不應該試圖讓校正的快照讀取與寫入之間達成嚴格線性化。
+**殘留的暫態競態與下游防禦**：上述排除規則依賴校正單次讀取的快照做出「補或不補」的決策，但**決策當下**與**實際執行 `ZADD` 寫入**之間仍有時間差——若這段時間差內插入了一次完整的並發推進（另一實例的 Redis Lua Script 完整執行），仍可能讓同一個 entryId 短暫真的同時出現在 `waiting` 與 `admitted` 兩個鏡像，不是絕對不可能發生的情況。系統 MUST NOT 假設這個暫態絕對不會發生，而是在 `purchase-queue` 能力 `PQ-ADMIT-004` 的入場推進 Lua Script 本身建立下游防禦（見該 Requirement 與 `PQ-ADMIT-007`）：即使這個暫態真的發生，入場推進機制 MUST NOT 把處於這個暫態的 entryId 當成新的推進候選、MUST NOT 重設其既有的入場逾時時間；此暫態本身則由下一輪校正的清除步驟自然收斂，不需要也不應該試圖讓校正的快照讀取與寫入之間達成嚴格線性化。
 
 **Postgres 寫回失敗或結果未知時 MUST NOT 立即反向補償 Redis 鏡像**：入場推進批次寫回 Postgres 遇到任何例外（連線失敗、逾時、或無法確認實際是否已提交），系統 MUST NOT 假設「例外＝一定未寫入」而立即對 Redis 鏡像做反向修改（例如把已推進的 entryId 打回 `waiting`），因為該次寫入實際上可能已經在資料庫端成功提交、只是回應未送達——若此時反向修改 Redis，會讓已經正確落地的狀態被錯誤地復原成未處理狀態。系統 MUST 只記錄 Warning 結構化 log，不做任何 Redis 端補償，收斂完全交給上述條件式校正機制（`PQLE-REBUILD-002a`／`003b`）——條件式 `UPDATE` 本身對重複執行是安全的（已生效則為 0 列受影響的 no-op），不需要區分「確定失敗」與「結果未知」。
 
-**單一活動的處理失敗 MUST NOT 中止同一輪其餘活動的處理**：入場推進與校正的主迴圈對每個 `IsQueueModeEnabled = true` 的活動獨立處理，任一活動處理時遇到**業務例外**（連線問題、逾時等），MUST 只記錄 Warning 並跳過該活動，MUST NOT 中止迴圈、MUST NOT 影響同一輪其餘活動的推進與校正結果（見 `PQLE-REBUILD-006`）。**此隔離 MUST NOT 涵蓋 `OperationCanceledException`（本輪審查發現的缺口，補上明確 Scenario）**：`OperationCanceledException` 代表呼叫端主動取消或既有背景服務外層的取消語意，與「單一活動的業務例外」是不同語意，MUST 讓它正常向外傳遞，中止本輪剩餘活動的處理；已完成處理的前置活動的推進與校正結果 MUST 保留、不回滾（見 `PQLE-REBUILD-008`）。
+**單一活動的處理失敗 MUST NOT 中止同一輪其餘活動的處理**：入場推進與校正的主迴圈對每個 `IsQueueModeEnabled = true` 的活動獨立處理，任一活動處理時遇到**業務例外**（連線問題、逾時等），MUST 只記錄 Warning 並跳過該活動，MUST NOT 中止迴圈、MUST NOT 影響同一輪其餘活動的推進與校正結果（見 `PQLE-REBUILD-006`）。**此隔離 MUST NOT 涵蓋 `OperationCanceledException`**：`OperationCanceledException` 代表呼叫端主動取消或既有背景服務外層的取消語意，與「單一活動的業務例外」是不同語意，MUST 讓它正常向外傳遞，中止本輪剩餘活動的處理；已完成處理的前置活動的推進與校正結果 MUST 保留、不回滾（見 `PQLE-REBUILD-008`）。
 
 #### Scenario: PQLE-REBUILD-001 應用程式啟動時執行 Redis 鏡像全量校正
 - **WHEN** 應用程式啟動（含 Redis 先前無資料，或 Redis 剛重啟導致鏡像資料遺失的情況）
@@ -114,19 +114,19 @@ TBD - created by archiving change purchase-queue-leader-election. Update Purpose
 - **WHEN** 持有分散式鎖的實例在同一輪內依序處理多個 `IsQueueModeEnabled = true` 的活動，其中一個活動的推進或校正處理時遇到例外（例如該活動對應的 Postgres 查詢逾時）
 - **THEN** 系統記錄該活動的 Warning 結構化 log 並跳過，MUST 繼續處理同一輪其餘活動，其餘活動的推進與校正結果不受影響、不因單一活動的例外而整輪中止
 
-#### Scenario: PQLE-REBUILD-007 admitted 鏡像的終態殘留清除不限於 Completed（本輪審查發現的清除範圍缺口）
+#### Scenario: PQLE-REBUILD-007 admitted 鏡像的終態殘留清除不限於 Completed
 - **WHEN** 校正讀取快照時，某 entryId 存在於 Redis `admitted` 鏡像，但該 entryId 在 Postgres 的目前狀態為 `Expired`（例如先前由本能力的條件式 `UPDATE` 落地為 `Expired`，但當時對應的 Redis 移除未同步成功），或該 entryId 在 Postgres 查無任何對應紀錄（孤兒 member）
 - **THEN** 系統 MUST 將該 entryId 從 `admitted` 鏡像清除，不得因為它不符合「Postgres 狀態為 `Completed`」這個單一條件就略過；此清除範圍 MUST NOT 誤及 Postgres 仍為 `Admitted`（不論是否已逾期）的 entryId——逾期但尚未落地為 `Expired` 的殘留由入場推進機制自身的逾時清除步驟自然收斂，不由本 Scenario 的校正步驟搶先處理
 
-#### Scenario: PQLE-REBUILD-007a 格式損壞、無法解析為 entryId 的殘留成員一律視為孤兒清除（本次事後審查修正，2026-09-18）
+#### Scenario: PQLE-REBUILD-007a 格式損壞、無法解析為 entryId 的殘留成員一律視為孤兒清除
 - **WHEN** 校正讀取快照時，`waiting` 或 `admitted` 鏡像中出現一個無法解析為合法 `Guid` 的成員（例如資料寫入錯誤或人為誤植造成的格式損壞字串）
 - **THEN** 系統 MUST 將此成員視為孤兒直接清除，比照 `PQLE-REBUILD-007` 查無對應紀錄的孤兒情況處理，MUST NOT 因為無法解析出對應的 entryId 就略過不清除——否則這類殘留會被 `admitted` 鏡像的 `ZCARD` 名額計算持續計入，永久佔用一個有效入場名額
 
-#### Scenario: PQLE-REBUILD-008 處理中途遭取消時，例外正常傳遞、後續活動不再處理、已完成結果保留（本輪審查發現的追溯缺口）
+#### Scenario: PQLE-REBUILD-008 處理中途遭取消時，例外正常傳遞、後續活動不再處理、已完成結果保留
 - **WHEN** 持有分散式鎖的實例在同一輪內依序處理多個 `IsQueueModeEnabled = true` 的活動，已完成部分活動的推進與校正後，本次呼叫收到外部發出的取消（`CancellationToken` 被觸發），尚未開始處理後續活動
 - **THEN** 系統 MUST 讓 `OperationCanceledException` 正常向外傳遞（不得被單一活動的業務例外隔離邏輯攔截或吞掉），本輪剩餘、尚未處理到的活動 MUST NOT 被處理；已完成處理的前置活動，其推進與校正結果 MUST 保留（不回滾、不因取消而復原）
 
 #### Scenario: PQLE-REBUILD-004 訂單完成同步失敗時，名額於 Redis 恢復後的校正完成後釋放
 - **WHEN** 已入場會員成功建立訂單，`purchase-queue` 能力在同一 Postgres 交易內將排隊紀錄標記為 `Completed`，但交易 commit 後同步移除 Redis `admitted` 鏡像的動作失敗（例如 Redis 當下不可用）
-- **THEN** 該筆紀錄短暫仍計入 Redis 端的有效名額，直到 **Redis 恢復連線後、下一次成功執行的校正**（精確邊界見上方「Redis 不可用時的降級行為」Requirement 的說明，涵蓋鎖競爭、持鎖實例中止、校正本身逾時三個因素）查得該 entryId 在 Postgres 已明確為 `Completed`（非過渡態）並將其從 `admitted` 鏡像清除，該筆紀錄才不再計入有效名額；若 Redis 持續故障，或取得鎖的實例在處理到本活動前即中止、或該輪只處理了部分活動，此延遲會持續到「真正處理到本活動且該次 `ZREM` 實際執行成功」的校正為止，不是固定的輪詢次數。**契約語意（eventual consistency，非「有界修復」，本輪審查要求明確選邊，見上方「Redis 不可用時的降級行為」Requirement 的「契約語意的明確選擇」說明）**：系統 MUST 保證「只要 Redis 最終恢復連線、且存在至少一次成功處理到本活動的校正執行，該次執行 MUST 完成收斂」，且 MUST NOT 因本設計自身邏輯額外拖延收斂；若 Redis 本身永久不可用，名額釋放確實會跟著永久延遲，這是外部依賴故障的直接後果，不是本 Scenario 或 `purchase-queue` 能力 `PQ-COMPLETE-003`（與本 Scenario 共用同一套邊界定義）承諾要迴避的情況。**重試次數與升級門檻**（design.md Decision 8 的重試與升級策略）：系統 MUST NOT 設重試次數上限、MUST NOT 因重試多輪未成功就放棄或改變處理方式；不需要人工介入即可讓機制本身持續收斂嘗試；連續多輪仍無法完成清除時，MUST 將對應 log 等級由 Warning 升級為 Error 以利可觀測性，此升級不影響、不中止重試本身
+- **THEN** 該筆紀錄短暫仍計入 Redis 端的有效名額，直到 **Redis 恢復連線後、下一次成功執行的校正**（精確邊界見上方「Redis 不可用時的降級行為」Requirement 的說明，涵蓋鎖競爭、持鎖實例中止、校正本身逾時三個因素）查得該 entryId 在 Postgres 已明確為 `Completed`（非過渡態）並將其從 `admitted` 鏡像清除，該筆紀錄才不再計入有效名額；若 Redis 持續故障，或取得鎖的實例在處理到本活動前即中止、或該輪只處理了部分活動，此延遲會持續到「真正處理到本活動且該次 `ZREM` 實際執行成功」的校正為止，不是固定的輪詢次數。**契約語意（eventual consistency，非「有界修復」，見上方「Redis 不可用時的降級行為」Requirement 的「契約語意的明確選擇」說明）**：系統 MUST 保證「只要 Redis 最終恢復連線、且存在至少一次成功處理到本活動的校正執行，該次執行 MUST 完成收斂」，且 MUST NOT 因本設計自身邏輯額外拖延收斂；若 Redis 本身永久不可用，名額釋放確實會跟著永久延遲，這是外部依賴故障的直接後果，不是本 Scenario 或 `purchase-queue` 能力 `PQ-COMPLETE-003`（與本 Scenario 共用同一套邊界定義）承諾要迴避的情況。**重試次數與升級門檻**（design.md Decision 8 的重試與升級策略）：系統 MUST NOT 設重試次數上限、MUST NOT 因重試多輪未成功就放棄或改變處理方式；不需要人工介入即可讓機制本身持續收斂嘗試；連續多輪仍無法完成清除時，MUST 將對應 log 等級由 Warning 升級為 Error 以利可觀測性，此升級不影響、不中止重試本身
 

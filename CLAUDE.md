@@ -55,19 +55,25 @@
 
 - `Domain`：Entity、Value Object、Domain Event、Repository/外部服務的 **interface 定義**。不 reference 任何其他專案。
 - `Application`：Use case 邏輯（Handler）、DTO、跨 Entity 的協調邏輯。只 reference `Domain`。
-- `Infrastructure`：EF Core 實作、外部 API 串接、檔案/快取/信件等技術細節，實作 `Domain` 定義的介面。reference `Domain` + `Application`。
+- `Infrastructure`：EF Core 實作、外部 API 串接、檔案/快取/信件等技術細節，實作 `Domain` 與 `Application` 定義的介面。reference `Domain` + `Application`。
 - `WebApi`：Controller、DI 註冊、middleware。reference 全部。
 
 ### 架構強制規則
 
 - `Domain.csproj` 禁止 `<ProjectReference>` 指向任何其他專案；PR review 時檢查此點。
-- Repository / 外部服務介面一律定義在 `Domain`，實作放 `Infrastructure`——不得將介面與實作放在同一專案。
+- 介面與實作不得放在同一專案，實作一律放 `Infrastructure`。介面位置依性質決定：
+  - **有業務語意的介面放 `Domain`**：Repository，以及代表業務能力的外部服務（例如 `IPaymentGateway`、`IEmailNotificationService`、`ITicketSigningService`）。
+  - **純技術性、不承載業務語意的介面放 `Application/Common/Interfaces`**：例如 `IDateTimeProvider`、`IDistributedLock`、`IQueryCache`、`ICaptchaService`、`ITokenService`、`IPasswordHasher`、`IUnitOfWork`。
+  - 判準：換掉這個介面的實作時，業務規則的描述需不需要跟著改？需要就放 `Domain`，不需要就放 `Application`。新增介面時在 design.md 說明歸類理由，不需另立例外。
+- 資料存取：
+  - 會員、主辦方範圍（`Member`、`RefreshToken`、`PasswordResetToken`、`Organizer`、`OrganizerMember`）沿用 `IApplicationDbContext`，Handler 可直接以 EF 查詢。這是 `membership-system` 時期依簡化條款採用的既有做法，2026-10-16 審視後決定不重構（見 `docs/project-review-2026-10-16.md` 3.1）。
+  - 其餘 Entity 一律透過 `Domain` 定義的 Repository 介面存取；**禁止再擴充 `IApplicationDbContext` 的 `DbSet`**，新增 Entity 一律走 Repository。
 - Domain Entity 內部狀態一律 `private set`，外部只能透過方法修改（Rich Domain Model，禁止 Anemic Domain Model）。
 - 跨 Entity 的判斷邏輯（需要查詢多個 Entity 或外部條件才能決定的規則）放 `Application`，單一 Entity 自己能判斷的規則放 `Domain`，不得混放。
 
 ### 何時可簡化（避免過度設計）
 
-- Entity 數量少（< 5 個）時，Application 可直接注入 `DbContext`，不必每個 Entity 都建 Repository 介面；出現重複查詢邏輯時才抽出。
+- 新專案 Entity 數量少（< 5 個）時，Application 可直接注入 `DbContext`，不必每個 Entity 都建 Repository 介面；出現重複查詢邏輯時才抽出。本專案已超過此條件，資料存取依上方「架構強制規則」。
 - Value Object、Domain Event 非必要不用，出現「同一驗證邏輯在多處重複」時才導入 Value Object。
 
 ---
@@ -267,6 +273,12 @@
 - Spec review 階段**不得將尚未依 tasks 實作的程式碼、測試檔案或腳本不存在視為 blocker**；這些檔案尚未建立是正常的提案狀態。
 - **Implementation / strict review 階段**才檢查實際檔案是否已建立、程式碼是否符合 spec、測試是否存在且通過，以及實作與規格是否一致。
 - 若 spec 已列出自動化測試 task，但測試檔案尚未建立，Spec review 應檢查 task 的測試目標、驗證步驟與失敗分支是否清楚，不要求提前建立測試檔案。
+
+### Spec 條文撰寫
+
+- delta spec（`specs/**`）的 Requirement 與 Scenario **只寫系統行為規則**，不寫審查歷程或修改來由（例如「第 N 輪審查發現」「因 X change 改動而新增」「strict-reviewer 未發現、由人工審查找出」）。
+- 理由：archive 會把 delta 原文複製進主 spec，之後的 MODIFIED 又整條沿用，歷程敘述會在主 spec 中累積，讓讀者分不清哪些是規則、哪些是歷史。
+- 審查歷程、修改來由、取捨理由寫在 `design.md`（歸檔後仍保留在 archive）。
 
 ### Change 顆粒度（建立 proposal 時檢查）
 

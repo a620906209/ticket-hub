@@ -194,6 +194,12 @@ model: gpt-5.6-terra
       測試驗證的是一個規格未要求、真實實作也不會發生的情境,不能證明
       fail-open 或其他契約保證真的成立在正確的層級。發現此類矛盾視為
       blocking,並具體指出違反的是哪一份文件宣告的哪一項契約
+- [ ] delta spec(`specs/**`)的 Requirement 與 Scenario 是否只寫系統行為規則,
+      沒有夾帶審查歷程或修改來由(例如「第 N 輪審查發現」「因 X change 改動
+      而新增」「strict-reviewer 未發現、由人工審查找出」「本輪審查要求」)。
+      archive 會把 delta 原文複製進主 spec,MODIFIED 又會整條沿用,這類敘述
+      會在主 spec 累積。發現時視為 blocking,指出所在 Requirement/Scenario
+      與該句,建議移到 design.md;規則本身(例如「須防禦某暫態競態」)保留
 ### 可驗證性
 - [ ] 每項需求是否都有可觀察、可判定通過或失敗的驗收條件(AC),且每條
       AC 有穩定且可引用的識別方式;不硬性規定命名格式,但需可被其他文件
