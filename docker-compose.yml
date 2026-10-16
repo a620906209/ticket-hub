@@ -122,6 +122,8 @@ services:
       - loadtest_seeder_obj:/src/tools/ProjectC.LoadTest.Seeder/obj
       - loadtest_seeder_tests_bin:/src/tests/ProjectC.LoadTest.Seeder.Tests/bin
       - loadtest_seeder_tests_obj:/src/tests/ProjectC.LoadTest.Seeder.Tests/obj
+      - infrastructure_tests_bin:/src/tests/ProjectC.Infrastructure.Tests/bin
+      - infrastructure_tests_obj:/src/tests/ProjectC.Infrastructure.Tests/obj
 
   web:
     build:
@@ -184,4 +186,6 @@ volumes:
   loadtest_seeder_obj:
   loadtest_seeder_tests_bin:
   loadtest_seeder_tests_obj:
+  infrastructure_tests_bin:
+  infrastructure_tests_obj:
   web_node_modules:

@@ -1,5 +1,18 @@
 {
   "enabledPlugins": {
     "modern-web-guidance@googlechrome": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-host-dotnet.js\""
+          }
+        ]
+      }
+    ]
   }
 }
