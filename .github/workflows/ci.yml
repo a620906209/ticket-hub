@@ -34,8 +34,11 @@ jobs:
 
       # 不設定 Testcontainers__ComposeNetworkName：各 fixture 在未設定時改用 mapped port 連線，
       # runner 直接使用主機 Docker，不需要 compose 網路與 DooD 設定。
+      # 以 root 執行：本機測試在 api 容器內即為 root，LoadTest.Seeder 會把 token 檔 chown 給 k6 使用者，
+      # 非 root 會失敗；runner 預設使用者為非 root 的 runner。sudo 會重設 PATH，所以以 env 帶入
+      # setup-dotnet 設定的 PATH，-E 保留 DOTNET_ROOT 等環境變數。
       - name: Test
-        run: dotnet test ProjectC.slnx --no-restore
+        run: sudo -E env "PATH=$PATH" dotnet test ProjectC.slnx --no-restore
 
   frontend:
     name: Frontend (lint + Vitest + build)
