@@ -6,8 +6,13 @@ public sealed class FakeVenueRepository : IVenueRepository
 {
     public List<Venue> Data { get; } = new();
 
+    public int GetByIdCallCount { get; private set; }
+
     public Task<Venue?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
-        => Task.FromResult(Data.FirstOrDefault(v => v.Id == id));
+    {
+        GetByIdCallCount++;
+        return Task.FromResult(Data.FirstOrDefault(v => v.Id == id));
+    }
 
     public Task<IReadOnlyList<Venue>> GetAllAsync(CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<Venue>>(Data.ToList());

@@ -44,9 +44,14 @@ public sealed class RecordingLogger<T> : ILogger<T>
     {
         lock (_gate)
         {
-            _entries.Add(new RecordedLogEntry(logLevel, exception, formatter(state, exception)));
+            var properties = state as IReadOnlyList<KeyValuePair<string, object?>> ?? [];
+            _entries.Add(new RecordedLogEntry(logLevel, exception, formatter(state, exception), properties.ToList()));
         }
     }
 }
 
-public sealed record RecordedLogEntry(LogLevel Level, Exception? Exception, string Message);
+public sealed record RecordedLogEntry(
+    LogLevel Level,
+    Exception? Exception,
+    string Message,
+    IReadOnlyList<KeyValuePair<string, object?>> Properties);

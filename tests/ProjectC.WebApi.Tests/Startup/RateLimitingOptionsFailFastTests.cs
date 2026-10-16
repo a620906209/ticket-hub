@@ -47,6 +47,14 @@ public class RateLimitingOptionsFailFastTests
         return configuration;
     }
 
+    private static Dictionary<string, string?> BaseConfigurationWithSeatMapRateLimiting(int permitLimit, int windowSeconds)
+    {
+        var configuration = BaseConfiguration(permitLimit: 20, windowSeconds: 60);
+        configuration["SeatMapRateLimiting:PermitLimit"] = permitLimit.ToString();
+        configuration["SeatMapRateLimiting:WindowSeconds"] = windowSeconds.ToString();
+        return configuration;
+    }
+
     private static bool ContainsOptionsValidationException(Exception exception)
     {
         var current = exception;
@@ -145,6 +153,29 @@ public class RateLimitingOptionsFailFastTests
             builder.UseEnvironment("Testing");
             builder.ConfigureAppConfiguration((_, configBuilder) =>
                 configBuilder.AddInMemoryCollection(BaseConfigurationWithCaptchaRateLimiting(permitLimit, windowSeconds)));
+        });
+
+        var act = () => factory.Server;
+
+        act.Should().Throw<Exception>()
+            .Where(e => e is OptionsValidationException || ContainsOptionsValidationException(e));
+    }
+
+    // request-body-size-limits SRL-004：SeatMapRateLimitingOptions 同樣沒有 ValidateOnStart()，Program.cs
+    // 在 app.Build() 後強制解析一次，理由與上面相同（request-body-size-limits design.md 決策 8）。SRL-003
+    // （缺漏時採用預設值）見 SeatMapRateLimitingOptionsTests（Application.Tests）。
+    [Theory]
+    [InlineData(0, 60)]
+    [InlineData(-1, 60)]
+    [InlineData(10, 0)]
+    [InlineData(10, -1)]
+    public void CreatingHost_WithNonPositiveSeatMapRateLimitingValues_ThrowsOptionsValidationException(int permitLimit, int windowSeconds)
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Testing");
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+                configBuilder.AddInMemoryCollection(BaseConfigurationWithSeatMapRateLimiting(permitLimit, windowSeconds)));
         });
 
         var act = () => factory.Server;

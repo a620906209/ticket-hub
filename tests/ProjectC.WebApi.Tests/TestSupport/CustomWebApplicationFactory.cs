@@ -146,6 +146,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
             {
                 ["LoginRateLimiting:PermitLimit"] = "1000",
                 ["LoginRateLimiting:WindowSeconds"] = "60",
+                // 十多個既有測試檔透過 API 建座位圖，同一測試類別共用 factory 時會撞到 production 預設的
+                // 10 次／60 秒；比照登入限流放大額度（request-body-size-limits design.md 決策 8）。
+                ["SeatMapRateLimiting:PermitLimit"] = "1000",
             });
         });
 
