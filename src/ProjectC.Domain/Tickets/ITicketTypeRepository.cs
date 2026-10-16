@@ -2,10 +2,12 @@ namespace ProjectC.Domain.Tickets;
 
 public interface ITicketTypeRepository
 {
-    /// <summary>唯讀查詢，不加鎖（no-tracking）；純粹用於建立訂單前的存在性/RequiresSeat 比對。
+    /// <summary>唯讀查詢，不加鎖（no-tracking）；純粹用於建立訂單前的存在性/RequiresSeat 比對，一次查回所有票種。
     /// 跟 <see cref="GetForUpdateAsync"/> 是兩個不同用途的方法，不要混用——這個方法刻意不 tracking，
-    /// 避免 EF Core identity resolution 讓後續 GetForUpdateAsync 拿到鎖前的舊快照（design.md 決策 3）。</summary>
-    Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+    /// 避免 EF Core identity resolution 讓後續 GetForUpdateAsync 拿到鎖前的舊快照（design.md 決策 3）。
+    /// 找不到的 Id 不補空值也不拋例外；<paramref name="ticketTypeIds"/> 為空清單時 MUST 直接回傳空清單，
+    /// 不得執行任何資料庫查詢（比照 <see cref="Domain.Events.IEventSeatRepository.GetByIdsAsync"/>）。</summary>
+    Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken);
 

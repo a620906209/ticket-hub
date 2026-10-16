@@ -99,9 +99,8 @@ public class RepositoryCrudRoundTripTests
         reloadedEventSeat.Should().NotBeNull();
         reloadedEventSeat!.GetStatus(DateTime.UtcNow).Should().Be(EventSeatStatus.Available);
 
-        var reloadedTicketType = await readTicketTypeRepo.GetByIdAsync(ticketTypeId, CancellationToken.None);
-        reloadedTicketType.Should().NotBeNull();
-        reloadedTicketType!.Price.Should().Be(500m);
+        var reloadedTicketTypes = await readTicketTypeRepo.GetByIdsAsync([ticketTypeId], CancellationToken.None);
+        reloadedTicketTypes.Should().ContainSingle().Which.Price.Should().Be(500m);
 
         var reloadedOrder = await readOrderRepo.GetByIdAsync(orderId, CancellationToken.None);
         reloadedOrder.Should().NotBeNull();

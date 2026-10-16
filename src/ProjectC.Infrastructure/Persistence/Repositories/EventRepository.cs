@@ -12,7 +12,7 @@ public class EventRepository : IEventRepository
         _dbContext = dbContext;
     }
 
-    // AsNoTracking：次要防護（belt-and-suspenders），比照 TicketTypeRepository.GetByIdAsync 相同理由——
+    // AsNoTracking：次要防護（belt-and-suspenders），比照 TicketTypeRepository.GetByIdsAsync 相同理由——
     // 若交易前的讀取讓這筆 Event 被 identity map 追蹤住，交易內 GetForUpdateAsync 對同一主鍵的查詢會被
     // EF Core identity resolution 擋下、回傳鎖前的舊快照（rate-limiting-queue design.md 決策 4）。
     public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken)

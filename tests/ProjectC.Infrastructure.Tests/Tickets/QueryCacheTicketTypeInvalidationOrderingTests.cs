@@ -302,7 +302,7 @@ public class QueryCacheTicketTypeInvalidationOrderingTests
 
     private sealed class AlwaysEmptyTicketTypeRepository : ITicketTypeRepository
     {
-        public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<TicketType?>(null);
+        public Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<TicketType>>([]);
 
         public Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
             => Task.FromResult<IReadOnlyList<TicketType>>([]);

@@ -976,4 +976,64 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         seatsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         (await ReadStartAtUtcJsonAsync(adminListResponse, eventId)).Should().Be(startAtJson);
     }
+
+    // ---- 每筆訂單限購張數不得超過系統上限（place-order-request-limits EVT-LIMIT-*）----
+
+    private static string CreateEventJsonWithMaxTicketsPerOrder(Guid venueId, Guid seatMapId, int maxTicketsPerOrder)
+        => $"{{\"title\": \"Concert\", \"startAtUtc\": \"{ToUtcJson(Today.AddDays(30))}\", \"venueId\": \"{venueId}\", \"seatMapId\": \"{seatMapId}\", \"maxTicketsPerOrder\": {maxTicketsPerOrder}}}";
+
+    // EVT-LIMIT-001：限購值大於系統上限時，買家頁會顯示實際下不了單的張數。
+    [Fact]
+    public async Task CreateEvent_WhenMaxTicketsPerOrderExceedsSystemLimit_Returns400AndCreatesNoRows()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        var response = await AssertCreateEventRejectedWithoutRowsAsync(organizerClient, CreateEventJsonWithMaxTicketsPerOrder(venueId, seatMapId, 51));
+
+        await AssertProblemDetailContainsAsync(response, "MaxTicketsPerOrder must not exceed 50.");
+    }
+
+    // EVT-LIMIT-002
+    [Fact]
+    public async Task CreateEvent_WhenMaxTicketsPerOrderEqualsSystemLimit_Returns201()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+
+        var response = await PostCreateEventJsonAsync(organizerClient, CreateEventJsonWithMaxTicketsPerOrder(venueId, seatMapId, 50));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await GetAdminEventAsync(organizerClient, await ReadCreatedIdAsync(response))).MaxTicketsPerOrder.Should().Be(50);
+    }
+
+    private static async Task<int?> ReadMaxTicketsPerOrderJsonAsync(HttpResponseMessage response, Guid eventId)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.EnumerateArray()
+            .Single(e => e.GetProperty("id").GetGuid() == eventId)
+            .GetProperty("maxTicketsPerOrder").GetInt32();
+    }
+
+    // EVT-LIMIT-003：上限只加在 Validator 不加 Domain 守衛，規則生效前的既有資料讀取不得失敗。
+    [Fact]
+    public async Task QueryEvents_WhenStoredMaxTicketsPerOrderExceedsSystemLimit_ListsStillLoad()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
+        var eventId = await ReadCreatedIdAsync(await PostCreateEventJsonAsync(organizerClient, CreateEventJsonWithMaxTicketsPerOrder(venueId, seatMapId, 50)));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await dbContext.Events.Where(e => e.Id == eventId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(e => e.MaxTicketsPerOrder, 100));
+        }
+
+        var publicListResponse = await _factory.CreateClient().GetAsync("/api/events");
+        var adminListResponse = await organizerClient.GetAsync("/api/admin/events");
+
+        (await ReadMaxTicketsPerOrderJsonAsync(publicListResponse, eventId)).Should().Be(100);
+        (await ReadMaxTicketsPerOrderJsonAsync(adminListResponse, eventId)).Should().Be(100);
+    }
 }

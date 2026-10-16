@@ -52,7 +52,7 @@ public class QueryCacheTtlSafetyNetTests
 
     private sealed class AlwaysThrowingTicketTypeRepository : ITicketTypeRepository
     {
-        public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
+        public Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
         public Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
         public void Add(TicketType ticketType) => throw new NotSupportedException();
         public Task<IReadOnlyList<TicketType>> GetForUpdateAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -725,7 +725,7 @@ public class QueryCacheTtlSafetyNetTests
             return _inner.GetByEventIdAsync(eventId, cancellationToken);
         }
 
-        public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
+        public Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken) => _inner.GetByIdsAsync(ticketTypeIds, cancellationToken);
         public void Add(TicketType ticketType) => _inner.Add(ticketType);
         public Task<IReadOnlyList<TicketType>> GetForUpdateAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken)
             => _inner.GetForUpdateAsync(ticketTypeIds, cancellationToken);
@@ -744,7 +744,7 @@ public class QueryCacheTtlSafetyNetTests
             _releaseSyncPoint = releaseSyncPoint;
         }
 
-        public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
+        public Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken) => _inner.GetByIdsAsync(ticketTypeIds, cancellationToken);
 
         public async Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
         {

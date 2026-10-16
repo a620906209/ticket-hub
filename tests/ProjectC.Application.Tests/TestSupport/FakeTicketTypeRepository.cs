@@ -6,8 +6,14 @@ public sealed class FakeTicketTypeRepository : ITicketTypeRepository
 {
     public List<TicketType> Data { get; } = new();
 
-    public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
-        => Task.FromResult(Data.FirstOrDefault(t => t.Id == id));
+    // 供「票種只批次查詢一次」與「被擋下的請求不得查詢票種」的斷言使用（place-order-request-limits 3.1）。
+    public int GetByIdsCallCount { get; private set; }
+
+    public Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken)
+    {
+        GetByIdsCallCount++;
+        return Task.FromResult<IReadOnlyList<TicketType>>(Data.Where(t => ticketTypeIds.Contains(t.Id)).ToList());
+    }
 
     public int GetByEventIdCallCount { get; private set; }
     public CancellationToken? LastGetByEventIdToken { get; private set; }

@@ -151,16 +151,17 @@ public sealed class OrderService
 
         // no-tracking 查詢，純粹用於存在性／RequiresSeat 交叉驗證，MUST NOT 對這裡取得的實例呼叫
         // TicketType.Reserve()（design.md 決策 3——之後的 GetForUpdateAsync 才是鎖定後的版本）。
-        var ticketTypesById = new Dictionary<Guid, TicketType>();
-        foreach (var ticketTypeId in request.Selections.Select(s => s.TicketTypeId).Distinct())
+        // 一次批次查詢取代逐筆查詢；Distinct 保留請求順序，缺漏時回報請求中第一個找不到的 Id，與逐筆查詢時相同
+        // （place-order-request-limits design.md 決策 4）。
+        var requestedTicketTypeIds = request.Selections.Select(s => s.TicketTypeId).Distinct().ToList();
+        var ticketTypesById = (await _ticketTypeRepository.GetByIdsAsync(requestedTicketTypeIds, cancellationToken))
+            .ToDictionary(t => t.Id);
+        foreach (var ticketTypeId in requestedTicketTypeIds)
         {
-            var ticketType = await _ticketTypeRepository.GetByIdAsync(ticketTypeId, cancellationToken);
-            if (ticketType is null)
+            if (!ticketTypesById.ContainsKey(ticketTypeId))
             {
                 return Result<Guid>.Failure(Error.NotFound($"Ticket type '{ticketTypeId}' was not found."));
             }
-
-            ticketTypesById[ticketTypeId] = ticketType;
         }
 
         // RequiresSeat 與請求形狀的交叉驗證：純計數票種指定了座位／綁座位票種未指定座位／
@@ -248,9 +249,9 @@ public sealed class OrderService
 
         if (orderEvent is { MaxTicketsPerOrder: { } maxTicketsPerOrder })
         {
-            // Quantity 是外部輸入，validator 只保證 >= 1、沒有上限；Sum(int) 用的是 checked int 累加，
-            // 兩個刻意送出接近 int.MaxValue 的 Quantity 就會拋 OverflowException、變成未預期的 500，
-            // 而不是乾淨的驗證錯誤——改用 long 累加規避溢位（外部審查抓到）。
+            // Quantity 是外部輸入；Sum(int) 用的是 checked int 累加，兩個接近 int.MaxValue 的 Quantity 會拋
+            // OverflowException、變成未預期的 500（外部審查抓到）。validator 現已限制總張數 <= 50
+            // （place-order-request-limits），long 累加保留為縱深防禦，避免日後 validator 調整時溢位問題重現。
             var totalQuantity = request.Selections.Sum(s => (long)s.Quantity);
             if (totalQuantity > maxTicketsPerOrder)
             {
