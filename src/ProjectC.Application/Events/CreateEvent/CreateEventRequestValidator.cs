@@ -1,4 +1,5 @@
 using FluentValidation;
+using ProjectC.Application.Orders.PlaceOrder;
 
 namespace ProjectC.Application.Events.CreateEvent;
 
@@ -12,7 +13,12 @@ public sealed class CreateEventRequestValidator : AbstractValidator<CreateEventR
         RuleFor(x => x.SeatMapId).NotEqual(Guid.Empty);
         RuleFor(x => x.Description).MaximumLength(2000);
         RuleFor(x => x.PosterUrl).MaximumLength(500);
-        RuleFor(x => x.MaxTicketsPerOrder).GreaterThan(0).When(x => x.MaxTicketsPerOrder.HasValue);
+        // 不得大於下單系統上限，否則買家頁顯示的限購值大於實際可下單張數（place-order-request-limits design.md 決策 3）。
+        RuleFor(x => x.MaxTicketsPerOrder)
+            .GreaterThan(0)
+            .LessThanOrEqualTo(PlaceOrderLimits.MaxTicketsPerOrder)
+            .WithMessage($"MaxTicketsPerOrder must not exceed {PlaceOrderLimits.MaxTicketsPerOrder}.")
+            .When(x => x.MaxTicketsPerOrder.HasValue);
 
         // 與 Event 建構子相同的規則：在這裡先擋成 400，避免走到 Domain 的 ArgumentException 變成 500；
         // Kind 檢查也避免非 UTC 值寫入 timestamptz 時才失敗（event-sales-window design.md 決策 2）。

@@ -24,8 +24,8 @@ public sealed class CountingTicketTypeRepository : ITicketTypeRepository
         _counter = counter;
     }
 
-    public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
-        => _inner.GetByIdAsync(id, cancellationToken);
+    public Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken)
+        => _inner.GetByIdsAsync(ticketTypeIds, cancellationToken);
 
     public Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
     {

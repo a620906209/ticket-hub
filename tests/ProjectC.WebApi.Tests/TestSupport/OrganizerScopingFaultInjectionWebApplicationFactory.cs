@@ -115,7 +115,7 @@ public sealed class OrganizerScopingFaultInjectionWebApplicationFactory : Custom
 
     private sealed class MissingTicketTypeRepository(ITicketTypeRepository inner, ConcurrentDictionary<Guid, byte> missingTicketTypeIds) : ITicketTypeRepository
     {
-        public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => inner.GetByIdAsync(id, cancellationToken);
+        public Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken) => inner.GetByIdsAsync(ticketTypeIds, cancellationToken);
 
         public async Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
             => (await inner.GetByEventIdAsync(eventId, cancellationToken)).Where(t => !missingTicketTypeIds.ContainsKey(t.Id)).ToList();

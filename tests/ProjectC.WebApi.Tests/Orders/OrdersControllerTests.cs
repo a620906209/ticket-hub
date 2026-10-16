@@ -658,4 +658,231 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
         storedEntry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
         storedEntry.AdmissionExpiresAtUtc.Should().BeCloseTo(entry.AdmissionExpiresAtUtc!.Value, TimeSpan.FromMilliseconds(1));
     }
+
+    // ---- place-order-request-limits：建立訂單系統上限 50（TP-LIMIT-*） ----
+
+    private const string SelectionCountLimitMessage = "An order cannot contain more than 50 selections.";
+    private const string TotalQuantityLimitMessage = "An order cannot contain more than 50 tickets in total.";
+    private const string NullSelectionItemMessage = "Selections must not contain null items.";
+    private const int CountTicketTypeAvailableQuantity = 60;
+
+    private sealed record LimitTestEvent(Guid EventId, IReadOnlyList<Guid> EventSeatIds, Guid SeatTicketTypeId, IReadOnlyList<Guid> CountTicketTypeIds);
+
+    private sealed record LimitInventorySnapshot(int OrderCount, int AvailableSeatCount, int HeldSeatCount, IReadOnlyList<int?> CountAvailableQuantities);
+
+    /// <summary>活動不設限購；計數票種可售 60，大於系統上限，才能區分「被系統上限擋下」與「庫存不足」。</summary>
+    private async Task<LimitTestEvent> SeedLimitTestEventAsync(int seatCount, int countTicketTypeCount = 1)
+    {
+        var organizerClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+        var seeded = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "Limit Concert", seatCount, countTicketTypeCount: 0);
+
+        var countTicketTypeIds = new List<Guid>();
+        for (var i = 0; i < countTicketTypeCount; i++)
+        {
+            countTicketTypeIds.Add(await ReadCreatedIdAsync(await organizerClient.PostAsJsonAsync(
+                $"/api/admin/events/{seeded.EventId}/ticket-types",
+                new CreateTicketTypeRequest($"站票{i + 1}", 300m, RequiresSeat: false, AvailableQuantity: CountTicketTypeAvailableQuantity))));
+        }
+
+        return new LimitTestEvent(seeded.EventId, seeded.Seats.Select(s => s.EventSeatId).ToList(), seeded.SeatTicketTypeId, countTicketTypeIds);
+    }
+
+    private async Task<LimitInventorySnapshot> ReadLimitInventoryAsync(LimitTestEvent seededEvent)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var now = DateTime.UtcNow;
+        var seatStatuses = (await dbContext.EventSeats.AsNoTracking().Where(s => s.EventId == seededEvent.EventId).ToListAsync())
+            .Select(s => s.GetStatus(now))
+            .ToList();
+        var countAvailableQuantities = new List<int?>();
+        foreach (var countTicketTypeId in seededEvent.CountTicketTypeIds)
+        {
+            countAvailableQuantities.Add((await dbContext.TicketTypes.AsNoTracking().SingleAsync(t => t.Id == countTicketTypeId)).AvailableQuantity);
+        }
+
+        var orderCount = await dbContext.Orders.AsNoTracking().CountAsync(o => o.EventId == seededEvent.EventId);
+        return new LimitInventorySnapshot(
+            orderCount,
+            seatStatuses.Count(s => s == EventSeatStatus.Available),
+            seatStatuses.Count(s => s == EventSeatStatus.Held),
+            countAvailableQuantities);
+    }
+
+    private static Task<HttpResponseMessage> PostPlaceOrderJsonAsync(HttpClient client, string json)
+        => client.PostAsync("/api/orders", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+    private static async Task<string> ReadProblemDetailAsync(HttpResponseMessage response)
+    {
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return body.RootElement.GetProperty("detail").GetString()!;
+    }
+
+    private static async Task AssertBuyerHasNoOrdersAsync(HttpClient buyerClient)
+    {
+        var orders = await buyerClient.GetFromJsonAsync<JsonElement>("/api/orders");
+        orders.GetArrayLength().Should().Be(0, "被系統上限擋下的請求不得建立訂單");
+    }
+
+    /// <summary>只帶 eventSeatId／ticketTypeId 的原始 JSON，模擬未提供購買數量的座位項目（強型別物件一定會序列化出 Quantity）。</summary>
+    private static string SeatItemsWithoutQuantityJson(IEnumerable<Guid> eventSeatIds, Guid ticketTypeId)
+        => "{\"selections\":[" + string.Join(",", eventSeatIds.Select(id => $"{{\"eventSeatId\":\"{id}\",\"ticketTypeId\":\"{ticketTypeId}\"}}")) + "]}";
+
+    // TP-LIMIT-001
+    [Fact]
+    public async Task PlaceOrder_WhenTotalQuantityExceedsSystemLimitWithoutEventLimit_Returns400AndKeepsInventory()
+    {
+        var seededEvent = await SeedLimitTestEventAsync(seatCount: 1);
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await buyerClient.PostAsJsonAsync("/api/orders",
+            new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, seededEvent.CountTicketTypeIds[0], 51)]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ReadProblemDetailAsync(response)).Should().Contain(TotalQuantityLimitMessage);
+        var after = await ReadLimitInventoryAsync(seededEvent);
+        after.OrderCount.Should().Be(0);
+        after.CountAvailableQuantities.Should().Equal(CountTicketTypeAvailableQuantity);
+    }
+
+    // TP-LIMIT-002：邊界值 50 必須成功，守住上限不是誤寫成 < 50。
+    [Fact]
+    public async Task PlaceOrder_WhenTotalQuantityEqualsSystemLimit_Returns201()
+    {
+        var seededEvent = await SeedLimitTestEventAsync(seatCount: 1);
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await buyerClient.PostAsJsonAsync("/api/orders",
+            new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, seededEvent.CountTicketTypeIds[0], 50)]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await ReadLimitInventoryAsync(seededEvent)).CountAvailableQuantities.Should().Equal(CountTicketTypeAvailableQuantity - 50);
+    }
+
+    // TP-LIMIT-003：每筆也都不合格，detail 若含逐項訊息就代表回應會隨請求放大。
+    [Fact]
+    public async Task PlaceOrder_WhenSelectionCountExceedsSystemLimit_Returns400WithOnlyCountMessage()
+    {
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+        var selections = Enumerable.Range(0, 51).Select(_ => new PlaceOrderSelectionRequest(null, Guid.Empty)).ToList();
+
+        var response = await buyerClient.PostAsJsonAsync("/api/orders", new PlaceOrderRequest(selections));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ReadProblemDetailAsync(response)).Should().Be(SelectionCountLimitMessage);
+        await AssertBuyerHasNoOrdersAsync(buyerClient);
+    }
+
+    // TP-LIMIT-004：int 加總會溢位丟 OverflowException 變成 500。
+    [Fact]
+    public async Task PlaceOrder_WhenQuantitiesSumBeyondIntMax_Returns400NotServerError()
+    {
+        var seededEvent = await SeedLimitTestEventAsync(seatCount: 1, countTicketTypeCount: 2);
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await buyerClient.PostAsJsonAsync("/api/orders", new PlaceOrderRequest(
+        [
+            new PlaceOrderSelectionRequest(null, seededEvent.CountTicketTypeIds[0], int.MaxValue),
+            new PlaceOrderSelectionRequest(null, seededEvent.CountTicketTypeIds[1], int.MaxValue),
+        ]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ReadProblemDetailAsync(response)).Should().Contain(TotalQuantityLimitMessage);
+        (await ReadLimitInventoryAsync(seededEvent)).CountAvailableQuantities.Should().Equal(CountTicketTypeAvailableQuantity, CountTicketTypeAvailableQuantity);
+    }
+
+    // TP-LIMIT-006：System.Text.Json 不依 nullable 註記拒絕 null 元素，必須由 Validator 擋成 400。
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PlaceOrder_WhenSelectionsContainNullItem_Returns400NotServerError(bool hasValidItem)
+    {
+        var seededEvent = await SeedLimitTestEventAsync(seatCount: 1);
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+        var validItem = $"{{\"ticketTypeId\":\"{seededEvent.CountTicketTypeIds[0]}\",\"quantity\":1}},";
+        var json = $"{{\"selections\":[{(hasValidItem ? validItem : "")}null]}}";
+
+        var response = await PostPlaceOrderJsonAsync(buyerClient, json);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ReadProblemDetailAsync(response)).Should().Contain(NullSelectionItemMessage);
+        (await ReadLimitInventoryAsync(seededEvent)).OrderCount.Should().Be(0);
+    }
+
+    // TP-LIMIT-007：不斷言 detail，可能由模型繫結的必填檢查或 Validator 擋下，兩者都可接受。
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"selections\":null}")]
+    public async Task PlaceOrder_WhenSelectionsMissingOrNull_Returns400NotServerError(string json)
+    {
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await PostPlaceOrderJsonAsync(buyerClient, json);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        await AssertBuyerHasNoOrdersAsync(buyerClient);
+    }
+
+    // TP-LIMIT-008(a)：未帶 Quantity 的座位項目以 1 計入，50 筆恰為上限。
+    [Fact]
+    public async Task PlaceOrder_WhenFiftySeatItemsOmitQuantity_Returns201()
+    {
+        var seededEvent = await SeedLimitTestEventAsync(seatCount: 50, countTicketTypeCount: 0);
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await PostPlaceOrderJsonAsync(buyerClient, SeatItemsWithoutQuantityJson(seededEvent.EventSeatIds, seededEvent.SeatTicketTypeId));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await ReadLimitInventoryAsync(seededEvent)).HeldSeatCount.Should().Be(50);
+    }
+
+    // TP-LIMIT-008(b)
+    [Fact]
+    public async Task PlaceOrder_WhenFiftyOneSeatItemsOmitQuantity_Returns400WithOnlyCountMessage()
+    {
+        var seededEvent = await SeedLimitTestEventAsync(seatCount: 51, countTicketTypeCount: 0);
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await PostPlaceOrderJsonAsync(buyerClient, SeatItemsWithoutQuantityJson(seededEvent.EventSeatIds, seededEvent.SeatTicketTypeId));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ReadProblemDetailAsync(response)).Should().Be(SelectionCountLimitMessage);
+        (await ReadLimitInventoryAsync(seededEvent)).AvailableSeatCount.Should().Be(51);
+    }
+
+    // TP-LIMIT-009：筆數 50 未超過，但 49 座位 + 計數 2 合計 51 張。
+    [Fact]
+    public async Task PlaceOrder_WhenFiftySelectionsTotalFiftyOne_Returns400WithTotalMessage()
+    {
+        var seededEvent = await SeedLimitTestEventAsync(seatCount: 49);
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+        var selections = seededEvent.EventSeatIds.Select(id => new PlaceOrderSelectionRequest(id, seededEvent.SeatTicketTypeId))
+            .Append(new PlaceOrderSelectionRequest(null, seededEvent.CountTicketTypeIds[0], 2))
+            .ToList();
+
+        var response = await buyerClient.PostAsJsonAsync("/api/orders", new PlaceOrderRequest(selections));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var detail = await ReadProblemDetailAsync(response);
+        detail.Should().Contain(TotalQuantityLimitMessage).And.NotContain(SelectionCountLimitMessage);
+        var after = await ReadLimitInventoryAsync(seededEvent);
+        after.AvailableSeatCount.Should().Be(49);
+        after.CountAvailableQuantities.Should().Equal(CountTicketTypeAvailableQuantity);
+    }
+
+    // TP-LIMIT-010：未超過系統上限時，座位數量規則仍由 OrderService 既有檢查回報，守住規則分工。
+    [Fact]
+    public async Task PlaceOrder_WhenSeatItemQuantityIsTwoWithinSystemLimit_Returns400WithSeatQuantityMessage()
+    {
+        var seededEvent = await SeedLimitTestEventAsync(seatCount: 1, countTicketTypeCount: 0);
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await buyerClient.PostAsJsonAsync("/api/orders",
+            new PlaceOrderRequest([new PlaceOrderSelectionRequest(seededEvent.EventSeatIds[0], seededEvent.SeatTicketTypeId, 2)]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var detail = await ReadProblemDetailAsync(response);
+        detail.Should().Contain("must have a quantity of exactly 1.").And.NotContain(TotalQuantityLimitMessage);
+        (await ReadLimitInventoryAsync(seededEvent)).AvailableSeatCount.Should().Be(1);
+    }
 }

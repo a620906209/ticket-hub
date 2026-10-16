@@ -1844,4 +1844,113 @@ public class OrderServiceTests
             m => m.DeclaringType == typeof(System.Diagnostics.Stopwatch) && m.Name == nameof(System.Diagnostics.Stopwatch.GetTimestamp),
             "確認 IL 讀取有涵蓋到分段量測的程式碼，避免因讀不到而空洞通過");
     }
+
+    // ---- place-order-request-limits：系統上限 50（TP-LIMIT-*） ----
+
+    // TP-LIMIT-005：既有資料的活動限購可能大於 50，系統上限仍以 50 為準。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenEventLimitExceedsSystemLimit_RejectsAt51WithoutReserving()
+    {
+        var fixture = new Fixture();
+        var (_, ticketType) = fixture.SeedEventWithCountBasedTicketType(availableQuantity: 60, maxTicketsPerOrder: 100);
+        var request = new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, ticketType.Id, 51)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.Message.Should().Contain("An order cannot contain more than 50 tickets in total.");
+        fixture.TicketTypeRepository.GetForUpdateCallCount.Should().Be(0);
+        ticketType.AvailableQuantity.Should().Be(60);
+    }
+
+    public static TheoryData<string> SystemLimitViolations => new()
+    {
+        "TotalQuantity51",
+        "SelectionCount51",
+        "TwoIntMaxQuantities",
+        "NullItem",
+        "NullSelections",
+        "FiftyOneDefaultQuantitySeats",
+        "FiftySelectionsTotalFiftyOne",
+        "EventLimitAboveSystemLimit",
+    };
+
+    private static PlaceOrderRequest CreateSystemLimitViolationRequest(string violation, Fixture fixture)
+    {
+        static PlaceOrderSelectionRequest SeatItem() => new(Guid.NewGuid(), Guid.NewGuid());
+
+        return violation switch
+        {
+            "TotalQuantity51" => new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, Guid.NewGuid(), 51)]),
+            "SelectionCount51" => new PlaceOrderRequest(Enumerable.Range(0, 51).Select(_ => new PlaceOrderSelectionRequest(null, Guid.Empty)).ToList()),
+            "TwoIntMaxQuantities" => new PlaceOrderRequest([
+                new PlaceOrderSelectionRequest(null, Guid.NewGuid(), int.MaxValue),
+                new PlaceOrderSelectionRequest(null, Guid.NewGuid(), int.MaxValue)]),
+            "NullItem" => new PlaceOrderRequest([SeatItem(), null!]),
+            "NullSelections" => new PlaceOrderRequest(null!),
+            "FiftyOneDefaultQuantitySeats" => new PlaceOrderRequest(Enumerable.Range(0, 51).Select(_ => SeatItem()).ToList()),
+            "FiftySelectionsTotalFiftyOne" => new PlaceOrderRequest(Enumerable.Range(0, 49).Select(_ => SeatItem())
+                .Append(new PlaceOrderSelectionRequest(null, Guid.NewGuid(), 2)).ToList()),
+            "EventLimitAboveSystemLimit" => new PlaceOrderRequest([new PlaceOrderSelectionRequest(
+                null, fixture.SeedEventWithCountBasedTicketType(availableQuantity: 60, maxTicketsPerOrder: 100).CountTicketType.Id, 51)]),
+            _ => throw new ArgumentOutOfRangeException(nameof(violation), violation, null),
+        };
+    }
+
+    // 「開啟資料庫連線之前拒絕」：系統上限要保護的正是連線池與查詢，借了連線才擋就失去意義。
+    [Theory]
+    [MemberData(nameof(SystemLimitViolations))]
+    public async Task PlaceOrderAsync_WhenRequestViolatesSystemLimits_RejectsBeforeOpeningConnection(string violation)
+    {
+        var fixture = new Fixture();
+        var request = CreateSystemLimitViolationRequest(violation, fixture);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        fixture.UnitOfWork.OpenConnectionCallCount.Should().Be(0);
+        fixture.TicketTypeRepository.GetByIdsCallCount.Should().Be(0);
+    }
+
+    // 決策 4：票種存在性檢查一次查詢，查詢次數不隨不同票種數量增加。
+    [Fact]
+    public async Task PlaceOrderAsync_WithMultipleTicketTypes_QueriesTicketTypesOnce()
+    {
+        var fixture = new Fixture();
+        var (@event, firstTicketType) = fixture.SeedEventWithCountBasedTicketType();
+        var secondTicketType = @event.CreateCountBasedTicketType("搖滾區站票", 400m, 10);
+        var thirdTicketType = @event.CreateCountBasedTicketType("學生票", 200m, 10);
+        fixture.TicketTypeRepository.Data.AddRange([secondTicketType, thirdTicketType]);
+        var request = new PlaceOrderRequest([
+            new PlaceOrderSelectionRequest(null, firstTicketType.Id, 1),
+            new PlaceOrderSelectionRequest(null, secondTicketType.Id, 1),
+            new PlaceOrderSelectionRequest(null, thirdTicketType.Id, 1)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.TicketTypeRepository.GetByIdsCallCount.Should().Be(1);
+    }
+
+    // 決策 4：批次查詢後仍回報請求順序中第一個缺漏的 Id，與改版前逐筆查詢的錯誤訊息相同。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenTwoTicketTypesMissing_ReportsFirstMissingInRequestOrder()
+    {
+        var fixture = new Fixture();
+        var (_, existingTicketType) = fixture.SeedEventWithCountBasedTicketType();
+        var firstMissingId = Guid.NewGuid();
+        var secondMissingId = Guid.NewGuid();
+        var request = new PlaceOrderRequest([
+            new PlaceOrderSelectionRequest(null, existingTicketType.Id, 1),
+            new PlaceOrderSelectionRequest(null, firstMissingId, 1),
+            new PlaceOrderSelectionRequest(null, secondMissingId, 1)]);
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(Guid.NewGuid(), request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        result.Error.Message.Should().Be($"Ticket type '{firstMissingId}' was not found.");
+    }
 }

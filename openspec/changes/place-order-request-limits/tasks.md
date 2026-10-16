@@ -32,31 +32,37 @@
 
 ## 0. 前置依賴
 
-- [ ] 0.1 確認前置 change `request-body-size-limits` 已 archive 並 merge 到 master（design「前置依賴」的完成條件）。驗證：`openspec/changes/archive/` 下有該 change，且 master 的 git log 含其 merge commit。未完成時不得開始 1.1。
+- [x] 0.1 確認前置 change `request-body-size-limits` 已 archive 並 merge 到 master（design「前置依賴」的完成條件）。驗證：`openspec/changes/archive/` 下有該 change，且 master 的 git log 含其 merge commit。未完成時不得開始 1.1。
 
 ## 1. 前置確認與重現
 
-- [ ] 1.1 先寫 AC 表中 WebApi 層的 6 個測試（TP-LIMIT-001～004、EVT-LIMIT-001～002），在修正前執行。驗證：預期 TP-LIMIT-001 為 201（或 409／其他非 400，記錄實際值）、TP-LIMIT-002 為 201（修正前就會通過，屬邊界保護）、TP-LIMIT-003 為 400 但 `detail` 含逐項訊息（斷言失敗）、TP-LIMIT-004 為 400 或 500（記錄實際值）、EVT-LIMIT-001 為 201、EVT-LIMIT-002 為 201。同時寫 TP-LIMIT-008～010 的 WebApi 測試並在修正前執行：預期 008(a) 為 201（邊界保護）、008(b) 為 201、009 為 201、010 為 400 且含座位數量訊息（邊界保護）。實際結果與預期不同時停下回報，因為 proposal 的問題描述可能不成立。
-- [ ] 1.2 先寫 AC 表中 TP-LIMIT-006 的 WebApi 測試，在修正前執行，記錄兩種本文的實際狀態碼。驗證：預期為 500（Validator 的重複檢查直接存取元素屬性，見 design 決策 2）。若實際為 400（例如模型繫結已拒絕 null 元素），停下回報，因為 design 決策 2 規則 2 的理由不成立，需重新評估是否保留該規則。同時寫 TP-LIMIT-007 的 WebApi 測試並在修正前執行，記錄兩種本文的實際狀態碼與 `detail`（可能已由模型繫結回 400，屬邊界保護；若為 500 則確認 design 決策 2 `When` 段落的描述）。
+- [x] 1.1 先寫 AC 表中 WebApi 層的 6 個測試（TP-LIMIT-001～004、EVT-LIMIT-001～002），在修正前執行。驗證：預期 TP-LIMIT-001 為 201（或 409／其他非 400，記錄實際值）、TP-LIMIT-002 為 201（修正前就會通過，屬邊界保護）、TP-LIMIT-003 為 400 但 `detail` 含逐項訊息（斷言失敗）、TP-LIMIT-004 為 400 或 500（記錄實際值）、EVT-LIMIT-001 為 201、EVT-LIMIT-002 為 201。同時寫 TP-LIMIT-008～010 的 WebApi 測試並在修正前執行：預期 008(a) 為 201（邊界保護）、008(b) 為 201、009 為 201、010 為 400 且含座位數量訊息（邊界保護）。實際結果與預期不同時停下回報，因為 proposal 的問題描述可能不成立。
+  - 完成紀錄（2026-10-16）：TP-LIMIT-001 201、002 201、003 400 但 `detail` 不符、**004 為 409**（與預期 400／500 不同：`OrderService` 既有 `long` 加總不溢位，活動未設限購時走到交易前庫存檢查回「庫存不足」409；問題描述「沒有系統上限、請求會借連線查詢」仍成立，使用者確認記錄後繼續，spec 與斷言不改）、008(a) 201、008(b) 201、009 201、010 400 含座位數量訊息、EVT-LIMIT-001 201、EVT-LIMIT-002 201。
+- [x] 1.2 先寫 AC 表中 TP-LIMIT-006 的 WebApi 測試，在修正前執行，記錄兩種本文的實際狀態碼。驗證：預期為 500（Validator 的重複檢查直接存取元素屬性，見 design 決策 2）。若實際為 400（例如模型繫結已拒絕 null 元素），停下回報，因為 design 決策 2 規則 2 的理由不成立，需重新評估是否保留該規則。同時寫 TP-LIMIT-007 的 WebApi 測試並在修正前執行，記錄兩種本文的實際狀態碼與 `detail`（可能已由模型繫結回 400，屬邊界保護；若為 500 則確認 design 決策 2 `When` 段落的描述）。
+  - 完成紀錄（2026-10-16）：TP-LIMIT-006 兩種本文皆 500（符合預期，規則 2 保留）；TP-LIMIT-007 `{}` 與 `{"selections":null}` 皆 400（模型繫結隱含必填擋下，邊界保護）。
 
 ## 2. Application：Validator
 
-- [ ] 2.1 新增 `PlaceOrderLimits`（design 決策 1），依 design 決策 2 修改 `PlaceOrderRequestValidator`，並新增 AC 表所列 `PlaceOrderRequestValidatorTests` 與 `OrderServiceTests`（TP-LIMIT-005）測試。另加 `Validate_WhenNegativeQuantityKeepsSumUnderLimit_IsInvalid`（`[100, -60]` 加總 40 仍須無效）與 `Validate_WhenSelectionsIsNull_IsInvalidWithoutThrowing`（`Selections` 為 null 時回傳無效、不拋 `NullReferenceException`；現行程式碼的重複檢查會拋，見 design 決策 2 規則 1～4 的 `When` 條件段落）。另加兩個規則互斥的組合測試：`Validate_WhenSelectionCountIs51WithNullItem_ReturnsOnlyCountError`（`Errors` 恰為 1 則筆數訊息）、`Validate_WhenNullItemAndQuantityIsIntMax_ReturnsOnlyNullItemError`（`Errors` 恰為 1 則 null 元素訊息，不拋例外、不含總張數訊息）。驗證：Application 測試全部通過；1.1 的 TP-LIMIT-001／003／004／008(b)／009 與 1.2 的 TP-LIMIT-006／007 轉為通過，TP-LIMIT-002／008(a)／010 維持通過。
-- [ ] 2.2 依 design 決策 3 修改 `CreateEventRequestValidator`，新增 AC 表所列 `CreateEventHandlerTests` 與 EVT-LIMIT-003 測試。驗證：Application 測試全部通過；1.1 的 EVT-LIMIT-001 轉為通過，EVT-LIMIT-002／003 通過。
+- [x] 2.1 新增 `PlaceOrderLimits`（design 決策 1），依 design 決策 2 修改 `PlaceOrderRequestValidator`，並新增 AC 表所列 `PlaceOrderRequestValidatorTests` 與 `OrderServiceTests`（TP-LIMIT-005）測試。另加 `Validate_WhenNegativeQuantityKeepsSumUnderLimit_IsInvalid`（`[100, -60]` 加總 40 仍須無效）與 `Validate_WhenSelectionsIsNull_IsInvalidWithoutThrowing`（`Selections` 為 null 時回傳無效、不拋 `NullReferenceException`；現行程式碼的重複檢查會拋，見 design 決策 2 規則 1～4 的 `When` 條件段落）。另加兩個規則互斥的組合測試：`Validate_WhenSelectionCountIs51WithNullItem_ReturnsOnlyCountError`（`Errors` 恰為 1 則筆數訊息）、`Validate_WhenNullItemAndQuantityIsIntMax_ReturnsOnlyNullItemError`（`Errors` 恰為 1 則 null 元素訊息，不拋例外、不含總張數訊息）。驗證：Application 測試全部通過；1.1 的 TP-LIMIT-001／003／004／008(b)／009 與 1.2 的 TP-LIMIT-006／007 轉為通過，TP-LIMIT-002／008(a)／010 維持通過。
+- [x] 2.2 依 design 決策 3 修改 `CreateEventRequestValidator`，新增 AC 表所列 `CreateEventHandlerTests` 與 EVT-LIMIT-003 測試。驗證：Application 測試全部通過；1.1 的 EVT-LIMIT-001 轉為通過，EVT-LIMIT-002／003 通過。
 
 ## 3. 票種批次查詢
 
-- [ ] 3.1 依 design 決策 4，`ITicketTypeRepository.GetByIdAsync` 改為 `GetByIdsAsync`，更新 `TicketTypeRepository`（保留 no-tracking 與註解理由）與 `OrderService`；同步更新 7 個測試實作，每個都移除 `GetByIdAsync`、改實作 `GetByIdsAsync`，批次版行為比照原本單筆版：
+- [x] 3.1 依 design 決策 4，`ITicketTypeRepository.GetByIdAsync` 改為 `GetByIdsAsync`，更新 `TicketTypeRepository`（保留 no-tracking 與註解理由）與 `OrderService`；同步更新 7 個測試實作，每個都移除 `GetByIdAsync`、改實作 `GetByIdsAsync`，批次版行為比照原本單筆版：
   - `FakeTicketTypeRepository`（Application）：回傳 `Data` 中 Id 在輸入清單內的項目，加 `GetByIdsCallCount`（每次呼叫 +1，不論清單長度）。
   - `AlwaysThrowingTicketTypeRepository`（Infrastructure `QueryCacheTtlSafetyNetTests`）：拋與原本相同的 `InvalidOperationException("MUST NOT query the database on a cache hit.")`。
   - `AlwaysEmptyTicketTypeRepository`（Infrastructure `QueryCacheTicketTypeInvalidationOrderingTests`）：回傳空清單（對應原本回傳 null）。
   - `CountingTicketTypeRepository`、`SlowTicketTypeRepository`（Infrastructure `QueryCacheTtlSafetyNetTests`）、`CountingTicketTypeRepository`（WebApi `TestSupport`）、`MissingTicketTypeRepository`（WebApi `OrganizerScopingFaultInjectionWebApplicationFactory`）：直接轉呼叫 `inner.GetByIdsAsync`，不計數、不過濾、不延遲。這 4 個原本對 `GetByIdAsync` 就是純轉呼叫，計數、延遲、缺漏模擬都只作用在 `GetByEventIdAsync`，改版後維持不變。
 
   另更新 `RepositoryCrudRoundTripTests` 的呼叫。新增決策 4 段落所列 Application 測試。驗證：4 個測試專案編譯通過（介面移除 `GetByIdAsync` 後，漏改的實作與呼叫端會編譯失敗）；Application 測試全部通過。
-- [ ] 3.2 新增決策 4 段落所列 Infrastructure 測試。驗證：把 `AsNoTracking()` 暫時拿掉時 no-tracking 測試失敗，恢復後通過（記錄於完成紀錄）。
+  - 完成紀錄（2026-10-16）：`ProjectC.slnx` 建置通過（無新增警告；`PlaceOrderCoreAsync` 的 CA1502 為既有警告，分支數未增加）；Application 527 項全部通過。
+- [x] 3.2 新增決策 4 段落所列 Infrastructure 測試。驗證：把 `AsNoTracking()` 暫時拿掉時 no-tracking 測試失敗，恢復後通過（記錄於完成紀錄）。
+  - 完成紀錄（2026-10-16）：新增 `Infrastructure.Tests/Tickets/TicketTypeRepositoryTests.cs` 3 項測試。暫時拿掉 `AsNoTracking()` 後 `GetByIdsAsync_WhenTicketTypesExist_ReturnsUntrackedEntities` 失敗（其餘 2 項通過），恢復後 3 項全過。
 
 ## 4. 文件與審查
 
-- [ ] 4.1 執行 4 個測試專案完整測試。驗證：全部通過；若只有已知的 WSL2 時鐘 flake（`QueryCacheTtlSafetyNetTests`）失敗，單獨重跑該測試通過並記錄。
-- [ ] 4.2 更新 `docs/project-scope.md` §8 待辦 ②：標註 2026-10-16 重新啟動並由本 change 處理。驗證：§8 不再把「下單選購筆數無上限、票種逐筆查詢」列為未處理。
-- [ ] 4.3 套用 `.claude/skills/hardener/SKILL.md` 檢查清單於 `OrderService` 與兩個 Validator 的變更，再呼叫 strict-reviewer 與 adversarial 審查直到同一輪皆 PASS。
+- [x] 4.1 執行 4 個測試專案完整測試。驗證：全部通過；若只有已知的 WSL2 時鐘 flake（`QueryCacheTtlSafetyNetTests`）失敗，單獨重跑該測試通過並記錄。
+  - 完成紀錄（2026-10-16）：`dotnet test ProjectC.slnx` 全部通過，無 flake：Domain 151、Application 527、LoadTest.Seeder 38、Infrastructure 234、WebApi 541。
+- [x] 4.2 更新 `docs/project-scope.md` §8 待辦 ②：標註 2026-10-16 重新啟動並由本 change 處理。驗證：§8 不再把「下單選購筆數無上限、票種逐筆查詢」列為未處理。
+- [x] 4.3 套用 `.claude/skills/hardener/SKILL.md` 檢查清單於 `OrderService` 與兩個 Validator 的變更，再呼叫 strict-reviewer 與 adversarial 審查直到同一輪皆 PASS。
+  - 完成紀錄（2026-10-16）：hardener 檢查清單無需修改（輸入驗證在 `PlaceOrderRequestValidator`、借連線前執行；批次查詢 Id 數受 50 筆上限約束、無 N+1；存在性查詢不加鎖，鎖定仍由 `GetForUpdateAsync` 負責；`CancellationToken` 有傳遞；無新增 log 點）。第 1 輪 strict-reviewer PASS（建議更新 `OrderService` 限購加總處「validator 沒有上限」的過時註解，已改寫，僅註解）、adversarial PASS（non-blocking：buyer-web-ui／admin-web-ui 主 spec 未提系統上限 50，屬 design Non-Goals「前端不改」的文字落差）。

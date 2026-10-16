@@ -15,8 +15,13 @@ public class TicketTypeRepository : ITicketTypeRepository
     // AsNoTracking：這是 OrderService.PlaceOrderAsync 交易前存在性檢查的唯一呼叫端，若改成 tracking，
     // 交易內 GetForUpdateAsync 對同一主鍵的查詢會被 EF Core identity resolution 擋下、回傳鎖前的舊快照
     // （design.md 決策 3）。
-    public Task<TicketType?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
-        => _dbContext.TicketTypes.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, cancellationToken);
+    public async Task<IReadOnlyList<TicketType>> GetByIdsAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken)
+    {
+        if (ticketTypeIds.Count == 0)
+            return [];
+
+        return await _dbContext.TicketTypes.AsNoTracking().Where(t => ticketTypeIds.Contains(t.Id)).ToListAsync(cancellationToken);
+    }
 
     public async Task<IReadOnlyList<TicketType>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
         => await _dbContext.TicketTypes.Where(t => t.EventId == eventId).ToListAsync(cancellationToken);

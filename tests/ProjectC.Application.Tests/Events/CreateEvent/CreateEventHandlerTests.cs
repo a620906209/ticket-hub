@@ -107,6 +107,34 @@ public class CreateEventHandlerTests
         _eventRepository.Data.Single(e => e.Id == result.Value).MaxTicketsPerOrder.Should().Be(2);
     }
 
+    // EVT-LIMIT-001：限購值大於下單系統上限時，買家頁會顯示實際下不了單的張數。
+    [Fact]
+    public async Task HandleAsync_WhenMaxTicketsPerOrderIs51_ReturnsValidationOnMaxTicketsPerOrder()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId, MaxTicketsPerOrder: 51);
+
+        var result = await _handler.HandleAsync(AdminMemberId, OrganizerId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.Message.Should().Contain("MaxTicketsPerOrder must not exceed 50.");
+        _eventRepository.Data.Should().BeEmpty();
+    }
+
+    // EVT-LIMIT-002
+    [Fact]
+    public async Task HandleAsync_WhenMaxTicketsPerOrderIs50_Succeeds()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("Concert", DateTime.UtcNow.AddDays(30), venueId, seatMapId, MaxTicketsPerOrder: 50);
+
+        var result = await _handler.HandleAsync(AdminMemberId, OrganizerId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _eventRepository.Data.Single(e => e.Id == result.Value).MaxTicketsPerOrder.Should().Be(50);
+    }
+
     [Fact]
     public async Task HandleAsync_WithNonExistentVenue_ReturnsNotFound()
     {
