@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Sockets;
 using StackExchange.Redis;
@@ -67,6 +68,7 @@ public sealed class RedisFixture : IAsyncLifetime
 }
 
 [CollectionDefinition(Name)]
+[SuppressMessage("Naming", "CA1711", Justification = "xUnit collection definition 的慣例命名（xUnit 文件範例即為 XxxCollection），不是集合型別。")]
 public sealed class RedisCollection : ICollectionFixture<RedisFixture>
 {
     public const string Name = "Redis";

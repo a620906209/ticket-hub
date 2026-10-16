@@ -212,8 +212,8 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
             SnapshotReadScript,
             [PurchaseQueueAdmissionRedisKeys.Waiting(eventId), PurchaseQueueAdmissionRedisKeys.Admitted(eventId)]);
 
-        var waitingMembers = (string[]?)result[0] ?? [];
-        var admittedFlat = (string[]?)result[1] ?? [];
+        var waitingMembers = ToNonNullStringArray(result[0]);
+        var admittedFlat = ToNonNullStringArray(result[1]);
 
         var admittedScores = new Dictionary<string, double>(admittedFlat.Length / 2);
         for (var i = 0; i + 1 < admittedFlat.Length; i += 2)
@@ -223,6 +223,12 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
 
         return new PurchaseQueueRedisMirrorSnapshot(waitingMembers, admittedScores);
     }
+
+    // RedisResult 轉成陣列時元素型別是 string?（對應 Redis nil）。這些 Lua Script 只回傳 ZSET member
+    // 與 score 字串，出現 nil 代表腳本與此處的解析不一致，直接拋出而非略過該元素。
+    private static string[] ToNonNullStringArray(RedisResult result)
+        => Array.ConvertAll((string?[]?)result ?? [], value => value
+            ?? throw new InvalidOperationException("Purchase queue Lua script returned a nil element where a string was expected."));
 
     private async Task AdvanceQueueOnceCoreAsync(CancellationToken cancellationToken)
     {
@@ -314,9 +320,9 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
                 PurchaseQueueAdmissionRedisKeys.PendingKeyPrefix,
             ]);
 
-        var expiredIds = ((string[]?)scriptResult[0] ?? []).Select(Guid.Parse).ToList();
-        var promotedIds = ((string[]?)scriptResult[1] ?? []).Select(Guid.Parse).ToList();
-        var dedupedIds = ((string[]?)scriptResult[2] ?? []).Select(Guid.Parse).ToList();
+        var expiredIds = ToNonNullStringArray(scriptResult[0]).Select(Guid.Parse).ToList();
+        var promotedIds = ToNonNullStringArray(scriptResult[1]).Select(Guid.Parse).ToList();
+        var dedupedIds = ToNonNullStringArray(scriptResult[2]).Select(Guid.Parse).ToList();
 
         if (dedupedIds.Count > 0)
         {
@@ -527,36 +533,36 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
         // 步驟 7：偵測並修復放棄的推進決策——pending 標記存活期間視為合法過渡態，不動；已過期則
         // 代為完成 Postgres 落地（design.md Decision 5 步驟 7／Decision 9）。步驟 5 已把這整個
         // waitingButAdmittedIds 集合排除在清除範圍外，這裡才是唯一處理它們的地方。
-        foreach (var entry in waitingPg)
+        foreach (var entryId in waitingPg.Select(entry => entry.Id))
         {
-            var idStr = entry.Id.ToString();
+            var idStr = entryId.ToString();
             if (!admittedRedis.TryGetValue(idStr, out var admittedScore))
             {
                 continue;
             }
 
-            if (await database.KeyExistsAsync(PurchaseQueueAdmissionRedisKeys.Pending(entry.Id)))
+            if (await database.KeyExistsAsync(PurchaseQueueAdmissionRedisKeys.Pending(entryId)))
             {
                 continue;
             }
 
             var expiresAtUtc = PurchaseQueueAdmissionTimeConversion.FromUnixMilliseconds(admittedScore);
-            await TryTrackedReconcileOperationAsync(entry.Id, "conditional UPDATE admit (abandoned decision)",
-                () => purchaseQueueRepository.AdmitIfWaitingAsync(entry.Id, now, expiresAtUtc, cancellationToken));
+            await TryTrackedReconcileOperationAsync(entryId, "conditional UPDATE admit (abandoned decision)",
+                () => purchaseQueueRepository.AdmitIfWaitingAsync(entryId, now, expiresAtUtc, cancellationToken));
         }
 
         // 步驟 8：偵測並修復放棄的逾時標記——不需要 TTL 寬限窗口判斷，「已逾時」是純粹的時間事實
         // （design.md Decision 5 步驟 8）。
-        foreach (var entry in admittedOverduePg)
+        foreach (var entryId in admittedOverduePg.Select(entry => entry.Id))
         {
-            var idStr = entry.Id.ToString();
+            var idStr = entryId.ToString();
             if (admittedRedis.ContainsKey(idStr))
             {
                 continue;
             }
 
-            await TryTrackedReconcileOperationAsync(entry.Id, "conditional UPDATE expire (abandoned timeout)",
-                () => purchaseQueueRepository.ExpireBatchAsync([entry.Id], cancellationToken));
+            await TryTrackedReconcileOperationAsync(entryId, "conditional UPDATE expire (abandoned timeout)",
+                () => purchaseQueueRepository.ExpireBatchAsync([entryId], cancellationToken));
         }
     }
 

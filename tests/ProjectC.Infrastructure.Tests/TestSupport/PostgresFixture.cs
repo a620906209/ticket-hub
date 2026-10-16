@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using ProjectC.Infrastructure.Persistence;
+using System.Diagnostics.CodeAnalysis;
 using Testcontainers.PostgreSql;
 
 namespace ProjectC.Infrastructure.Tests.TestSupport;
@@ -65,6 +66,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 }
 
 [CollectionDefinition(Name)]
+[SuppressMessage("Naming", "CA1711", Justification = "xUnit collection definition 的慣例命名（xUnit 文件範例即為 XxxCollection），不是集合型別。")]
 public sealed class PostgresCollection : ICollectionFixture<PostgresFixture>
 {
     public const string Name = "Postgres";

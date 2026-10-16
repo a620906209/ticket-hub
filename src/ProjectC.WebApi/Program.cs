@@ -420,8 +420,6 @@ try
             await context.HttpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
         };
 
-        return;
-
         static RateLimitPartition<string> CreateMemberPartition(HttpContext httpContext)
         {
             var options = httpContext.RequestServices.GetRequiredService<RateLimitingOptions>();
@@ -552,4 +550,5 @@ finally
     Log.CloseAndFlush();
 }
 
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S1118", Justification = "整合測試的 WebApplicationFactory<Program> 需要此型別宣告。")]
 public partial class Program;

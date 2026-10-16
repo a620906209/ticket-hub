@@ -173,3 +173,8 @@ dotnet_diagnostic.CA1816.severity = warning
 
 # Do not concatenate strings inside loops
 dotnet_diagnostic.CA1830.severity = warning
+
+# EF Core 產生的 migration：類別名稱來自 migration 名稱（例如 AddPurchaseQueue 的 Queue 是業務名詞「購票排隊」），
+# 改名會讓 migration 歷史與資料庫的 __EFMigrationsHistory 不一致。
+[src/ProjectC.Infrastructure/Persistence/Migrations/**.cs]
+dotnet_diagnostic.CA1711.severity = none

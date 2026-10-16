@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using FluentValidation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
@@ -7,6 +8,7 @@ using ProjectC.Domain.Venues;
 
 namespace ProjectC.Application.Events.CreateEvent;
 
+[SuppressMessage("Naming", "CA1711", Justification = "Event 是業務名詞「活動」，CreateEventHandler 是建立活動的 use case handler，不是 .NET 事件處理委派。")]
 public sealed class CreateEventHandler
 {
     private readonly IVenueRepository _venueRepository;

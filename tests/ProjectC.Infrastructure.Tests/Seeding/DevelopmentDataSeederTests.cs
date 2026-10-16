@@ -126,7 +126,9 @@ public class DevelopmentDataSeederTests
         await using (var serverContext = _fixture.CreateDbContext())
         {
             // 資料庫名稱是測試自己產生的 GUID，不含外部輸入；CREATE DATABASE 不支援參數化識別字。
+            #pragma warning disable EF1002 // 理由同上方註解
             await serverContext.Database.ExecuteSqlRawAsync($"CREATE DATABASE \"{databaseName}\"");
+            #pragma warning restore EF1002
         }
         var connectionString = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = databaseName }.ConnectionString;
         await using var dbContext = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>().UseNpgsql(connectionString).Options);

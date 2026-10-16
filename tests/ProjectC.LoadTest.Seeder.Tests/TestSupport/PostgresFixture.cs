@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using ProjectC.Infrastructure.Persistence;
+using System.Diagnostics.CodeAnalysis;
 using Testcontainers.PostgreSql;
 
 namespace ProjectC.LoadTest.Seeder.Tests.TestSupport;
@@ -55,7 +56,9 @@ public sealed class PostgresFixture : IAsyncLifetime
         await using (var serverContext = CreateDbContext(_serverConnectionString))
         {
             // 資料庫名稱是測試自己產生的 GUID，不含外部輸入；CREATE DATABASE 不支援參數化識別字。
+            #pragma warning disable EF1002 // 理由同上方註解
             await serverContext.Database.ExecuteSqlRawAsync($"CREATE DATABASE \"{databaseName}\"");
+            #pragma warning restore EF1002
         }
 
         var connectionString = new NpgsqlConnectionStringBuilder(_serverConnectionString) { Database = databaseName }.ConnectionString;
@@ -73,6 +76,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 }
 
 [CollectionDefinition(Name)]
+[SuppressMessage("Naming", "CA1711", Justification = "xUnit collection definition 的慣例命名（xUnit 文件範例即為 XxxCollection），不是集合型別。")]
 public sealed class PostgresCollection : ICollectionFixture<PostgresFixture>
 {
     public const string Name = "Postgres";

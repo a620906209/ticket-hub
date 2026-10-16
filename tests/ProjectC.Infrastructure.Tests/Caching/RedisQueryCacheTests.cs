@@ -189,8 +189,12 @@ public class RedisQueryCacheTests
         logger.LoggedLevels.Should().Contain(LogLevel.Warning);
     }
 
+    // 指定 Kind 的建構子需要 RedisErrorKind，該型別在 StackExchange.Redis 3.1.31 標為實驗性 API（SER007），
+    // 可能變更或移除；測試只需要一個 RedisServerException 實例，沿用穩定的單一訊息建構子。
     private static RedisServerException NewServerException()
+#pragma warning disable CS0618
         => new("simulated server error");
+#pragma warning restore CS0618
 
     // RedisServerException 是 RedisException 的子類別（RedisConnectionException 的手足），
     // 但不是 RedisConnectionException／RedisTimeoutException 兩者之一——須獨立驗證會被 fail-open 吸收。
