@@ -29,9 +29,12 @@
 | 分類 | 選型 |
 |---|---|
 | 後端 | C# / .NET 10（ASP.NET Core，Controller-based MVC） |
-| 前端 | Vue 3（Composition API + `<script setup>`）+ TypeScript + Vite |
+| 前端 | Vue 3（Composition API + `<script setup>`）+ TypeScript + Vite + Element Plus + Pinia |
 | 資料庫 | PostgreSQL 16 |
 | ORM | Entity Framework Core |
+| 快取 / 分散式鎖 / 排隊 | Redis（查詢快取、Leader Election、排隊入場 Sorted Set） |
+| 可觀測性 | Serilog + Seq（結構化 log、TraceId） |
+| 壓力測試 | k6（`loadtest` profile，只在壓測時單次執行） |
 | 認證 | JWT（Access Token + Refresh Token） |
 | 限流 | `Microsoft.AspNetCore.RateLimiting`（分區限流，搶購端點 + 登入端點各自獨立 policy） |
 | 電子票券 | QRCoder（本地產生 QR Code，內容為 HMAC 簽章過的 Ticket ID，防偽造） |
@@ -44,16 +47,18 @@
 
 ![架構總覽](docs/images/architecture-overview.png)
 
-本機以 Docker Compose 部署三個 service（`web` / `api` / `db`），`api` 內部採 Clean Architecture 分層，依賴方向由外向內單向：
+本機以 Docker Compose 部署五個常駐 service（`web` / `api` / `db` / `redis` / `seq`），另有只在壓測時執行的 `k6`。`api` 內部採 Clean Architecture 分層，依賴方向由外向內單向：
 
 ```
 WebApi → Infrastructure → Application → Domain
 ```
 
-- **Domain**：Entity、狀態機、Repository 介面定義；不依賴任何其他層。
-- **Application**：跨 Entity 協調邏輯、DTO；只依賴 Domain。
-- **Infrastructure**：EF Core 實作、Mock 金流、QR Code 產生等技術細節。
+- **Domain**：Entity、狀態機、有業務語意的介面（Repository、`IPaymentGateway`、`IEmailNotificationService` 等）；不參照任何專案或套件。
+- **Application**：Use case 協調邏輯、DTO、純技術性介面（`IDateTimeProvider`、`IDistributedLock`、`IQueryCache` 等）；專案參照只有 Domain。
+- **Infrastructure**：EF Core 實作、Redis、Mock 金流、QR Code 產生等技術細節。
 - **WebApi**：Controller、DI 註冊、middleware（含全域例外處理、JWT 驗證、限流）。
+
+資料存取有兩套寫法並存：售票側（活動、票種、座位、訂單、票券、排隊）走 Domain 定義的 Repository；會員與主辦方側的 Handler 直接使用 `IApplicationDbContext`（暴露 EF Core `DbSet`），因此 Application 參照了 EF Core 套件。這是早期會員系統沿用下來的寫法，評估後決定不重構，改為規定不再擴充、新 Entity 一律走 Repository，詳見 [`docs/project-review-2026-10-16.md`](docs/project-review-2026-10-16.md)。
 
 核心實體關係：
 
@@ -98,12 +103,24 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - 實名制驗證：一次性登記、需實名活動的下單與核銷比對
 - CAPTCHA：註冊、登入、加入排隊三個端點
 
+**Phase 3 完成後的補強**（見 [`docs/project-scope.md`](docs/project-scope.md) 第 8 節）：
+
+- 開賣時間：活動可設定開賣／停售時間，下單與加入排隊在販售期間外拒絕
+- k6 壓力測試與兩輪下單 P95 優化（結果見下方「已知限制」）
+- 下單請求上限：每筆訂單最多 50 張、請求 body 大小限制，前端同步提示上限
+- 活動開始時間驗證：未帶 UTC 時區或為極端值時回 400（原本回 500）
+- 登出撤銷 Refresh Token、訂單確認頁、待付款訂單可在明細頁付款／取消
+- 前端：手機版版面、色彩對比 WCAG AA、bundle 拆分、後台手機版導覽
+
 ### 已知限制
 
 - **P95 < 500ms 只有部分達成**：500 併發搶 50 張、0% 超賣在 k6 實測中全數達成。下單 P95 經兩輪優化，暖機後兩種票種都在 500ms 內（數量票約 370–415ms、座位票約 241ms）；但驗收規則要求「api 重建後第一次執行（冷啟動）也要通過」，數量票冷啟動約 918ms，**判定未達成**；座位票正式流程沒有在冷啟動下驗收，以量測組態補測冷啟動，5 次中有 4 次 ≥ 500ms。冷啟動多出的時間大半花在開資料庫連線（推測與 JIT、從零建立連線有關，未驗證）。候選解法是 Redis 預扣閘門（售完後的請求不進資料庫），但需要重新驗證超賣保證，收尾時決定暫緩。完整數據見 [`docs/load-test/p95-phase2-report.md`](docs/load-test/p95-phase2-report.md)
 - **量測環境是本機 Docker Compose**（WSL2），不是正式部署環境；數字只代表相對改善幅度
 - **金流、Email 都是 Mock 實作**，沒有串接真實第三方服務；只提供電子票券，不處理活動取消／退款（範疇決策見 [`docs/project-scope.md`](docs/project-scope.md) 第 2 節 Won't）
 - **前端 UI 審視的 P2 項目與買家探索頁改版暫緩**，見 [`docs/ui-ux-review-2026-10-08.md`](docs/ui-ux-review-2026-10-08.md) 第 6 節
+- **部分平台管理功能只有後端**：會員停用／啟用、主辦方停權只有 API，沒有前端入口；平台 Admin 帳號只能由開發用的 `DevelopmentDataSeeder` 建立，正式環境產生第一個 Admin 的方式尚未決定
+- **商業模式中的買家服務費未實作**，是否實作待決定
+- 以上缺口與架構偏差的完整盤點見 [`docs/project-review-2026-10-16.md`](docs/project-review-2026-10-16.md)
 
 ## 5. 本機執行
 
@@ -139,7 +156,7 @@ docker compose exec web npm run test
 ### 6.1 使用的 AI 工具
 
 - **Claude Code**：主要的 pair-programming 工具，負責規格撰寫、程式碼實作、測試撰寫、程式碼審查。
-- **Devin**：`.devin/agents/` 鏡射 `.claude/agents/` 的審查規則，作為第二個 AI 工具的交叉查核（兩者規則需人工同步，非自動鏡射）。
+- **Devin**：`.agents/agents/` 放置對應 `.claude/agents/` 的審查規則，作為第二個 AI 工具的交叉查核（兩者規則需人工同步，非自動鏡射）。
 
 ### 6.2 規格驅動流程（OpenSpec）
 
@@ -148,6 +165,7 @@ docker compose exec web npm run test
 ```
 branch-and-propose → openspec-propose（產出 proposal/design/tasks/specs）
     → spec-reviewer 審查規格
+    → design-hardener 設計加固（視需要）
     → openspec-apply-change（依 tasks 逐項實作）
     → strict-reviewer 審查程式碼變更
     → openspec-archive-change（歸檔並同步正式 specs）
@@ -161,6 +179,7 @@ branch-and-propose → openspec-propose（產出 proposal/design/tasks/specs）
 | `branch-and-propose` | Skill | 從 master 同步、開新分支、進入提案流程 |
 | `openspec-propose` | Skill | 產出單一功能的 proposal / design / tasks / specs |
 | `spec-reviewer` | Subagent | **實作前**審查規格文件：需求完整性、邊界情況、安全與權限需求、AC 與測試任務雙向對應、與既有規格一致性 |
+| `design-hardener` | Subagent | spec-reviewer 通過後、實作前，依條件審查安全、容器 runtime、第三方相依性、加密與失效模式 |
 | `openspec-apply-change` | Skill | 依 tasks 清單逐項實作 |
 | `hardener` | Skill | Application / Repository 層程式碼變更完成後，套用防禦性檢查清單（參數驗證、Entity 存在性、狀態機驗證、並發處理、`CancellationToken` 傳遞、例外邊界、日誌遮蔽） |
 | `strict-reviewer` | Subagent | **實作後**審查 git 變更：測試覆蓋、Clean Architecture 分層、EF Core 使用、安全性、命名慣例，並在容器內實際執行測試 |
@@ -183,17 +202,21 @@ branch-and-propose → openspec-propose（產出 proposal/design/tasks/specs）
 
 ```
 src/
-  ProjectC.Domain/          # Entity、狀態機、Repository 介面
-  ProjectC.Application/     # Use case 協調邏輯、DTO
-  ProjectC.Infrastructure/  # EF Core、Mock 金流、QR Code、Email 等實作
+  ProjectC.Domain/          # Entity、狀態機、業務語意介面（Repository 等）
+  ProjectC.Application/     # Use case 協調邏輯、DTO、技術性介面
+  ProjectC.Infrastructure/  # EF Core、Redis、Mock 金流、QR Code、Email 等實作
   ProjectC.WebApi/          # Controller、DI 註冊、middleware
 tests/                      # 對應四層各自的測試專案（xUnit）
 web/                        # Vue 3 前端（買家 + 主辦方後台）
 openspec/
   changes/archive/          # 已完成功能的規格文件（proposal/design/tasks/specs）
   specs/                    # 目前正式規格（單一事實來源）
-docs/project-scope.md       # 專案宏觀範疇盤點
-.claude/agents/             # spec-reviewer / strict-reviewer 審查規則定義
+loadtest/                   # k6 壓測腳本
+docs/
+  project-scope.md          # 專案宏觀範疇盤點
+  project-review-2026-10-16.md  # 專案整體審視（完整度、架構偏差、待決事項）
+  load-test/                # 壓測與 P95 優化報告
+.claude/agents/             # spec-reviewer / design-hardener / strict-reviewer 審查規則定義
 .claude/skills/             # 自訂 OpenSpec 工作流 Skill
-.devin/agents/              # Devin 對應的審查規則（人工同步 .claude/agents）
+.agents/agents/             # Devin 對應的審查規則（人工同步 .claude/agents）
 ```

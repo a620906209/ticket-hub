@@ -37,6 +37,17 @@
 - 售票（活動、票種、座位、訂單、票券、排隊）：使用 Domain 定義的 Repository 介面，實作在 Infrastructure
 - CLAUDE.md 簡化條款的前提（Entity < 5）已不成立，但兩套並存的狀態沒有被重新決策
 
+**形成經過**（依 git 歷史與各 change 的 design.md 追溯）：
+
+| 日期 | 事件 | 判斷 |
+|---|---|---|
+| 2026-08-13 | 建立專案骨架與 CLAUDE.md（353b120），已含「Entity < 5 時 Application 可直接注入 `DbContext`」簡化條款 | — |
+| 2026-08-14 | `membership-system` design 決策 5 採用 `IApplicationDbContext`（Member、RefreshToken、PasswordResetToken 共 3 個 Entity），且以介面包裝而非直接注入具體 `DbContext` | 符合當時規則 |
+| 2026-08-17 | `ticketing-infrastructure` design 明確不把售票側 8 個 `DbSet` 加進 `IApplicationDbContext`，改走 Repository | 符合規則，兩套模式自此並存 |
+| 2026-09-28 | `organizer-management` 實作（7bbfe55）把 `Organizer`、`OrganizerMember` 加進 `IApplicationDbContext`，design 沒有對應決策，當時 Entity 已超過 5 個；審查紀錄中沒有相關指摘 | **真正的偏離點** |
+
+結論：架構規則一開始就有訂，會員側最初使用 `DbContext` 是合規的簡化；問題出在主辦方管理沿用既有寫法時沒有重新檢查簡化條款的前提，審查流程也沒有攔下。
+
 ### 3.2 CLAUDE.md「介面一律放 Domain」與實作脫節
 
 - Application 層現有 9 個介面：`IApplicationDbContext`、`ICaptchaService`、`IDateTimeProvider`、`IDistributedLock`、`IPasswordHasher`、`IPurchaseQueueAdmissionMirror`、`IQueryCache`、`ITokenService`、`IUnitOfWork`
