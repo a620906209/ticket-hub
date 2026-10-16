@@ -204,7 +204,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - **面試展示前待辦（2026-10-16 決定，依序處理）**：
   - ① ~~修正後台活動列表開始時間顯示不一致~~——✅ 查證為誤判、非 bug，無需修改（見上方）
   - ② ✅ 新增 CI（GitHub Actions）：push／PR 時跑後端 xUnit（含 Testcontainers）與前端 lint／Vitest／build，README 加上狀態徽章——`.github/workflows/ci.yml`（2026-10-16，無對應 spec 的基礎設施改動）；2026-10-17 GitHub 上執行全數通過（後端 1491、前端 lint／Vitest／build）。首次執行暴露三個只在 runner 上出現的測試環境差異，已修正：Redis 容器重啟後隨機 mapped port 被重新分配（改固定 host port）、恢復後互斥測試未等故障前建立的連線重連（時序誤判）、Seeder 需 root 才能 chown token 檔（測試步驟改以 sudo 執行，對齊本機 api 容器）
-  - ③ README 補 demo 說明：seeder 建立的買家／主辦方／Admin 示範帳號與操作步驟（帳密由 `.env` 的 `DEV_SEED_*` 設定，README 只指向 `.env.example`，不另寫密碼），附操作錄影或 GIF；平台第一個 Admin 在 demo 用途由 `DevelopmentDataSeeder` 建立，於此一併說明。雲端部署仍暫不決定
+  - ③ ✅ README 補 demo 說明：seeder 建立的買家／主辦方／Admin 示範帳號與操作步驟（帳密由 `.env` 的 `DEV_SEED_*` 設定，README 只指向 `.env.example`，不另寫密碼），附操作錄影或 GIF；平台第一個 Admin 在 demo 用途由 `DevelopmentDataSeeder` 建立，於此一併說明。雲端部署仍暫不決定——2026-10-17 完成（README「示範帳號」「Demo 流程」，附買家購票與主辦方核銷／報表兩段 GIF，無對應 spec 的文件改動）。與原規劃的差異：`DevelopmentDataSeeder` 只建立 Admin 與其擁有的已核准主辦方，不建立買家帳號，README 改為說明買家自行註冊（需輸入驗證碼）。撰寫時發現兩個 seeder 的「待套用 migration」警告缺 `--project`／`--startup-project` 參數，容器內照抄會失敗，一併修正
 - **已知技術債：下單核心方法複雜度（2026-10-17，CI 編譯警告 CA1502）**：`OrderService.PlaceOrderCoreAsync` 循環複雜度 48，超過 `.editorconfig` 門檻 25，也不符 CLAUDE.md「多層巢狀分支應拆分」。涉及庫存鎖、交易與限購，屬高風險重構，不順手處理；之後若處理須另開 change，以既有下單測試作為行為不變的保護網
 - **已知技術債：佇列對帳方法複雜度（2026-10-17，CI 編譯警告 S3776）**：`PurchaseQueueAdmissionService.ReconcileEventQueueAsync` 認知複雜度 28，超過 Sonar 門檻 15。方法依 design.md Decision 5 的 8 個對帳步驟循序撰寫，拆分須確保步驟順序與「步驟 5 排除過渡態集合」的跨步驟依賴不變，不順手處理；之後若處理須另開 change
 
