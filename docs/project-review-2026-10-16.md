@@ -95,5 +95,5 @@
 | 3.6 主 spec 審查歷程 | 預防：CLAUDE.md 新增「Spec 條文撰寫」規則，`spec-reviewer` 一致性清單新增對應 blocking 檢查項。清理：`purchase-queue-leader-election`、`purchase-queue`、`buyer-web-ui` 三份移除審查歷程字樣，只刪歷程、保留規則句，Scenario ID 前後逐一比對一致，`openspec validate --specs` 27/27 通過（無對應 spec 的文件整理） | ✅ 2026-10-16 |
 | 3.6 其餘以 change 為主詞的措辭 | 7 份主 spec 共約 11 處「本次不提供／本 change 範圍」這類措辭（`admin-web-ui`、`email-notification`、`event-management`、`observability`、`organizer-management`、`real-name-verification`、`web-bundle-splitting`），語意是範圍界定而非審查歷程，影響較小，暫不處理 | ⏸ 暫緩 |
 | 3.6 Requirement 過長 | 拆分 Requirement 會改動 Requirement 名稱，影響後續 MODIFIED 對應，暫不處理 | ⏸ 暫緩 |
-| 3.3 服務費 | 待決定：實作或列入 Won't | ⏳ |
-| 3.5 正式環境第一個 Admin | 待決定：README 說明或補 CLI／seed 機制 | ⏳ |
+| 3.3 服務費 | 列入 `project-scope.md` 第 2 節 Won't：僅為商業模式示意，與高併發／防黃牛主軸無關 | ✅ 2026-10-16 |
+| 3.5 正式環境第一個 Admin | 不補 CLI／seed 機制，demo 用途由 `DevelopmentDataSeeder` 建立，於 README demo 說明交代（`project-scope.md` 第 8 節面試展示前待辦 ③） | ⏳ |

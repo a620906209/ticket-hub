@@ -118,8 +118,8 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - **量測環境是本機 Docker Compose**（WSL2），不是正式部署環境；數字只代表相對改善幅度
 - **金流、Email 都是 Mock 實作**，沒有串接真實第三方服務；只提供電子票券，不處理活動取消／退款（範疇決策見 [`docs/project-scope.md`](docs/project-scope.md) 第 2 節 Won't）
 - **前端 UI 審視的 P2 項目與買家探索頁改版暫緩**，見 [`docs/ui-ux-review-2026-10-08.md`](docs/ui-ux-review-2026-10-08.md) 第 6 節
-- **部分平台管理功能只有後端**：會員停用／啟用、主辦方停權只有 API，沒有前端入口；平台 Admin 帳號只能由開發用的 `DevelopmentDataSeeder` 建立，正式環境產生第一個 Admin 的方式尚未決定
-- **商業模式中的買家服務費未實作**，是否實作待決定
+- **部分平台管理功能只有後端**：會員停用／啟用、主辦方停權只有 API，沒有前端入口；平台 Admin 帳號只能由開發用的 `DevelopmentDataSeeder` 建立，沒有正式環境的建立機制
+- **商業模式中的買家服務費不實作**：僅為範疇規劃時的示意，與高併發／防黃牛主軸無關，已列入 Won't
 - 以上缺口與架構偏差的完整盤點見 [`docs/project-review-2026-10-16.md`](docs/project-review-2026-10-16.md)
 
 ## 5. 本機執行
