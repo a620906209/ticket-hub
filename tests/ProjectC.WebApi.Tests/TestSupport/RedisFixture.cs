@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using StackExchange.Redis;
 using Testcontainers.Redis;
 
@@ -22,6 +24,10 @@ public sealed class RedisFixture : IAsyncLifetime
 
         if (ComposeNetworkName is not null)
             builder = builder.WithNetwork(ComposeNetworkName).WithNetworkAliases(_networkAlias);
+        else
+            // 未接 compose 網路（例如 CI runner）時改用固定 host port：預設的隨機 port 會在
+            // StopContainerAsync／StartContainerAsync 重啟後被 Docker 重新分配，既有連線就連不回來。
+            builder = builder.WithPortBinding(ReserveFreeHostPort(), RedisBuilder.RedisPort);
 
         _container = builder.Build();
     }
@@ -36,6 +42,13 @@ public sealed class RedisFixture : IAsyncLifetime
     }
 
     public async Task DisposeAsync() => await _container.DisposeAsync();
+
+    private static int ReserveFreeHostPort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
 
     public IConnectionMultiplexer CreateConnection()
     {

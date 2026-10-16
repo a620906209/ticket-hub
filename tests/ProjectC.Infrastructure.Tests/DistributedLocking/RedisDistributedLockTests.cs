@@ -170,7 +170,9 @@ public class RedisDistributedLockTests
     private static async Task<LockAcquisitionResult> WaitForAcquiredAsync(
         IDistributedLock distributedLock, string key, int timeoutMs = 15000, int pollIntervalMs = 200)
     {
-        var elapsed = 0;
+        // 以實際經過時間計算逾時：每次取鎖在 Redis 不可用時本身就要等連線逾時（約 5 秒），
+        // 只累加 pollIntervalMs 會讓名義上 15 秒的上限實際拖到數分鐘。Stopwatch 為單調時鐘。
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         while (true)
         {
             var result = await distributedLock.TryAcquireAsync(key, TimeSpan.FromSeconds(30), CancellationToken.None);
@@ -179,13 +181,12 @@ public class RedisDistributedLockTests
                 return result;
             }
 
-            if (elapsed >= timeoutMs)
+            if (stopwatch.ElapsedMilliseconds >= timeoutMs)
             {
                 return result;
             }
 
             await Task.Delay(pollIntervalMs);
-            elapsed += pollIntervalMs;
         }
     }
 }

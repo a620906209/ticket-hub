@@ -117,7 +117,9 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
     {
         var probe = CreateRedisDistributedLock();
         var probeKey = $"pqle-probe:{Guid.NewGuid():N}";
-        var elapsed = 0;
+        // 以實際經過時間計算逾時：每次取鎖在 Redis 不可用時本身就要等連線逾時（約 5 秒），
+        // 只累加 pollIntervalMs 會讓名義上 15 秒的上限實際拖到數分鐘。Stopwatch 為單調時鐘。
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         while (true)
         {
             var result = await probe.TryAcquireAsync(probeKey, TimeSpan.FromSeconds(5), CancellationToken.None);
@@ -127,13 +129,12 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
                 return;
             }
 
-            if (elapsed >= timeoutMs)
+            if (stopwatch.ElapsedMilliseconds >= timeoutMs)
             {
                 throw new TimeoutException("等待 Redis 恢復連線逾時");
             }
 
             await Task.Delay(pollIntervalMs);
-            elapsed += pollIntervalMs;
         }
     }
 
