@@ -257,6 +257,102 @@ describe('EventCreatePage 需實名設定（real-name-verification）', () => {
   })
 })
 
+// 使用真實 el-input-number：夾值是元件本身的行為，stub 會讓測試只測到 stub（frontend-order-limit-hints design 決策 3）。
+describe('EventCreatePage 每筆訂單限購（frontend-order-limit-hints）', () => {
+  beforeEach(() => {
+    pushMock.mockReset()
+    vi.mocked(adminApi.createEvent).mockReset().mockResolvedValue({ id: 'event-1' })
+    vi.mocked(adminApi.getVenues).mockResolvedValue([{ id: 'venue-a', name: 'Venue A' }])
+    vi.mocked(adminApi.getVenueById).mockResolvedValue({
+      id: 'venue-a',
+      name: 'Venue A',
+      seatMaps: [{ id: 'seatmap-1', seatCount: 10 }],
+    })
+  })
+
+  async function mountWithRequiredFields() {
+    const wrapper = mountPage()
+    await flushPromises()
+    const [venueSelect, seatMapSelect] = wrapper.findAll('select')
+    await venueSelect.setValue('venue-a')
+    await flushPromises()
+    await seatMapSelect.setValue('seatmap-1')
+    await wrapper.find('input[maxlength="200"]').setValue('Concert')
+    await wrapper.findComponent(ElDatePickerStub).setValue('2026-12-31T20:00')
+    return wrapper
+  }
+
+  function limitInput(wrapper: ReturnType<typeof mountPage>) {
+    return wrapper.find('.el-input-number input')
+  }
+
+  async function typeLimitAndLeave(wrapper: ReturnType<typeof mountPage>, value: string): Promise<void> {
+    const input = limitInput(wrapper)
+    await input.setValue(value)
+    await input.trigger('change')
+    await input.trigger('blur')
+    await flushPromises()
+  }
+
+  async function submit(wrapper: ReturnType<typeof mountPage>): Promise<void> {
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+  }
+
+  function sentMaxTicketsPerOrder(): unknown {
+    return vi.mocked(adminApi.createEvent).mock.calls[0][0].maxTicketsPerOrder
+  }
+
+  // 錯誤訊息延遲 100ms 才顯示，先等過這段時間，避免「沒有錯誤」的斷言在錯誤出現前就通過。
+  async function expectNoFormErrorsAfterDebounce(wrapper: ReturnType<typeof mountPage>): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(wrapper.findAll('.el-form-item__error')).toHaveLength(0)
+  }
+
+  it('maxTicketsPerOrder_WhenInputBelowOne_ClampsToOne', async () => {
+    const wrapper = await mountWithRequiredFields()
+
+    await typeLimitAndLeave(wrapper, '0')
+
+    expect((limitInput(wrapper).element as HTMLInputElement).value).toBe('1')
+    await submit(wrapper)
+    await expectNoFormErrorsAfterDebounce(wrapper)
+    expect(adminApi.createEvent).toHaveBeenCalledTimes(1)
+    expect(sentMaxTicketsPerOrder()).toBe(1)
+  })
+
+  it('[AWU-EVENT-LIMIT-001] maxTicketsPerOrder_WhenInputExceedsFifty_ClampsAndSubmitsFifty', async () => {
+    const wrapper = await mountWithRequiredFields()
+
+    await typeLimitAndLeave(wrapper, '80')
+
+    expect((limitInput(wrapper).element as HTMLInputElement).value).toBe('50')
+    await submit(wrapper)
+    await expectNoFormErrorsAfterDebounce(wrapper)
+    expect(adminApi.createEvent).toHaveBeenCalledTimes(1)
+    expect(sentMaxTicketsPerOrder()).toBe(50)
+  })
+
+  // 留空時請求不帶限購，由後端與買家端套用系統上限；不可在前端自動補成 50，否則之後調整系統上限時既有活動會被鎖在舊值。
+  it('maxTicketsPerOrder_WhenLeftEmpty_SubmitsUndefined', async () => {
+    const wrapper = await mountWithRequiredFields()
+
+    await submit(wrapper)
+
+    expect(adminApi.createEvent).toHaveBeenCalledTimes(1)
+    expect(sentMaxTicketsPerOrder()).toBeUndefined()
+  })
+
+  it('[AWU-EVENT-LIMIT-002] maxTicketsPerOrder_ShowsSystemLimitHint', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const hint = limitInput(wrapper).element.closest('.el-form-item')!.querySelector('.field-hint')!.textContent
+    expect(hint).toContain('最多 50 張')
+    expect(hint).toContain('留空則套用系統上限 50 張')
+  })
+})
+
 describe('EventCreatePage 販售期間（event-sales-window-web-ui）', () => {
   const START_AT = '2030-06-10T12:00:00Z'
   const SALES_END_ERROR = '停售時間不可晚於活動開始時間'
