@@ -1,5 +1,7 @@
 # Ticket-Hub — 高效能高併發售票系統
 
+[![CI](https://github.com/a620906209/ticket-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/a620906209/ticket-hub/actions/workflows/ci.yml)
+
 ![Ticket-Hub](docs/images/banner.png)
 
 > 個人作品專案，主軸情境為「熱門活動搶票」：抗高併發、防超賣、防黃牛，並涵蓋建立活動 → 選位/購票 → Mock 付款 → 出票（QR Code）→ 現場核銷的完整流程。
@@ -149,6 +151,8 @@ docker compose exec api dotnet test
 docker compose exec web npm run test
 ```
 
+GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）在 push 到 master 與 PR 時自動執行同一組後端測試，以及前端 lint、Vitest、build。
+
 ## 6. 開發流程：Spec-First + AI 協作
 
 這個專案刻意採用**先寫規格、審查通過再實作**的流程，而非直接讓 AI 產生程式碼——目的是控制 AI 輔助開發常見的風險（規格漂移、審查盲點、樣板程式碼掩蓋邏輯錯誤）。以下是實際使用的工具與分工，不是通用的「有用 Copilot」描述。
@@ -216,6 +220,7 @@ docs/
   project-scope.md          # 專案宏觀範疇盤點
   project-review-2026-10-16.md  # 專案整體審視（完整度、架構偏差、待決事項）
   load-test/                # 壓測與 P95 優化報告
+.github/workflows/ci.yml    # GitHub Actions：後端測試 + 前端 lint／測試／build
 .claude/agents/             # spec-reviewer / design-hardener / strict-reviewer 審查規則定義
 .claude/skills/             # 自訂 OpenSpec 工作流 Skill
 .agents/agents/             # Devin 對應的審查規則（人工同步 .claude/agents）

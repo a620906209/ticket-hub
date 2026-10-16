@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # 只取消 PR 的舊執行；master 每次 push 都跑完，README 徽章才不會顯示 cancelled。
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: Backend (xUnit + Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # 本機開發一律在 compose 容器內執行 dotnet（CLAUDE.md 執行環境規則），理由是避免連到錯誤的 DB
+      # 或把 bin/obj 寫進 bind mount；CI runner 是乾淨的一次性環境，沒有這兩個問題，直接安裝 SDK。
+      # 版本與 Dockerfile 的 mcr.microsoft.com/dotnet/sdk:10.0 一致。
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore ProjectC.slnx
+
+      # 不設定 Testcontainers__ComposeNetworkName：各 fixture 在未設定時改用 mapped port 連線，
+      # runner 直接使用主機 Docker，不需要 compose 網路與 DooD 設定。
+      - name: Test
+        run: dotnet test ProjectC.slnx --no-restore
+
+  frontend:
+    name: Frontend (lint + Vitest + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      # 版本與 web/Dockerfile 的 node:22-alpine 一致。
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+      # build 包含 vue-tsc 型別檢查。
+      - run: npm run build

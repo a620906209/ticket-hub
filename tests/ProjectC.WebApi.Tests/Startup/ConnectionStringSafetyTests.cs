@@ -59,7 +59,10 @@ public class ConnectionStringSafetyTests : IClassFixture<CustomWebApplicationFac
     {
         var connectionStrings = _factory.Services.GetRequiredService<IConfiguration>().GetSection("ConnectionStrings").GetChildren().ToList();
 
-        connectionStrings.Should().Contain(c => c.Key == "DefaultConnection" && !string.IsNullOrEmpty(c.Value));
+        // 只要求 key 存在、不要求有值：compose 容器內此值來自 api 服務注入的環境變數，CI runner 上沒有該注入，
+        // 只剩 appsettings.json 的空字串。空值時本測試實際上沒有檢查任何內容，CI 上的防護
+        // 由 RepositoryConfigurationFiles_DoNotEnableIncludeErrorDetail 掃描設定檔提供。
+        connectionStrings.Should().Contain(c => c.Key == "DefaultConnection");
         foreach (var connectionString in connectionStrings)
         {
             Normalize(connectionString.Value ?? string.Empty).Should().NotContain(ForbiddenKeyword, $"ConnectionStrings:{connectionString.Key}");
