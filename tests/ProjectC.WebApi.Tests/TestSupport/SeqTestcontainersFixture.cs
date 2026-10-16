@@ -48,7 +48,7 @@ public sealed class SeqTestcontainersFixture : IAsyncLifetime
 
         BaseUrl = ComposeNetworkName is not null
             ? $"http://{_networkAlias}:80"
-            : $"http://localhost:{_container.GetMappedPublicPort(80)}";
+            : $"http://{_container.Hostname}:{_container.GetMappedPublicPort(80)}";
     }
 
     public Task DisposeAsync() => _container.DisposeAsync().AsTask();

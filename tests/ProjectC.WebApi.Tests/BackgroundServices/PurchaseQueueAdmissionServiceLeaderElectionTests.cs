@@ -138,6 +138,21 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
         }
     }
 
+    private static async Task WaitUntilConnectionsReconnectedAsync(
+        IReadOnlyList<IConnectionMultiplexer> connections, int timeoutMs = 15000, int pollIntervalMs = 200)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        while (!connections.All(connection => connection.IsConnected))
+        {
+            if (stopwatch.ElapsedMilliseconds >= timeoutMs)
+            {
+                throw new TimeoutException("等待既有 Redis 連線重新連上逾時");
+            }
+
+            await Task.Delay(pollIntervalMs);
+        }
+    }
+
     // PQLE-001 全流程：單一服務實例共用一個真實 Redis。
     [Fact]
     public async Task AdvanceQueueOnceWithLeaderElectionAsync_SingleInstance_AcquiresExecutesThenReleasesLock()
@@ -500,10 +515,15 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
         var eventId = await PurchaseQueueLeaderElectionTestData.SeedQueueModeEventAsync(dbContext);
         var firstWaiting = await PurchaseQueueLeaderElectionTestData.SeedWaitingEntryAsync(dbContext, eventId, DateTime.UtcNow.AddMinutes(-10));
 
-        var lockA = new SpyDistributedLock(CreateRedisDistributedLock());
-        var lockB = new SpyDistributedLock(CreateRedisDistributedLock());
-        var serviceA = CreateService(lockA, maxConcurrentAdmittedBuyers: 2);
-        var serviceB = CreateService(lockB, maxConcurrentAdmittedBuyers: 2);
+        // 連線由測試自己持有：恢復後要確認這幾條「故障前就建立」的連線本身都已重連，見下方等待。
+        var lockConnectionA = _redisFixture.CreateConnection();
+        var lockConnectionB = _redisFixture.CreateConnection();
+        var admissionConnectionA = _redisFixture.CreateConnection();
+        var admissionConnectionB = _redisFixture.CreateConnection();
+        var lockA = new SpyDistributedLock(new RedisDistributedLock(lockConnectionA, NullLogger<RedisDistributedLock>.Instance));
+        var lockB = new SpyDistributedLock(new RedisDistributedLock(lockConnectionB, NullLogger<RedisDistributedLock>.Instance));
+        var serviceA = CreateService(lockA, maxConcurrentAdmittedBuyers: 2, connectionMultiplexer: admissionConnectionA);
+        var serviceB = CreateService(lockB, maxConcurrentAdmittedBuyers: 2, connectionMultiplexer: admissionConnectionB);
 
         await _redisFixture.StopContainerAsync();
         try
@@ -522,6 +542,9 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
         }
 
         await WaitUntilRedisReconnectedAsync();
+        // 探測用的新連線能取鎖，不代表故障前建立的連線也已重連：若其中一條仍在重連，該實例的取鎖
+        // 會延後到另一實例跑完整輪並釋放鎖之後，兩邊都拿到 Acquired，互斥斷言因時序而誤判。
+        await WaitUntilConnectionsReconnectedAsync([lockConnectionA, lockConnectionB, admissionConnectionA, admissionConnectionB]);
 
         // 留一個空位（maxConcurrentAdmittedBuyers: 2，firstWaiting 尚未入場），新增一筆等待紀錄——
         // 這筆紀錄只有在「真正執行推進的那個實例」跑完 AdvanceQueueOnceAsync 才會轉為 Admitted，
