@@ -53,7 +53,7 @@ public sealed class LoadTestSeedRunner
         var pendingMigrations = await _dbContext.Database.GetPendingMigrationsAsync(cancellationToken);
         if (pendingMigrations.Any())
         {
-            await error.WriteLineAsync("Database has pending migrations. Run `docker compose exec api dotnet ef database update` first.");
+            await error.WriteLineAsync("Database has pending migrations. Run `docker compose exec api dotnet ef database update --project src/ProjectC.Infrastructure --startup-project src/ProjectC.WebApi` first.");
             return FailureExitCode;
         }
 

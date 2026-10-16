@@ -60,7 +60,7 @@ seeder 輸出 MUST NOT 印出任何 token 或密碼內容。
 
 #### Scenario: LT-SEED-006 有未套用 migration 時拒絕執行
 - **WHEN** 資料庫有未套用的 migration 時執行 seeder
-- **THEN** seeder 以非 0 exit code 結束，錯誤訊息提示執行 `docker compose exec api dotnet ef database update`，不寫入 DB，且不寫 token 檔
+- **THEN** seeder 以非 0 exit code 結束，錯誤訊息提示執行 `docker compose exec api dotnet ef database update --project src/ProjectC.Infrastructure --startup-project src/ProjectC.WebApi`，不寫入 DB，且不寫 token 檔
 
 #### Scenario: LT-SEED-008 壓測 Admin 狀態異常時中止
 - **WHEN** 壓測 Admin email 已被一個 Role 不是 Admin 的帳號使用，或該 Admin 擁有 2 個以上 Approved 的「LoadTest Organizer」

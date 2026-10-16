@@ -48,7 +48,7 @@ public sealed class DevelopmentDataSeeder
         if (pendingMigrations.Count > 0)
         {
             _logger.LogWarning(
-                "Development seed skipped: {PendingMigrationCount} pending migration(s). Run `docker compose exec api dotnet ef database update` and restart.",
+                "Development seed skipped: {PendingMigrationCount} pending migration(s). Run `docker compose exec api dotnet ef database update --project src/ProjectC.Infrastructure --startup-project src/ProjectC.WebApi` and restart.",
                 pendingMigrations.Count);
             return;
         }

@@ -244,7 +244,7 @@ public sealed class LoadTestSeedRunnerTests : IDisposable
         var result = await RunSeederAsync(connectionString, buyerCount: 5);
 
         result.ExitCode.Should().NotBe(0);
-        (result.Output + result.Error).Should().Contain("docker compose exec api dotnet ef database update");
+        (result.Output + result.Error).Should().Contain("docker compose exec api dotnet ef database update --project src/ProjectC.Infrastructure --startup-project src/ProjectC.WebApi");
         File.Exists(TokenFilePath).Should().BeFalse();
         await using var dbContext = PostgresFixture.CreateDbContext(connectionString);
         var tableCount = await dbContext.Database
