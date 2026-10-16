@@ -23,22 +23,22 @@
 
 ## 1. 現況量測（後台限購欄位夾值行為）
 
-- [ ] 1.1 在 `EventCreatePage.test.ts` 新增 `maxTicketsPerOrder_WhenInputBelowOne_ClampsToOne` 與 `[AWU-EVENT-LIMIT-001]`，在修改元件前先執行 `docker compose exec web npm run test -- src/pages/admin/EventCreatePage.test.ts`。預期結果：小於 1 的測試**通過**（現有 `:min="1"` 已會夾值，證明 design 決策 3 的假設成立），超過 50 的測試**失敗**（尚未設定 `:max`，輸入值仍為 80）。若小於 1 的測試失敗（實際是顯示驗證錯誤而不是夾值），就停下來回報，因為 admin delta「限購張數填寫非正整數」Scenario 要改寫。若超過 50 的測試修改前就通過，代表測試沒有測到夾值，必須先修正測試。
+- [x] 1.1 在 `EventCreatePage.test.ts` 新增 `maxTicketsPerOrder_WhenInputBelowOne_ClampsToOne` 與 `[AWU-EVENT-LIMIT-001]`，在修改元件前先執行 `docker compose exec web npm run test -- src/pages/admin/EventCreatePage.test.ts`。預期結果：小於 1 的測試**通過**（現有 `:min="1"` 已會夾值，證明 design 決策 3 的假設成立），超過 50 的測試**失敗**（尚未設定 `:max`，輸入值仍為 80）。若小於 1 的測試失敗（實際是顯示驗證錯誤而不是夾值），就停下來回報，因為 admin delta「限購張數填寫非正整數」Scenario 要改寫。若超過 50 的測試修改前就通過，代表測試沒有測到夾值，必須先修正測試。
 
 ## 2. 買家頁有效限購
 
-- [ ] 2.1 新增 `web/src/utils/orderLimits.ts`，內容為 `export const SYSTEM_MAX_TICKETS_PER_ORDER = 50`，註解寫明必須與 `src/ProjectC.Application/Orders/PlaceOrder/PlaceOrderLimits.cs` 一致，後端改動時要一起改（比照 `orderHold.ts`）。驗證方式：`docker compose exec web npm run build` 通過。
-- [ ] 2.2 依 design 決策 1 修改 `EventDetailPage.vue`：`maxTicketsPerOrder` 改為回傳 `Math.min(event.maxTicketsPerOrder ?? SYSTEM_MAX_TICKETS_PER_ORDER, SYSTEM_MAX_TICKETS_PER_ORDER)`，移除 `remainingCapacity` 的 `Infinity` 分支、`isWithinOrderLimit` 的 null 判斷、`.limit-hint` 的 `v-if`，以及區域隨選 `:max` 的 `Number.isFinite` 判斷（design 決策 5），並更新上方「null 代表不限制」的註解。加入 AC 表 BW-ORDER-005、BW-ORDER-LIMIT-001～006 的測試，並將既有測試改名。驗證方式：先確認新測試在修改前失敗（BW-ORDER-LIMIT-002 除外，它是回歸對照），修改後 `docker compose exec web npm run test -- src/pages/buyer` 全數通過。
+- [x] 2.1 新增 `web/src/utils/orderLimits.ts`，內容為 `export const SYSTEM_MAX_TICKETS_PER_ORDER = 50`，註解寫明必須與 `src/ProjectC.Application/Orders/PlaceOrder/PlaceOrderLimits.cs` 一致，後端改動時要一起改（比照 `orderHold.ts`）。驗證方式：`docker compose exec web npm run build` 通過。
+- [x] 2.2 依 design 決策 1 修改 `EventDetailPage.vue`：`maxTicketsPerOrder` 改為回傳 `Math.min(event.maxTicketsPerOrder ?? SYSTEM_MAX_TICKETS_PER_ORDER, SYSTEM_MAX_TICKETS_PER_ORDER)`，移除 `remainingCapacity` 的 `Infinity` 分支、`isWithinOrderLimit` 的 null 判斷、`.limit-hint` 的 `v-if`，以及區域隨選 `:max` 的 `Number.isFinite` 判斷（design 決策 5），並更新上方「null 代表不限制」的註解。加入 AC 表 BW-ORDER-005、BW-ORDER-LIMIT-001～006 的測試，並將既有測試改名。驗證方式：先確認新測試在修改前失敗（BW-ORDER-LIMIT-002 除外，它是回歸對照），修改後 `docker compose exec web npm run test -- src/pages/buyer` 全數通過。
 
 ## 3. 後台限購欄位
 
-- [ ] 3.1 依 design 決策 3 修改 `EventCreatePage.vue`：`el-input-number` 加上 `:max="SYSTEM_MAX_TICKETS_PER_ORDER"`，說明文字改為「選填，最多 50 張；留空則套用系統上限 50 張」（數字由常數插值），並更新 `web/src/utils/validators.ts` `optionalPositiveIntegerRule` 註解中「代表不限制」的描述。加入 AC 表 AWU-EVENT-LIMIT-002 與「不填限購張數」的測試。驗證方式：1.1 原本失敗的 `[AWU-EVENT-LIMIT-001]` 改為通過，`docker compose exec web npm run test -- src/pages/admin/EventCreatePage.test.ts` 全數通過。
+- [x] 3.1 依 design 決策 3 修改 `EventCreatePage.vue`：`el-input-number` 加上 `:max="SYSTEM_MAX_TICKETS_PER_ORDER"`，說明文字改為「選填，最多 50 張；留空則套用系統上限 50 張」（數字由常數插值），並更新 `web/src/utils/validators.ts` `optionalPositiveIntegerRule` 註解中「代表不限制」的描述。加入 AC 表 AWU-EVENT-LIMIT-002 與「不填限購張數」的測試。驗證方式：1.1 原本失敗的 `[AWU-EVENT-LIMIT-001]` 改為通過，`docker compose exec web npm run test -- src/pages/admin/EventCreatePage.test.ts` 全數通過。
 
 ## 4. 整合驗證與文件
 
-- [ ] 4.1 `docker compose exec web npm run test`、`npm run build`、`npm run lint` 全數通過。若有既有 flaky 測試失敗，要記錄測試名稱，並在 HEAD 重跑確認是否原本就會失敗，不得忽略。
-- [ ] 4.2 以 claude-in-chrome 在真實瀏覽器驗證：未設限購的活動顯示「每筆訂單限購 50 張」、計數輸入 100 被夾為 50；後台限購欄位輸入 80 離開後變為 50，說明文字可見。以 DB 或 API 回應確認建立的活動 `maxTicketsPerOrder` 為 50。
-- [ ] 4.3 `docs/project-scope.md` §8 待辦 ⑤ 標記 ✅，註明由 `frontend-order-limit-hints` 處理、400 中文化列為 Non-Goal。驗證方式：`openspec validate frontend-order-limit-hints` 通過。
+- [x] 4.1 `docker compose exec web npm run test`、`npm run build`、`npm run lint` 全數通過。若有既有 flaky 測試失敗，要記錄測試名稱，並在 HEAD 重跑確認是否原本就會失敗，不得忽略。
+- [x] 4.2 以 claude-in-chrome 在真實瀏覽器驗證：未設限購的活動顯示「每筆訂單限購 50 張」、計數輸入 100 被夾為 50；後台限購欄位輸入 80 離開後變為 50，說明文字可見。以 DB 或 API 回應確認建立的活動 `maxTicketsPerOrder` 為 50。
+- [x] 4.3 `docs/project-scope.md` §8 待辦 ⑤ 標記 ✅，註明由 `frontend-order-limit-hints` 處理、400 中文化列為 Non-Goal。驗證方式：`openspec validate frontend-order-limit-hints` 通過。
 
 ## Workflow follow-up
 

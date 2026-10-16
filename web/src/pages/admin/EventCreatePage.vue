@@ -8,6 +8,7 @@ import type { VenueSummary } from '../../types/apiResponses'
 import { maxLengthRule, optionalPositiveIntegerRule, requiredRule } from '../../utils/validators'
 import { toErrorMessage } from '../../utils/errors'
 import { buildSeatMapOptions, type SeatMapOption } from '../../utils/seatMapLabel'
+import { SYSTEM_MAX_TICKETS_PER_ORDER } from '../../utils/orderLimits'
 
 const router = useRouter()
 
@@ -230,8 +231,16 @@ async function handleCreateEvent(): Promise<void> {
         <el-input v-model="eventForm.posterUrl" maxlength="500" placeholder="選填，貼圖片網址" />
       </el-form-item>
       <el-form-item label="每筆訂單限購" prop="maxTicketsPerOrder">
-        <el-input-number v-model="eventForm.maxTicketsPerOrder" :min="1" :step="1" :precision="0" />
-        <span class="field-hint">選填，留空代表不限制</span>
+        <el-input-number
+          v-model="eventForm.maxTicketsPerOrder"
+          :min="1"
+          :max="SYSTEM_MAX_TICKETS_PER_ORDER"
+          :step="1"
+          :precision="0"
+        />
+        <span class="field-hint">
+          選填，最多 {{ SYSTEM_MAX_TICKETS_PER_ORDER }} 張；留空則套用系統上限 {{ SYSTEM_MAX_TICKETS_PER_ORDER }} 張
+        </span>
       </el-form-item>
       <el-form-item label="需實名" prop="isRealNameRequired">
         <el-checkbox v-model="eventForm.isRealNameRequired" name="isRealNameRequired">需實名</el-checkbox>

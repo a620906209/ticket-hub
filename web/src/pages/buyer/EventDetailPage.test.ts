@@ -797,7 +797,8 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
     expect(wrapper.text()).toContain('已售完')
   })
 
-  it('活動未設定限購張數時，計數票種的輸入上限僅受可售總量限制', async () => {
+  // 可售總量小於系統上限 50 時以可售總量為上限；大於 50 的分支見 [BW-ORDER-LIMIT-004]。
+  it('[BW-ORDER-013] countInput_WhenNoEventLimitAndStockBelowFifty_ClampsToStock', async () => {
     vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 5 })])
     const wrapper = mountPage()
@@ -953,6 +954,161 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
     await input.setValue(5)
 
     expect((input.element as HTMLInputElement).value).toBe('1')
+  })
+})
+
+// 活動未設限購時套用系統上限 50；限購大於 50 的既有活動同樣以 50 計（frontend-order-limit-hints design 決策 1）。
+describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () => {
+  beforeEach(() => {
+    mockIsAuthenticated = true
+    pushMock.mockReset()
+    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventSeats).mockReset()
+    vi.mocked(eventsApi.getTicketTypes).mockReset()
+    vi.mocked(ordersApi.placeOrder).mockReset()
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([])
+  })
+
+  function buildSeats(count: number): EventSeat[] {
+    return Array.from({ length: count }, (_, index) =>
+      buildSeat({ eventSeatId: `seat-${index + 1}`, seatNumber: String(index + 1) }),
+    )
+  }
+
+  function limitHint(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.limit-hint')
+  }
+
+  function quickPickCountInput(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('.quick-pick input[type="number"]')
+  }
+
+  it('[BW-ORDER-005] seatClick_WhenNoEventLimitAndFiftySelected_BlocksWithFiftyMessage', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue(buildSeats(51))
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const seatButtons = wrapper.findAll('.seat-btn')
+    for (const seatButton of seatButtons.slice(0, 50)) {
+      await seatButton.trigger('click')
+    }
+    // 前 50 個不受限：若這裡就被擋，下方「第 51 個被擋」的斷言就沒有意義。
+    expect(wrapper.text()).toContain('已選 50 個座位')
+    expect(actionError(wrapper).exists()).toBe(false)
+
+    await seatButtons[50].trigger('click')
+
+    expect(actionError(wrapper).text()).toContain('每筆訂單最多購買 50 張')
+    expect(wrapper.text()).toContain('已選 50 個座位')
+    expect(selectedSeatCount(wrapper)).toBe(50)
+  })
+
+  it('[BW-ORDER-LIMIT-001] limitHint_WhenNoEventLimit_ShowsSystemLimit', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(limitHint(wrapper).text()).toBe('每筆訂單限購 50 張')
+  })
+
+  it('[BW-ORDER-LIMIT-002] limitHint_WhenEventLimitBelowSystemLimit_ShowsEventLimit', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 3 })])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 10 })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const input = countInputFor(wrapper, '站立區')
+    await input.setValue(10)
+
+    expect(limitHint(wrapper).text()).toBe('每筆訂單限購 3 張')
+    expect((input.element as HTMLInputElement).value).toBe('3')
+  })
+
+  it('[BW-ORDER-LIMIT-003] eventLimitAboveSystemLimit_ShowsAndEnforcesFifty', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 80 })])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 100 })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const input = countInputFor(wrapper, '站立區')
+    await input.setValue(80)
+
+    expect(limitHint(wrapper).text()).toBe('每筆訂單限購 50 張')
+    expect((input.element as HTMLInputElement).value).toBe('50')
+    expect(actionError(wrapper).exists()).toBe(false)
+    expect(pageError(wrapper).exists()).toBe(false)
+  })
+
+  it('[BW-ORDER-LIMIT-004] countInput_WhenNoEventLimit_ClampsToFifty', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 80 })])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const input = countInputFor(wrapper, '站立區')
+    await input.setValue(100)
+
+    expect((input.element as HTMLInputElement).value).toBe('50')
+    expect(wrapper.text()).not.toContain('已達每筆訂單限購張數')
+    expect(wrapper.text()).not.toContain('最多購買')
+  })
+
+  it('[BW-ORDER-LIMIT-005] nextStep_WhenNoEventLimitAndTotalExceedsFifty_ShowsErrorAndStays', async () => {
+    // 比照 [BW-CONFIRM-012]：選座位與計數輸入在同一個同步區段完成，計數輸入框的 max 還沒反映剛選的座位。
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
+      buildSeatTicketType(),
+      buildCountTicketType({ availableQuantity: 60 }),
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const countInput = countInputFor(wrapper, '站立區').element as HTMLInputElement
+    ;(wrapper.find('.seat-btn').element as HTMLButtonElement).click()
+    countInput.value = '50'
+    countInput.dispatchEvent(new Event('input'))
+    await flushPromises()
+    // 確認合計真的是 51，否則下方斷言會在未超量的情況下假通過。
+    expect(wrapper.find('.checkout-bar').text()).toContain('已選 1 個座位、50 張計數票券')
+
+    await nextButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(mockRoute.query.step).toBeUndefined()
+    expect(actionError(wrapper).text()).toContain('每筆訂單最多購買 50 張')
+    expect(confirmStep(wrapper).exists()).toBe(false)
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(0)
+  })
+
+  it('[BW-ORDER-LIMIT-006] quickPick_WhenNoEventLimitAndCountExceedsRemaining_ShowsErrorWithoutSelecting', async () => {
+    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventSeats).mockResolvedValue(buildSeats(60))
+    vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
+      buildSeatTicketType(),
+      buildCountTicketType({ availableQuantity: 60 }),
+    ])
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await quickPickCountInput(wrapper).setValue(100)
+    expect((quickPickCountInput(wrapper).element as HTMLInputElement).value).toBe('50')
+
+    await quickPickCountInput(wrapper).setValue(30)
+    await countInputFor(wrapper, '站立區').setValue(30)
+    // 剩餘額度已降為 20，但已填入的區域隨選張數不會被改寫；若這裡不是 30，下方斷言就沒測到送出前的額度檢查。
+    expect((quickPickCountInput(wrapper).element as HTMLInputElement).value).toBe('30')
+
+    await quickPickButton(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(actionError(wrapper).text()).toContain('每筆訂單最多購買 50 張')
+    expect(selectedSeatCount(wrapper)).toBe(0)
+    expect(ordersApi.placeOrder).toHaveBeenCalledTimes(0)
   })
 })
 

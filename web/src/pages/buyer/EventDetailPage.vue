@@ -18,6 +18,7 @@ import type { SelectedSeat } from '../../types/ui'
 import { toErrorMessage } from '../../utils/errors'
 import { formatCurrency } from '../../utils/currency'
 import { ORDER_HOLD_MINUTES } from '../../utils/orderHold'
+import { SYSTEM_MAX_TICKETS_PER_ORDER } from '../../utils/orderLimits'
 import { getEffectiveSalesEndAtUtc, getSalesStatus } from '../../utils/salesWindow'
 import type { SalesStatus } from '../../utils/salesWindow'
 import QueueWaitingPanel from '../../components/QueueWaitingPanel.vue'
@@ -294,12 +295,15 @@ const seatsByZone = computed(() => {
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
 })
 
-// 每筆訂單限購張數（Admin 建立活動時設定，選填，null 代表不限制）；後端 OrderService.PlaceOrderAsync
+// 有效限購張數：活動限購（Admin 建立活動時設定，選填）與系統上限取較小值，未設定時為系統上限；本規則生效前
+// 建立、限購值大於系統上限的活動同樣以系統上限計（frontend-order-limit-hints design.md 決策 1）。後端 OrderService.PlaceOrderAsync
 // 也會擋一次（見 design.md），這裡只是提前給使用者清楚的提示，不是唯一的把關點。
 // 座位選購與計數購買共用同一份剩餘額度（design.md 決策 3），任一方消耗額度後另一方的可選/可輸入上限立即跟著變動。
-const maxTicketsPerOrder = computed(() => event.value?.maxTicketsPerOrder ?? null)
+const maxTicketsPerOrder = computed(() =>
+  Math.min(event.value?.maxTicketsPerOrder ?? SYSTEM_MAX_TICKETS_PER_ORDER, SYSTEM_MAX_TICKETS_PER_ORDER),
+)
 const remainingCapacity = computed(() =>
-  maxTicketsPerOrder.value === null ? Infinity : maxTicketsPerOrder.value - selectedSeats.value.length - countTotal.value,
+  maxTicketsPerOrder.value - selectedSeats.value.length - countTotal.value,
 )
 
 // 限制型輸入（design.md 決策 6）：計算結果直接當作 el-input-number 的 max，元件本身擋掉超額輸入，
@@ -308,7 +312,6 @@ const remainingCapacity = computed(() =>
 function countMaxFor(ticketType: TicketType): number {
   if (ticketType.availableQuantity === null) return 0
   const ownValue = countQuantities[ticketType.id] ?? 0
-  if (remainingCapacity.value === Infinity) return ticketType.availableQuantity
   return Math.max(0, Math.min(ticketType.availableQuantity, remainingCapacity.value + ownValue))
 }
 
@@ -708,7 +711,7 @@ function clearSelections(): void {
 // 「下一步」與「確認訂單」共用；未通過時不清除既有錯誤，只覆寫為限購提示。
 function isWithinOrderLimit(): boolean {
   const totalCount = selectedSeats.value.length + countTotal.value
-  if (maxTicketsPerOrder.value !== null && totalCount > maxTicketsPerOrder.value) {
+  if (totalCount > maxTicketsPerOrder.value) {
     actionErrorMessage.value = `這個活動每筆訂單最多購買 ${maxTicketsPerOrder.value} 張，請調整已選座位或購買數量`
     return false
   }
@@ -974,7 +977,7 @@ onUnmounted(() => {
           </section>
 
           <template v-else>
-          <p v-if="maxTicketsPerOrder !== null" class="limit-hint">每筆訂單限購 {{ maxTicketsPerOrder }} 張</p>
+          <p class="limit-hint">每筆訂單限購 {{ maxTicketsPerOrder }} 張</p>
 
           <div class="quick-pick">
             <span class="quick-pick-label">區域隨選：</span>
@@ -985,7 +988,7 @@ onUnmounted(() => {
             <el-input-number
               v-model="quickPickCount"
               :min="1"
-              :max="Number.isFinite(remainingCapacity) ? remainingCapacity : undefined"
+              :max="remainingCapacity"
               :step="1"
               :precision="0"
               :disabled="isSalesLocked"

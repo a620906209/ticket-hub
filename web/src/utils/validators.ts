@@ -52,7 +52,7 @@ export function requiredPositiveIntegerRule(message: string) {
   }
 }
 
-// 給選填的正整數欄位用（例如每筆訂單限購張數）：沒填視為合法（代表不限制），有填才檢查是不是正整數。
+// 給選填的正整數欄位用（例如每筆訂單限購張數）：沒填視為合法（代表不設活動限購、套用系統上限），有填才檢查是不是正整數。
 export function optionalPositiveIntegerRule(message: string) {
   return {
     validator: (_rule: unknown, value: number | undefined | null, callback: (error?: Error) => void) => {
