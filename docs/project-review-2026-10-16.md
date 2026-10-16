@@ -79,8 +79,8 @@
 
 - P95 冷啟動未達標（見第 1 節）
 - WSL2 時鐘造成 TTL 相關測試偶發失敗（`project-scope.md` 第 8 節）
-- 後台活動列表開始時間顯示不一致（`project-scope.md` 第 8 節，2026-10-16 待查）
-- dev DB 殘留 `frontend-order-limit-hints` 瀏覽器驗證建立的兩筆 `[測試]` 活動
+- ~~後台活動列表開始時間顯示不一致~~——2026-10-16 查證為截圖誤判，非 bug（`project-scope.md` 第 8 節）
+- dev DB 殘留 `frontend-order-limit-hints` 瀏覽器驗證建立的兩筆 `[測試]` 活動（時間顯示查證建立的一筆已刪除）
 
 ## 4. 流程觀察
 
