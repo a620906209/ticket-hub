@@ -203,7 +203,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - **專案整體審視（2026-10-16）**：Clean Architecture 實現程度、資料存取兩套模式、CLAUDE.md 介面規則與實作脫節、服務費未追蹤、多租戶邊界、僅後端的管理功能、主 spec 可維護性等發現，見 [docs/project-review-2026-10-16.md](project-review-2026-10-16.md)；CLAUDE.md 規則對齊與主 spec 清理已處理，服務費列入 Won't（見第 2 節）；正式環境第一個 Admin 以 README demo 說明處理（見下方待辦 ③）
 - **面試展示前待辦（2026-10-16 決定，依序處理）**：
   - ① ~~修正後台活動列表開始時間顯示不一致~~——✅ 查證為誤判、非 bug，無需修改（見上方）
-  - ② 新增 CI（GitHub Actions）：push／PR 時跑後端 xUnit（含 Testcontainers）與前端 Vitest，README 加上狀態徽章——`.github/workflows/ci.yml` 已建立（2026-10-16，無對應 spec 的基礎設施改動），本機以清空容器環境變數的方式驗證測試不依賴 compose 環境；**待 push 後確認 GitHub 上第一次執行通過才算完成**
+  - ② ✅ 新增 CI（GitHub Actions）：push／PR 時跑後端 xUnit（含 Testcontainers）與前端 lint／Vitest／build，README 加上狀態徽章——`.github/workflows/ci.yml`（2026-10-16，無對應 spec 的基礎設施改動）；2026-10-17 GitHub 上執行全數通過（後端 1491、前端 lint／Vitest／build）。首次執行暴露三個只在 runner 上出現的測試環境差異，已修正：Redis 容器重啟後隨機 mapped port 被重新分配（改固定 host port）、恢復後互斥測試未等故障前建立的連線重連（時序誤判）、Seeder 需 root 才能 chown token 檔（測試步驟改以 sudo 執行，對齊本機 api 容器）
   - ③ README 補 demo 說明：seeder 建立的買家／主辦方／Admin 示範帳號與操作步驟（帳密由 `.env` 的 `DEV_SEED_*` 設定，README 只指向 `.env.example`，不另寫密碼），附操作錄影或 GIF；平台第一個 Admin 在 demo 用途由 `DevelopmentDataSeeder` 建立，於此一併說明。雲端部署仍暫不決定
 
 **已決策的現況對齊項目（2026-08-19 盤點後）**
