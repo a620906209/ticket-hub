@@ -46,7 +46,7 @@
 
 ### 3. Kestrel 本身處理長度不一致的情境，應用程式不另寫邏輯
 
-RBL-007～010 全部由 Kestrel 的 HTTP/1.1 解析器處理：`Content-Length` 超過上限時第一次讀取即丟 `BadHttpRequestException`(413)，不等本文；chunked 以累計讀取量判斷；`Content-Length` 以後的位元組被當成下一個請求的開頭（RBL-009 只要求「不被當作此請求本文、不 500」）；本文傳送停滯由 `MinRequestBodyDataRate`（預設 240 bytes/s、5 秒 grace period）判定，應用程式仍在讀本文時丟 `BadHttpRequestException`(408)。這些行為以測試鎖住，不在應用程式重寫。
+RBL-007～010 全部由 Kestrel 的 HTTP/1.1 解析器處理：`Content-Length` 超過上限時第一次讀取即丟 `BadHttpRequestException`(413)，不等本文；chunked 以累計讀取量判斷，且累計量含 chunk framing（實作期間實測：16×64KB 分段約 143 bytes framing，資料 `GlobalBytes - 140` 即回 413、`GlobalBytes - 160` 回 400），所以 spec 只保證資料超過上限必回 413，不保證資料恰為上限可通過；`Content-Length` 以後的位元組被當成下一個請求的開頭（RBL-009 只要求「不被當作此請求本文、不 500」）；本文傳送停滯由 `MinRequestBodyDataRate`（預設 240 bytes/s、5 秒 grace period）判定，應用程式仍在讀本文時丟 `BadHttpRequestException`(408)。這些行為以測試鎖住，不在應用程式重寫。
 
 所有本文上限與逾時錯誤都是在**應用程式讀取本文時**才丟出，不是在進入 pipeline 前由 Kestrel 直接拒絕：`[RequestSizeLimit]` 必須能在讀本文前改寫該請求的上限，所以 Kestrel 不能在 pipeline 之前依 `Content-Length` 拒絕。實測證據見決策 4「實測證據」。
 
@@ -87,8 +87,9 @@ RBL-007～010 全部由 Kestrel 的 HTTP/1.1 解析器處理：`Content-Length` 
 
 - 新增 Application 層 `SeatMapLimits.MaxSeats = 50_000`（`Venues/CreateSeatMap`），Validator 與測試都引用它。與決策 1 同理不用 `IOptions`：上限是安全預設，不是部署可調參數。
 - Validator 規則：`Seats` 不為 null 時 `Count <= MaxSeats`，訊息 `Seats must not contain more than 50000 items.`；`RuleForEach(Seats)` 加 `.When(x => x.Seats is null || x.Seats.Count <= SeatMapLimits.MaxSeats)`，超過上限時不逐筆驗證，避免對 10MB 本文跑 5 萬次以上的子 Validator 並產生同等數量的錯誤訊息。比照 `place-order-request-limits` 的「筆數超過只回筆數錯誤」作法。
-- 拒絕時機：`CreateSeatMapHandler.HandleAsync` 第一步就是 Validator，失敗即回 `Error.Validation`（400），所以場地查詢、`GroupBy` 重複檢查、`SeatMap`／`Seat` entity 建立、EF 追蹤與交易都不會發生。Handler 不改。
-- 為何 50,000：50,000 席最長欄位（每席約 131 bytes）約 6.5MB，落在 10MB 本文上限內，讓「座位數上限」而不是「本文上限」決定合法請求的範圍；一般欄位長度（每席約 40 bytes）50,000 席約 2MB。單一場館 5 萬席已涵蓋大型體育場；k6 壓測建 2,000 席。以 JSON 跳脫（`\uXXXX`）灌長欄位的請求可能先撞到 10MB 得 413，這是可接受的：合法管理介面不會這樣送。
+- 拒絕時機：`CreateSeatMapHandler.HandleAsync` 第一步就是 Validator，失敗即回 `Error.Validation`（400），所以場地查詢、`GroupBy` 重複檢查、`SeatMap`／`Seat` entity 建立、EF 追蹤與交易都不會發生。Handler 只在 `AddSeat` 呼叫加 null-forgiving（見下一點），流程不改。
+- `SeatRequest` 的 `ZoneCode`／`SeatNumber` 宣告為 `string?`（實作期間審查發現）：非 nullable `string` 會讓 `[ApiController]` 的 MVC 模型驗證隱含 `[Required]`，在 Handler／FluentValidation 之前逐筆走訪所有座位，50,001 席含一筆 `zoneCode: null` 時回的是 `Seats[50000].ZoneCode` 逐筆錯誤而非座位數錯誤，且超過上限的大量座位也會全部被走訪。改為 nullable 後元素型別沒有驗證 metadata，MVC 不走訪元素；null 與空白由 `SeatRequestValidator` 的 `NotEmpty` 拒絕，訊息不變。只改這個 DTO，不全域關閉隱含 `[Required]`（會影響所有沒有 FluentValidation 的 DTO）。另外 `RuleForEach` 加 `NotNull()`（訊息 `Seats must not contain null items.`，task 4.4），`.When` 同時套用到 `NotNull` 與子 Validator。副作用：OpenAPI 文件中兩個欄位變成 `["null","string"]`（`required` 仍在），對外宣告可為 null 但 Validator 會拒絕；前端 `web/src/types/api.generated.ts` 本 change 不重新產生，下次執行 `generate:api-types` 時會變成 `null | string`，屆時須留意前端型別。
+- 為何 50,000：50,000 席最長欄位（每席約 131 bytes）約 6.5MB（以 ASCII 計；非 ASCII 欄位經 System.Text.Json 預設 `\uXXXX` 跳脫或 UTF-8 多位元組後每席可達 300 bytes 以上，50 字中文代碼的 50,000 席會超過 10MB、先得到 413，實際場館代碼不會這麼長，接受此限制），落在 10MB 本文上限內，讓「座位數上限」而不是「本文上限」決定合法請求的範圍；一般欄位長度（每席約 40 bytes）50,000 席約 2MB。單一場館 5 萬席已涵蓋大型體育場；k6 壓測建 2,000 席。以 JSON 跳脫（`\uXXXX`）灌長欄位的請求可能先撞到 10MB 得 413，這是可接受的：合法管理介面不會這樣送。
 - 只限制新建立的請求，不影響既有座位圖；沒有 schema 或資料遷移。
 - 不在 Domain 加 guard：`SeatMap.AddSeat` 逐筆加入，單一 entity 無法在不知道請求總量的情況下判斷；這是請求層級的輸入限制，放 Validator。
 
@@ -117,6 +118,7 @@ RBL-007～010 全部由 Kestrel 的 HTTP/1.1 解析器處理：`Content-Length` 
 - [`place-order-request-limits` merge 前，selections 超過約 150 筆的訂單會被 16KB 擋下] → 前端（`EventDetailPage.vue` `handleConfirmOrder`）每個選取的座位送一筆、每個計數票種送一筆；`Event.MaxTicketsPerOrder` 是 `int?`，未設定時前端沒有筆數上限，所以在兩個 change 之間，未設上限的活動一次選超過約 150 席會得到 413。接受此風險：後續 change 本來就把筆數限制為 50（超過 50 一樣被拒），兩個 change 預計連續 merge；16KB 對 50 筆最長欄位（約 5.3KB）留約 3 倍餘裕。
 - [上限提早回 413 時用戶端仍在上傳，可能收到連線 reset 而不是 413] → 這是 HTTP/1.1 標準行為；測試用「超過 1 byte」讓本文已送完，RBL-007 則在送本文前讀回應，兩者都能穩定讀到 413。
 - [座位圖 10MB 本文的資源耗用] → 以三層邊界限制：10MB 本文上限（讀取量）、50,000 席座位數上限（決策 7，Handler 處理量）、organizer 分區 10 次／60 秒（決策 8，單一 Organizer 的頻率）。授權早於三者，匿名者無法觸發 10MB 讀取。
+- [座位數在上限內時，逐筆驗證錯誤的回應大小] → `ResultExtensions` 把所有 Validator 錯誤串進 `detail`，50,000 筆空白欄位的回應約 3MB、50,000 筆 null 約 1.75MB。需要 Organizer 授權且受 10 次／60 秒限流，接受為殘餘風險；若要限制錯誤筆數，屬 `ResultExtensions` 的全域行為改變，不在本 change 範圍。
   - 10MB 的依據：每席最長約 131 bytes（`ZoneCode`、`SeatNumber` 各 50 字元加 JSON 結構），50,000 席約 6.5MB；1MB 只容納約 7,700 席最長欄位座位，會擋到中大型場館。
   - 記憶體預算：被座位數上限擋下的請求仍會完整讀取並反序列化最多 10MB 本文（約 26 萬筆一般長度的座位物件，估計暫用數十 MB），但不跑逐筆驗證、不建 entity；通過驗證的請求最多 50,000 筆 entity 被 EF 追蹤。超過上限的請求因 `RuleForEach` 被跳過，單筆欄位的 `MaximumLength(50)` 也不會套用，單筆字串長度只由 10MB 本文總量封頂。仍接受的殘餘風險：rate limit 是 Fixed Window 計次，不限並發，同一 Organizer 可在同一視窗開頭並發送出 10 個 10MB 請求，且在視窗交界前後各用滿額度時，短時間內最多 20 個；額度存在 process 記憶體，以單一 `api` instance 計，現行 compose 只有一個 instance 時成立，日後水平擴展到 N 個 instance 時有效額度變成 10 × N，需改用分散式限流（另案）；多個不同的 Approved Organizer 可各自用滿額度。兩者都需要經核准的 Organizer 身分，且可在 Seq 追溯到 OrganizerId。
   - 不在本 change：以座位圖建立活動時會為每個座位建立 `EventSeat`，50,000 席座位圖會在建立活動時寫入 50,000 筆；建立活動端點的行為不變。

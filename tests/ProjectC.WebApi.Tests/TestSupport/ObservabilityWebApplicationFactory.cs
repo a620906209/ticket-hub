@@ -108,6 +108,9 @@ public sealed class ObservabilityWebApplicationFactory : WebApplicationFactory<P
             {
                 ["LoginRateLimiting:PermitLimit"] = LoginRateLimitPermitLimit.ToString(),
                 ["LoginRateLimiting:WindowSeconds"] = LoginRateLimitWindowSeconds.ToString(),
+                // BackgroundServiceTraceIdTests 等測試透過 API 建座位圖，比照 CustomWebApplicationFactory 放寬
+                // 建立座位圖限流，避免同一 Organizer 額度被測試前置資料用完（request-body-size-limits tasks.md 4.3）。
+                ["SeatMapRateLimiting:PermitLimit"] = "1000",
             });
         });
 

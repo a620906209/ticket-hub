@@ -106,6 +106,10 @@ try
         SerilogConfigurator.Configure,
         preserveStaticLogger: true);
 
+    // 全域本文上限在 Kestrel 層設定，涵蓋所有端點（含匿名端點）；個別端點以 [RequestSizeLimit] 覆寫
+    // （request-body-size-limits design.md 決策 2）。
+    builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = RequestBodyLimits.GlobalBytes);
+
     // Add services to the container.
 
     builder.Services.AddControllers();
@@ -267,6 +271,14 @@ try
         .ValidateDataAnnotations();
     builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<CaptchaRateLimitingOptions>>().Value);
 
+    // SeatMapRateLimitingOptions：比照 CaptchaRateLimitingOptions 同一種有安全預設值、不需要 ValidateOnStart
+    // 的模式（request-body-size-limits design.md 決策 8）。
+    builder.Services
+        .AddOptions<SeatMapRateLimitingOptions>()
+        .Bind(builder.Configuration.GetSection(SeatMapRateLimitingOptions.SectionName))
+        .ValidateDataAnnotations();
+    builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<SeatMapRateLimitingOptions>>().Value);
+
     // Scoped，MUST NOT 是 Singleton：SixLabors.Fonts 的 FontFamily／FontCollection 未經查證取得
     // 多執行緒並行讀取的官方 thread-safety 保證，Scoped 讓每個 request 各自持有獨立執行個體，
     // 從根本排除跨執行緒共用同一份字型物件的疑慮（captcha-verification design.md 決策 13）。
@@ -382,6 +394,9 @@ try
         // 獨立命名的 captcha policy，MUST NOT 沿用 "login"——共用 policy 名稱會共用同一個
         // PartitionedRateLimiter 計數器（captcha-verification design.md 決策 6）。
         rateLimiterOptions.AddPolicy("captcha", httpContext => CreateCaptchaPartition(httpContext));
+        // 建立座位圖放寬到 10MB 本文，以 Organizer 分區限制單一 Organizer 的頻率
+        // （request-body-size-limits design.md 決策 8）。
+        rateLimiterOptions.AddPolicy("create-seat-map", httpContext => CreateOrganizerPartition(httpContext));
 
         rateLimiterOptions.OnRejected = async (context, cancellationToken) =>
         {
@@ -450,6 +465,23 @@ try
                 QueueLimit = 0,
             });
         }
+
+        // 同一 Organizer 的多個成員共用額度，擋多帳號聚合。授權早於 UseRateLimiter，正常情況 claim
+        // 一定合法；若仍取不到則共用固定鍵，fail-closed，不會因取不到分區鍵而不限流。
+        static RateLimitPartition<string> CreateOrganizerPartition(HttpContext httpContext)
+        {
+            var options = httpContext.RequestServices.GetRequiredService<SeatMapRateLimitingOptions>();
+            var partitionKey = httpContext.User.TryGetOrganizerId(out var organizerId)
+                ? organizerId.ToString()
+                : "no-organizer";
+
+            return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = options.PermitLimit,
+                Window = TimeSpan.FromSeconds(options.WindowSeconds),
+                QueueLimit = 0,
+            });
+        }
     });
 
     var app = builder.Build();
@@ -469,6 +501,9 @@ try
     // （captcha-verification design.md 決策 14、6）。
     app.Services.GetRequiredService<CaptchaOptions>();
     app.Services.GetRequiredService<CaptchaRateLimitingOptions>();
+
+    // SeatMapRateLimitingOptions 同樣沒有 ValidateOnStart()，理由與上面相同（request-body-size-limits design.md 決策 8）。
+    app.Services.GetRequiredService<SeatMapRateLimitingOptions>();
 
     // 只在 Development 執行（整合測試用 Testing 環境、正式環境皆不執行）；正式環境的既有 Admin 由 migration 回填涵蓋。
     if (app.Environment.IsDevelopment())

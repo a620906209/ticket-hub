@@ -13,6 +13,10 @@
 - **WHEN** Organizer A 已用完額度後，Organizer B 的成員在同一時間窗內建立座位圖
 - **THEN** Organizer B 的請求成功建立座位圖，不受 A 的額度影響
 
+#### Scenario: SRL-005 同一 Organizer 的不同成員共用額度
+- **WHEN** 同一 Organizer 的成員甲在同一時間窗內用完額度後，同一 Organizer 的成員乙建立座位圖
+- **THEN** 成員乙的請求回傳 429，不建立座位圖
+
 ### Requirement: 建立座位圖限流設定值須為正數，缺漏時採用預設值
 系統 SHALL 以 `SeatMapRateLimiting:PermitLimit` 與 `SeatMapRateLimiting:WindowSeconds` 設定建立座位圖的限流額度，缺漏時採用預設值 10 次／60 秒；設定為 0 或負數時 MUST 在應用程式啟動時擋下。
 

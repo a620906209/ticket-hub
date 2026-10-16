@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.Application.Venues.GetSeatMapById;
@@ -42,6 +43,8 @@ public class AdminVenuesController : ControllerBase
     }
 
     [HttpPost("{venueId:guid}/seat-maps")]
+    [EnableRateLimiting("create-seat-map")]
+    [RequestSizeLimit(RequestBodyLimits.CreateSeatMapBytes)]
     public async Task<IActionResult> CreateSeatMap(Guid venueId, CreateSeatMapRequest request, CancellationToken cancellationToken)
     {
         var result = await _createSeatMapHandler.HandleAsync(venueId, request, cancellationToken);
