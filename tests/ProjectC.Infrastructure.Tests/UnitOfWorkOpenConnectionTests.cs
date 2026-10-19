@@ -1,8 +1,6 @@
 using System.Data;
-using System.Data.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using ProjectC.Domain.Venues;
 using ProjectC.Infrastructure.Persistence;
@@ -178,13 +176,6 @@ public class UnitOfWorkOpenConnectionTests
 
         await act.Should().NotThrowAsync();
         logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning && e.Exception == closeFailure);
-    }
-
-    private sealed class ThrowingCloseInterceptor(Exception failure) : DbConnectionInterceptor
-    {
-        public override ValueTask<InterceptionResult> ConnectionClosingAsync(
-            DbConnection connection, ConnectionEventData eventData, InterceptionResult result)
-            => throw failure;
     }
 
     private static Task<int> GetBackendPidAsync(ApplicationDbContext dbContext)

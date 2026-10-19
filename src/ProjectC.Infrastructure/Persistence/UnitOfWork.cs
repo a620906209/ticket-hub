@@ -24,7 +24,7 @@ public class UnitOfWork : IUnitOfWork
             throw new InvalidOperationException("A transaction is already in progress on this unit of work.");
 
         var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-        return new UnitOfWorkTransaction(_dbContext, transaction);
+        return new UnitOfWorkTransaction(_dbContext, transaction, _logger);
     }
 
     public async Task<IUnitOfWorkConnection> OpenConnectionAsync(CancellationToken cancellationToken)
@@ -76,12 +76,14 @@ internal sealed class UnitOfWorkTransaction : IUnitOfWorkTransaction
 {
     private readonly ApplicationDbContext _dbContext;
     private readonly IDbContextTransaction _transaction;
+    private readonly ILogger _logger;
     private bool _completed;
 
-    public UnitOfWorkTransaction(ApplicationDbContext dbContext, IDbContextTransaction transaction)
+    public UnitOfWorkTransaction(ApplicationDbContext dbContext, IDbContextTransaction transaction, ILogger logger)
     {
         _dbContext = dbContext;
         _transaction = transaction;
+        _logger = logger;
     }
 
     public async Task CommitAsync(CancellationToken cancellationToken)
@@ -107,13 +109,30 @@ internal sealed class UnitOfWorkTransaction : IUnitOfWorkTransaction
     {
         // 未呼叫 CommitAsync/RollbackAsync 就 Dispose，視為呼叫端放棄這筆交易，自動回滾，
         // 不留下懸而未決的交易（design.md 決策 4 的安全預設值）。
-        if (!_completed)
+        try
         {
-            await _transaction.RollbackAsync();
-            _completed = true;
+            if (!_completed)
+                await _transaction.RollbackAsync();
         }
-
-        await _transaction.DisposeAsync();
+        catch (Exception exception)
+        {
+            // 不重拋：理由同 UnitOfWorkConnection.DisposeAsync，回滾失敗多代表連線已損毀，伺服器端交易隨連線中斷自動回滾。
+            // 交易仍須在 finally 釋放，否則交易與連線會留到 DbContext 結束（unit-of-work-rollback-dispose design.md 決策 1）。
+            _logger.LogWarning(exception, "Automatic rollback of the unit of work transaction failed on dispose (the rollback or the connection close it triggers).");
+        }
+        finally
+        {
+            _completed = true;
+            try
+            {
+                await _transaction.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                // 不重拋：同上，避免蓋掉呼叫端原本的例外；釋放失敗時連線可能留到 DbContext 結束，此層無法補救。
+                _logger.LogWarning(exception, "Failed to dispose the unit of work transaction.");
+            }
+        }
     }
 
     private void EnsureNotCompleted()
