@@ -51,6 +51,8 @@ model: sonnet
      核心業務邏輯的 task,另須有還原驗證紀錄(正式程式碼變更暫時還原後,相關測試
      因目標行為不符而失敗的命令與輸出);缺少時建立 blocking issue。本 agent 不得
      自行執行還原驗證或修改工作樹
+   - 證據須依 CLAUDE.md「證據貼原文」:以數字、「全數通過」或「與 X 相同」代替,或
+     適用 hardener 的變更缺少已勾選且有紀錄的「hardener 最終檢查」task,一律 blocking
 
 ## 檢查清單
 

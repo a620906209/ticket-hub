@@ -48,6 +48,8 @@ origin: project-authored
 - 交易／鎖定邊界是否清楚（`GetForUpdateAsync` 這類方法要不要求呼叫端已經在交易內，第 5️⃣ 節）
 - 技術性例外不要靜默吞掉（不是第 6️⃣ 節整套「情境 A/B」判斷——Repository 通常沒有 best-effort 副作用，技術性例外一律往外拋）
 
+**Infrastructure 資源元件**（交易、連線、鎖，例如 `UnitOfWork`；`internal` 類別也適用）：只看三件事——任一步驟失敗後資源仍在 `finally` 釋放；釋放路徑不蓋掉呼叫端原例外，不重拋就記 Warning 並註明理由；列出失敗注入點（哪一步失敗 × 誰開的連線），逐一確認有測試。
+
 **Domain Entity**（例如 `Order.Confirm()`）：只確認既有不變量與例外慣例（`OrderNotPendingException` 這類）是否維持一致，不套用 Application 層的 `Result` 規則、也不套用第 3️⃣/6️⃣/7️⃣ 節。
 
 **不套用本 Skill**：
