@@ -1,6 +1,6 @@
 ---
 name: ui-router
-description: Route frontend and UI tasks to the appropriate design skill based on whether the task is a new interface, redesign, visual polish, animation, or animation review.
+description: Route frontend and UI tasks to the appropriate design skill based on whether the task is a new interface, redesign, visual polish, or animation.
 ---
 
 # UI Skill Routing
@@ -14,7 +14,6 @@ description: Route frontend and UI tasks to the appropriate design skill based o
 - 使用者明確要求極簡、編輯風格、暖色單色系或 Bento Grid：使用 `minimalist-skill`
 - UI 細節、元件質感、互動回饋或 UI 程式碼審查：使用 `emil-design-eng`
 - 從零新增動畫或轉場：使用 `animate`
-- 審查既有動畫：使用 `review-animations`
 
 ## 使用原則
 

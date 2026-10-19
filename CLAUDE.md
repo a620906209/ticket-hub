@@ -240,7 +240,6 @@
 - 明確要求極簡、編輯風格、暖色單色系或 Bento Grid：使用 `minimalist-skill`
 - UI 細節、元件質感、互動回饋或 UI 程式碼審查：使用 `emil-design-eng`
 - 新增動畫或轉場：使用 `animate`
-- 審查既有動畫：使用 `review-animations`
 
 除非使用者明確要求，否則不要同時套用互相衝突的視覺風格 skill；先選一個主要 skill，必要時再以 `emil-design-eng` 做互動細節審查。
 
@@ -260,6 +259,22 @@
 ---
 
 ## OpenSpec 工作流規則
+
+### 開發流程總覽
+
+新功能依序走完以下步驟；各步驟細節見對應章節或 skill／agent 定義：
+
+1. **需求釐清與開分支**：`branch-and-propose`（先 Grill 取得共識，再從 master 開 `feature/<名稱>`）
+2. **提案**：`/opsx:propose` 產出 proposal / design / specs / tasks（tasks 依 `openspec/config.yaml` 的 TDD 規則撰寫）
+3. **規格審查**：`spec-reviewer` 修到 PASS；符合觸發條件時再跑 `design-hardener`
+4. **實作**：`/opsx:apply` 逐 task 依「測試規範」的 TDD 執行（RED → GREEN → 重構），證據寫入 `tasks.md` 後才勾選
+5. **防禦性最終檢查**：程式碼全部完成後套用 `hardener`（見「防禦性檢查規則」）
+6. **審查迴圈**：每輪同時跑 `strict-reviewer` 與一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前一輪結論），修正後重跑，直到兩者都沒有 blocking。理由：多次 change 中 strict-reviewer PASS 後仍由對抗式審查或人工找出真實 bug
+7. **前端真實瀏覽器驗證**（有前端變更時）：以 claude-in-chrome 實際操作受影響流程，數字與狀態以頁面文字或 DB 核對，不只依截圖判讀。理由：router、HMR、原生表單驗證、相機等問題只在真實瀏覽器出現
+8. **歸檔與合併**：`/opsx:archive`（含主 spec 同步）→ merge 回 master
+
+- 任何步驟都不自動 commit / push，等使用者明確指示
+- 緊急 hotfix 或無對應 spec 的小型改動（見「無 spec 時的處理」）略過 1–3 與 8，仍須走 4（TDD）、5–7
 
 ### Task 執行前
 
@@ -313,7 +328,8 @@
 
 Application 層（Handler、`OrderService` 這類協調器）或 Repository 層的程式碼變更**全部完成、確定不會再改**之後、呼叫 `strict-reviewer` 之前，先套用 `.claude/skills/hardener/SKILL.md` 的檢查清單（參數驗證、Entity 存在性、狀態機驗證、`CancellationToken` 傳遞、並發處理、例外邊界、日誌遮蔽），確認這次變更的方法有沒有漏掉的防禦分支。
 
-- 只在任務的程式碼變更**全部完成**時套用一次，不要每改一個檔案就套用一次
+- **TDD 中的位置**：撰寫 Application / Repository 方法的 RED 測試時，先對照 hardener 檢查清單列出該方法應有的防禦分支（參數驗證、Entity 不存在、狀態不合法、取消、並發），把這些分支一併納入測試先行，讓防禦分支在實作時就有 RED → GREEN，而不是事後補
+- 只在任務的程式碼變更**全部完成**時套用一次，不要每改一個檔案就套用一次；此時的角色是查漏，發現缺少的防禦分支一樣依 TDD 先補 RED 測試再修改程式碼，證據記錄在 `tasks.md`（可新增一項「hardener 補強」task）
 - 套用後如果因此又修改了程式碼，改完再呼叫 `strict-reviewer`；如果套用後確認既有程式碼已經符合檢查清單、沒有修改，不需要重複呼叫
 - 純 Domain Entity 內部方法、getter/setter、純計算邏輯不適用，見 Skill 文件的「適用範圍」
 

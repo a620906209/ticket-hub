@@ -17,6 +17,23 @@ rules:
       此 N/A 只豁免 TDD 步驟。若 task 對應 Acceptance Criteria，仍須提供測試，
       或依 design.md 中正式核准的範圍與方式採用替代驗證。
 
+operations:
+  apply:
+    guidance:
+      - >-
+        依 CLAUDE.md「TDD 預設」執行每個 task：先寫測試並取得 RED，再做最小實作取得 GREEN；
+        證據寫入 tasks.md 該 task 下之後才可將 `- [ ]` 改為 `- [x]`，不得先勾選再補證據。
+      - >-
+        全部 task 完成後不直接建議 archive；依 CLAUDE.md「開發流程總覽」先完成 hardener、
+        strict-reviewer 與對抗式審查（前端另需真實瀏覽器驗證），全數通過後才進入 archive。
+  archive:
+    guidance:
+      - >-
+        archive 前確認 strict-reviewer 最後一輪為 PASS，且使用者已明確同意 archive；
+        未通過或未確認時停止並回報，不得先歸檔再補審查。
+      - >-
+        歸檔後依 CLAUDE.md 不自動 commit，等使用者明確指示。
+
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.

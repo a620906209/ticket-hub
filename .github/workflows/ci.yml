@@ -42,6 +42,21 @@ jobs:
       - name: Test
         run: sudo -E env "PATH=$PATH" dotnet test ProjectC.slnx --no-restore
 
+  openspec:
+    name: OpenSpec validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # 版本與本機 openspec CLI 一致。不加 --strict：既有主 spec 多條 Requirement 超過長度建議，
+      # strict 模式會全數失敗。非 strict 只擋結構錯誤（例如缺 Requirements 段落），Scenario 標題寫錯不會失敗。
+      - run: npx --yes @fission-ai/openspec@1.14.1 validate --all --no-interactive
+
   frontend:
     name: Frontend (lint + Vitest + build)
     # 理由同 backend。
