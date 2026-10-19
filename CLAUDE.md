@@ -251,6 +251,9 @@
 - **測試命名慣例**：`MethodName_Scenario_ExpectedResult`（例如 `GetUserById_WhenNotFound_ReturnsNull`）
 - **層級界定**：單元測試不碰 DB / 網路（以 mock 隔離）；整合測試才驗證真實 DB / API 邊界
 - **涵蓋範圍**：每一條 Acceptance Criteria 至少對應一個測試；業務核心邏輯優先確保涵蓋
+- **TDD 預設**：凡 task 涉及可觀察行為且適合自動化測試，先新增或修改最小相關測試並執行，確認測試因目標行為不符而失敗（不是編譯或環境錯誤）；再做最小實作使測試通過。若進行重構，重構後重跑相關測試；若無需重構，只將重構步驟記錄為 N/A。將 RED（命令、失敗測試／斷言、實際失敗訊息原文摘錄（例如 Expected／Actual，只寫「失敗」不算證據）、目標行為失敗原因及其發生在正式程式碼修改前）、GREEN 與重構後重跑（或 N/A）的命令和結果摘要，記錄在 `tasks.md` 對應 task 下；沒有 `tasks.md` 時記錄於實作交接摘要，且呼叫 `strict-reviewer` 時須將該摘要完整附在 prompt 中（subagent 讀不到對話內容，未附上會因無法核對證據而判定 blocking）。相關測試通過且證據已記錄後才標記 task 完成。測試與實作可在同一 task 內完成，不要求 `tasks.md` 一定拆成獨立 task。
+- **TDD 例外**：純文件或沒有合理自動化行為測試的 task，可將 TDD 標示為 N/A 並說明原因；這只豁免 RED／GREEN 流程。若 task 對應 Acceptance Criteria，仍須依一般測試規範驗證，或使用 `design.md` 已正式核准的替代驗證。不得把編譯、環境或測試設定失敗當成預期的 RED。
+- **RED 還原驗證**：「RED 發生在修改前」只能自行申報、無法查證，因此 bug fix，以及下單、排隊、座位／庫存等核心業務邏輯的 task，GREEN 後另須證明「測試在沒有這次修改時會失敗」：由主 agent（非 `strict-reviewer`，其維持唯讀）執行 `git stash push -u -- <正式程式碼路徑>` → 在容器內跑相關測試，確認因目標行為不符而失敗 → `git stash pop`，並將命令與失敗輸出記錄於 RED 證據旁。pop 前先以 `git stash list` 確認該 stash 存在；pop 失敗或有衝突時立即停止並回報，不得自行修復工作樹。
 - **測試框架**：xUnit（預設）；斷言可搭配 FluentAssertions；mock 用 Moq / NSubstitute
 - 整合測試使用 Testcontainers 啟動獨立 DB 容器，禁止連線至開發用的 db 服務
 
@@ -265,14 +268,15 @@
 1. 這個 task 對應哪一條 spec？（必須能指向具體文件與段落）
 2. Acceptance Criteria 是否已定義且可測量？每一條是否已對應至少一項測試任務（xUnit / NUnit 單元測試或整合測試）？未對應者禁止進入實作階段。
    - **例外**：若 `design.md` 已正式記錄例外，且例外紀錄經使用者核准，列明適用的 AC 範圍、偏離理由、替代驗證任務與解除條件，該範圍內的 AC 可用替代驗證（例如腳本化的瀏覽器量測）取代上述測試種類。例外只豁免測試種類：替代驗證仍須可重現、有可判定的通過／失敗斷言，並且能在失敗情境下失敗。未核准或範圍不明的例外不得取代此要求。
-3. 這個 task 完成後，哪些 spec 文件需要同步更新？
+3. 涉及可觀察行為且適合自動化測試的 task，是否列出測試先行步驟、預期 RED 失敗條件、GREEN／重構（若有）後的驗證方式，以及完成時記錄證據的位置？提案階段只檢查計畫與紀錄欄位，不要求測試檔或 RED／GREEN 結果已存在。
+4. 這個 task 完成後，哪些 spec 文件需要同步更新？
 
 ### Spec Review 與 Implementation Review 邊界
 
 - **Spec review 階段**只審查 `proposal.md`、`design.md`、`specs/**`、`tasks.md` 的完整性、可測量性、AC 與測試任務的雙向映射，以及與既有規格的一致性。
 - Spec review 階段**不得將尚未依 tasks 實作的程式碼、測試檔案或腳本不存在視為 blocker**；這些檔案尚未建立是正常的提案狀態。
 - **Implementation / strict review 階段**才檢查實際檔案是否已建立、程式碼是否符合 spec、測試是否存在且通過，以及實作與規格是否一致。
-- 若 spec 已列出自動化測試 task，但測試檔案尚未建立，Spec review 應檢查 task 的測試目標、驗證步驟與失敗分支是否清楚，不要求提前建立測試檔案。
+- 若 spec 已列出自動化測試 task，但測試檔案尚未建立，Spec review 應檢查 task 的測試目標、TDD 計畫、預期 RED 失敗分支與證據紀錄欄位是否清楚；不得要求實作階段才會產生的測試檔或 RED／GREEN 執行結果。
 
 ### Spec 條文撰寫
 
@@ -301,6 +305,7 @@
 - 如有偏差，列出偏差點並詢問是否更新 spec
 - **必須告知 spec 同步狀態**：這個改動有沒有影響現有 spec 描述的行為？需要更新哪個文件？
 - 測試是否涵蓋本次變更的 Acceptance Criteria？未涵蓋者需說明原因
+- 對適用 TDD 的 task，告知 RED、GREEN 與重構後測試的證據紀錄位置；N/A 時說明理由
 
 ---
 

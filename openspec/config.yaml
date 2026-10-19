@@ -1,5 +1,22 @@
 schema: spec-driven
 
+rules:
+  tasks:
+    - >-
+      對涉及可觀察行為且適合自動化測試的 task，列明先新增或修改的測試、
+      預期的 RED 失敗條件、最小實作步驟，以及 GREEN 與重構（若有）後的測試命令和通過條件。
+      TDD 步驟可放在同一個 task，不要求拆成獨立 task。
+    - >-
+      在 task 下預留完成紀錄，實作後簡要記下 RED、GREEN、重構（若有）後重跑的命令與結果；
+      RED 紀錄須包含失敗的測試／斷言、實際失敗訊息原文摘錄（例如 Expected／Actual）及其目標行為原因，
+      並標明是在修改正式程式碼前執行；bug fix 與下單、排隊、座位／庫存等核心業務邏輯的 task，
+      另預留還原驗證紀錄（正式程式碼變更暫時還原後測試失敗的命令與輸出）；
+      GREEN 與重構後紀錄須包含通過結果。提案階段只需定義計畫，不得假設測試檔或執行證據已存在。
+    - >-
+      純文件或沒有合理自動化行為測試的 task，標示 N/A 並說明原因；
+      此 N/A 只豁免 TDD 步驟。若 task 對應 Acceptance Criteria，仍須提供測試，
+      或依 design.md 中正式核准的範圍與方式採用替代驗證。
+
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.
