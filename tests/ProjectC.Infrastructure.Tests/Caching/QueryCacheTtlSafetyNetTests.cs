@@ -346,7 +346,7 @@ public class QueryCacheTtlSafetyNetTests
     }
 
     // QC-TTL-004 測試控制值（event-sales-window tasks.md 5.5）：非業務契約，只決定測試如何安排時間；
-    // 依 tasks.md 失敗處理政策，實作者不得自行調整。
+    // 依 tasks.md 失敗處理政策，實作者不得自行調整。(5)／(6) 的 PEXPIRETIME 比對與 (7) 輪詢見 project-scope §8 ⑧。
     private static readonly TimeSpan RaceTtl = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan RaceGap = TimeSpan.FromMilliseconds(2000);
     private static readonly TimeSpan ExistenceMargin = TimeSpan.FromMilliseconds(500);
@@ -548,6 +548,8 @@ public class QueryCacheTtlSafetyNetTests
         // (5) PTTL 閉區間。
         var ws = rSetStarted.Timestamp;
         var we = rSetCompleted.Timestamp;
+        // 到期時刻先於 PTTL 讀取：基準記到的若是已被延長的到期時刻，延長同樣反映在之後讀到的 PTTL，由 (5) 上界抓到。
+        var expireTimeAfterSet = await ReadAbsoluteExpiryUnixMillisecondsAsync(database, targetKey);
         var rs = Stopwatch.GetTimestamp();
         var pttl = await database.KeyTimeToLiveAsync(targetKey);
         var re = Stopwatch.GetTimestamp();
@@ -564,6 +566,8 @@ public class QueryCacheTtlSafetyNetTests
         pttl.Should().NotBeNull("R 寫入的 key 應存在且帶 TTL。{0}", timing.Describe());
         pttl!.Value.Should().BeGreaterThanOrEqualTo(lowerBound, "TTL 必須自這次寫入起完整套用。{0}", timing.Describe())
             .And.BeLessThanOrEqualTo(upperBound, "TTL 不得被延長或套用更長的值。{0}", timing.Describe());
+        timing.ExpireTimeAfterSet = expireTimeAfterSet;
+        timing.ExpireTimeAfterSet.Should().BePositive("R 寫入的 key 應存在且帶到期時刻。{0}", timing.Describe());
 
         // (6) 到期前存在性檢查。
         var existenceDeadline = ws + ToStopwatchTicks(RaceTtl - ExistenceMargin);
@@ -571,6 +575,7 @@ public class QueryCacheTtlSafetyNetTests
         timing.C6s = Stopwatch.GetTimestamp();
         var existsBeforeExpiry = await database.KeyExistsAsync(targetKey);
         var beforeExpiryResult = await queryAsync();
+        timing.ExpireTimeAfterHit = await ReadAbsoluteExpiryUnixMillisecondsAsync(database, targetKey);
         timing.C6e = Stopwatch.GetTimestamp();
         if (timing.C6e > existenceDeadline)
         {
@@ -589,6 +594,11 @@ public class QueryCacheTtlSafetyNetTests
             .ToList();
         setOperationIdsUntilC6e.Should().Equal(new Guid?[] { rSetStarted.OperationId }, "失效後到 (6) 結束為止只能有 R 的那一次寫入。{0}", timing.Describe());
 
+        // (6) 到期時刻比對：(7) 改為輪詢後上限放寬到 T + 6s，讀取命中時延長 TTL 的錯誤可能在上限內淘汰而通過，故比對 Redis 記錄的絕對到期時刻：
+        // 它與 Redis 計到期同用牆上時鐘，不受時鐘回跳影響，命中前後必須完全相同；命中後才在背景延長的情形由 (7) 輪詢比對。
+        // 完全相等比語意更嚴：命中時以剩餘 TTL 重寫（毫秒捨入）或刪除 key 也會失敗，目前實作兩者皆無，改實作時須一併檢視。
+        timing.ExpireTimeAfterHit.Should().Be(timing.ExpireTimeAfterSet, "讀取命中不得延長 TTL。{0}", timing.Describe());
+
         // (7) 到期後過期檢查。
         var expiryWindowStart = we + ToStopwatchTicks(RaceTtl + ExpiryMargin);
         await WaitUntilStopwatchTimestampAsync(expiryWindowStart);
@@ -599,10 +609,35 @@ public class QueryCacheTtlSafetyNetTests
                 $"結果不可判定：檢查落在窗口外（(7) c7s < we + T + M2 = {timing.ToMilliseconds(expiryWindowStart)}ms）。{timing.Describe()}");
         }
 
-        (await database.KeyExistsAsync(targetKey)).Should().BeFalse("陳舊快取應在 TTL 到期後自然過期。{0}", timing.Describe());
+        // 從 we + T + M2 起輪詢而非只查一次：Redis 以牆上時鐘計到期，WSL2 時鐘回跳時 key 會晚於 Stopwatch 計的 TTL 才淘汰；
+        // 上限仍有界，無限期不過期時照樣失敗；寫入時套用過長 TTL 由 (5) 擋下。輪詢讀到期時刻而非只看存在與否：
+        // 命中後才在背景延長 TTL 的錯誤，(6) 讀取時尚未生效、延長後仍可能在上限內淘汰，須在這裡比對才抓得到。
+        // 時刻取在查詢前，回應延遲不會讓經過時間被高估而誤判。
+        while (true)
+        {
+            timing.C7Poll = Stopwatch.GetTimestamp();
+            var polledExpireTime = await ReadAbsoluteExpiryUnixMillisecondsAsync(database, targetKey);
+            if (polledExpireTime == RedisKeyMissing)
+            {
+                break;
+            }
+
+            timing.LastPolledExpireTime = polledExpireTime;
+            polledExpireTime.Should().Be(timing.ExpireTimeAfterSet, "到期時刻自寫入後不得改變。{0}", timing.Describe());
+            Stopwatch.GetElapsedTime(we, timing.C7Poll.Value).Should().BeLessThan(
+                RaceTtl + ClockStepBackTolerance, "陳舊快取應在 TTL（加上時鐘回跳餘裕）到期後自然過期。{0}", timing.Describe());
+            await Task.Delay(100);
+        }
+
         var afterExpiryResult = await queryAsync();
         afterExpiryResult.ContainsNew.Should().BeTrue("過期後應重新查詢資料庫並看到新資料。{0}", timing.Describe());
     }
+
+    // PEXPIRETIME（Redis 7）回傳 Unix 毫秒；key 不存在回 -2、沒有 TTL 回 -1。
+    private const long RedisKeyMissing = -2;
+
+    private static async Task<long> ReadAbsoluteExpiryUnixMillisecondsAsync(IDatabase database, string key) =>
+        (long)await database.ExecuteAsync("PEXPIRETIME", key);
 
     private static long ToStopwatchTicks(TimeSpan duration) => (long)(duration.TotalSeconds * Stopwatch.Frequency);
 
@@ -645,6 +680,10 @@ public class QueryCacheTtlSafetyNetTests
         public long? C6s { get; set; }
         public long? C6e { get; set; }
         public long? C7s { get; set; }
+        public long? ExpireTimeAfterSet { get; set; }
+        public long? ExpireTimeAfterHit { get; set; }
+        public long? C7Poll { get; set; }
+        public long? LastPolledExpireTime { get; set; }
 
         public string ToMilliseconds(long timestamp) => Stopwatch.GetElapsedTime(_ws, timestamp).TotalMilliseconds.ToString("F1");
 
@@ -653,7 +692,9 @@ public class QueryCacheTtlSafetyNetTests
         public string Describe() =>
             $"\nws=0ms we={ToMilliseconds(_we)}ms rs={ToMilliseconds(_rs)}ms re={ToMilliseconds(_re)}ms " +
             $"PTTL={Pttl?.TotalMilliseconds.ToString() ?? "n/a"}ms bounds=[{PttlBounds?.Lower.TotalMilliseconds}, {PttlBounds?.Upper.TotalMilliseconds}]ms " +
-            $"c6s={ToMilliseconds(C6s)}ms c6e={ToMilliseconds(C6e)}ms c7s={ToMilliseconds(C7s)}ms " +
+            $"c6s={ToMilliseconds(C6s)}ms c6e={ToMilliseconds(C6e)}ms " +
+            $"expireTimeAfterSet={ExpireTimeAfterSet?.ToString() ?? "n/a"} expireTimeAfterHit={ExpireTimeAfterHit?.ToString() ?? "n/a"} " +
+            $"c7s={ToMilliseconds(C7s)}ms lastC7Poll={ToMilliseconds(C7Poll)}ms lastPolledExpireTime={LastPolledExpireTime?.ToString() ?? "n/a"} " +
             $"T={RaceTtl.TotalMilliseconds}ms G={RaceGap.TotalMilliseconds}ms M1={ExistenceMargin.TotalMilliseconds}ms B={ExistenceCheckBudget.TotalMilliseconds}ms M2={ExpiryMargin.TotalMilliseconds}ms" +
             $"\n事件紀錄：\n{_eventLog}";
     }
