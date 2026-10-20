@@ -12,7 +12,9 @@ namespace ProjectC.Infrastructure.PurchaseQueue;
 // 但這裡的呼叫端（JoinPurchaseQueueHandler／OrderService）是使用者請求路徑，任何未預期的例外
 // （含非連線類的 Redis 例外、或本類別自身潛在的邏輯錯誤）洩漏出去都會讓一個已經成功 commit 的
 // 使用者操作回報失敗，直接違反 Decision 3／8「此操作失敗不影響呼叫端本身的成功與否」的保證，
-// 故意外仍應記錄後吞掉，不重新拋出——僅 OperationCanceledException 例外，讓呼叫端能感知取消。
+// 故意外仍應記錄後吞掉，不重新拋出。排除 OperationCanceledException 只是不把取消記成同步失敗：
+// StackExchange.Redis 指令不接受 CancellationToken，token 已取消時仍照常同步、正常返回，呼叫端
+// 不會在這裡感知到取消（2026-10-20 以已取消 token 對真實 Redis 實測）。
 public sealed class RedisPurchaseQueueAdmissionMirror : IPurchaseQueueAdmissionMirror
 {
     private readonly IConnectionMultiplexer _connectionMultiplexer;
