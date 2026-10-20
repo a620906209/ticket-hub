@@ -6,7 +6,8 @@ namespace ProjectC.Application.Common.Interfaces;
 /// <summary>
 /// PQ-JOIN／PQ-COMPLETE 對 Redis 入場推進鏡像的 best-effort 同步（purchase-queue-redis-admission
 /// design.md Decision 3／8）。兩個方法 MUST NOT 拋出例外——失敗不影響呼叫端（加入排隊／訂單完成）
-/// 本身的成功與否，只記錄可觀察 log，收斂交由背景服務的鏡像校正機制負責。
+/// 本身的成功與否，只記錄可觀察 log，收斂交由背景服務的鏡像校正機制負責。兩者皆於交易 commit 後呼叫，
+/// 取消權杖已取消時仍照常同步（Redis 實作不把權杖傳入指令）。
 /// </summary>
 public interface IPurchaseQueueAdmissionMirror
 {
