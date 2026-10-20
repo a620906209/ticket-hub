@@ -183,7 +183,7 @@ public class UnitOfWorkTests
     {
         var rollbackFailure = new InvalidOperationException("rollback failed");
         var closeFailure = new InvalidOperationException("close failed");
-        // 回滾在完成前失敗時，交易自行開啟的連線改在釋放交易時才關閉，關閉失敗即釋放失敗（design.md 決策 3）。
+        // 自動回滾失敗後，工作單元自行開啟的連線在釋放交易的最後一步關閉；關閉失敗與回滾失敗各記一筆 Warning。
         var dbContext = _fixture.CreateDbContext(
             new ThrowingTransactionInterceptor(rollbackFailure: rollbackFailure), new ThrowingCloseInterceptor(closeFailure));
         try
@@ -262,7 +262,7 @@ public class UnitOfWorkTests
     public async Task DisposeAsync_WhenConnectionCloseFailsDuringRollback_LogsWarningAndReleasesTransaction()
     {
         var closeFailure = new InvalidOperationException("close failed");
-        // 回滾本身成功；EF 在回滾內關閉交易自行開啟的連線時失敗，例外會從回滾傳出。
+        // 自動回滾本身成功；之後關閉工作單元自行開啟的連線時失敗。
         await using var dbContext = _fixture.CreateDbContext(new ThrowingCloseInterceptor(closeFailure));
         var logger = new ListLogger<UnitOfWork>();
         var transaction = await new UnitOfWork(dbContext, logger).BeginTransactionAsync(CancellationToken.None);
@@ -273,6 +273,158 @@ public class UnitOfWorkTests
         logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning)
             .Which.Exception.Should().BeSameAs(closeFailure);
         dbContext.Database.CurrentTransaction.Should().BeNull();
+    }
+
+    // 以下 UOW-TX-009、010、013～017：交易自行開啟連線時，EF 在提交成功後於同一呼叫內關閉連線，關閉失敗會讓已落地的提交被誤判為失敗；
+    // 連線改由工作單元開啟，提交／回滾完成後由工作單元關閉並吞下關閉失敗，未完成時於釋放交易時關閉。
+
+    [Fact]
+    public async Task CommitAsync_WhenConnectionCloseFailsAfterCommit_DoesNotThrowAndPersistsChanges()
+    {
+        var venueId = Guid.NewGuid();
+        var closeFailure = new InvalidOperationException("close failed");
+        await using var dbContext = _fixture.CreateDbContext(new ThrowingCloseInterceptor(closeFailure));
+        var logger = new ListLogger<UnitOfWork>();
+        var transaction = await new UnitOfWork(dbContext, logger).BeginTransactionAsync(CancellationToken.None);
+        dbContext.Venues.Add(new Venue(venueId, "Close After Commit Venue"));
+
+        var commit = () => transaction.CommitAsync(CancellationToken.None);
+        await commit.Should().NotThrowAsync("資料已落地，關閉連線失敗不得讓呼叫端誤判提交失敗");
+        var dispose = async () => await transaction.DisposeAsync();
+        await dispose.Should().NotThrowAsync();
+
+        logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning)
+            .Which.Exception.Should().BeSameAs(closeFailure);
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Venues.AnyAsync(v => v.Id == venueId)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CommitAsync_OnCallerOpenedConnection_KeepsConnectionOpenUntilCallerDisposes()
+    {
+        var venueId = Guid.NewGuid();
+        await using var dbContext = _fixture.CreateDbContext();
+        var unitOfWork = new UnitOfWork(dbContext);
+        var connection = await unitOfWork.OpenConnectionAsync(CancellationToken.None);
+
+        await using (var transaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None))
+        {
+            dbContext.Venues.Add(new Venue(venueId, "Caller Connection Commit Venue"));
+            await transaction.CommitAsync(CancellationToken.None);
+            dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Open, "提交不得關閉呼叫端開啟的連線");
+        }
+
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Open, "釋放交易不得關閉呼叫端開啟的連線");
+        var beginAgain = async () => await (await unitOfWork.BeginTransactionAsync(CancellationToken.None)).DisposeAsync();
+        await beginAgain.Should().NotThrowAsync();
+        await connection.DisposeAsync();
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed);
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Venues.AnyAsync(v => v.Id == venueId)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CommitAsync_OnOwnedConnection_ClosesConnectionBeforeDispose()
+    {
+        var venueId = Guid.NewGuid();
+        await using var dbContext = _fixture.CreateDbContext();
+        var logger = new ListLogger<UnitOfWork>();
+        var unitOfWork = new UnitOfWork(dbContext, logger);
+
+        await using (var transaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None))
+        {
+            dbContext.Venues.Add(new Venue(venueId, "Successful Commit Venue"));
+            await transaction.CommitAsync(CancellationToken.None);
+            // 呼叫端常在提交後、離開交易範圍前呼叫 Redis；連線若留到釋放才關，會在等待 Redis 時占住連線池（IUnitOfWork 契約）。
+            dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed, "提交成功後須立即歸還連線");
+        }
+
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed);
+        logger.Entries.Should().NotContain(e => e.Level == LogLevel.Warning);
+        var beginAgain = async () => await (await unitOfWork.BeginTransactionAsync(CancellationToken.None)).DisposeAsync();
+        await beginAgain.Should().NotThrowAsync();
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Venues.AnyAsync(v => v.Id == venueId)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CommitAsync_WhenSaveChangesFails_PreservesExceptionAndDiscardsWrites()
+    {
+        var venueId = Guid.NewGuid();
+        await using var dbContext = _fixture.CreateDbContext();
+        var unitOfWork = new UnitOfWork(dbContext);
+        var transaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None);
+        dbContext.Venues.Add(new Venue(venueId, "Save Failure Venue"));
+        await dbContext.SaveChangesAsync();
+        // 清掉追蹤後再加入同 Id 的場館，讓 CommitAsync 內的 SaveChangesAsync 撞主鍵，在提交前失敗。
+        dbContext.ChangeTracker.Clear();
+        dbContext.Venues.Add(new Venue(venueId, "Duplicate Save Failure Venue"));
+
+        var exception = await Record.ExceptionAsync(() => transaction.CommitAsync(CancellationToken.None));
+        var dispose = async () => await transaction.DisposeAsync();
+        await dispose.Should().NotThrowAsync();
+
+        exception.Should().BeOfType<DbUpdateException>();
+        dbContext.Database.CurrentTransaction.Should().BeNull();
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed);
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Venues.AnyAsync(v => v.Id == venueId)).Should().BeFalse("提交前失敗的寫入不得落地");
+    }
+
+    [Fact]
+    public async Task RollbackAsync_OnOwnedConnection_ClosesConnectionBeforeDisposeAndDiscardsWrites()
+    {
+        var venueId = Guid.NewGuid();
+        await using var dbContext = _fixture.CreateDbContext();
+        var logger = new ListLogger<UnitOfWork>();
+        var unitOfWork = new UnitOfWork(dbContext, logger);
+
+        await using (var transaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None))
+        {
+            dbContext.Venues.Add(new Venue(venueId, "Explicit Rollback Venue"));
+            await dbContext.SaveChangesAsync();
+            await transaction.RollbackAsync(CancellationToken.None);
+            dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed, "回滾成功後須立即歸還連線");
+        }
+
+        logger.Entries.Should().NotContain(e => e.Level == LogLevel.Warning);
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Venues.AnyAsync(v => v.Id == venueId)).Should().BeFalse("回滾的寫入不得落地");
+    }
+
+    [Fact]
+    public async Task RollbackAsync_WhenConnectionCloseFailsAfterRollback_DoesNotThrowAndLogsWarning()
+    {
+        var closeFailure = new InvalidOperationException("close failed");
+        await using var dbContext = _fixture.CreateDbContext(new ThrowingCloseInterceptor(closeFailure));
+        var logger = new ListLogger<UnitOfWork>();
+        var transaction = await new UnitOfWork(dbContext, logger).BeginTransactionAsync(CancellationToken.None);
+
+        var rollback = () => transaction.RollbackAsync(CancellationToken.None);
+        await rollback.Should().NotThrowAsync("回滾已完成，關閉連線失敗不得讓呼叫端誤判回滾失敗");
+        var dispose = async () => await transaction.DisposeAsync();
+        await dispose.Should().NotThrowAsync();
+
+        logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning)
+            .Which.Exception.Should().BeSameAs(closeFailure);
+        dbContext.Database.CurrentTransaction.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DisposeAsync_CalledTwice_DoesNotCloseConnectionOpenedAfterwards()
+    {
+        await using var dbContext = _fixture.CreateDbContext();
+        var unitOfWork = new UnitOfWork(dbContext);
+        var transaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None);
+        await transaction.DisposeAsync();
+        var connection = await unitOfWork.OpenConnectionAsync(CancellationToken.None);
+
+        // EF 以計數追蹤手動開啟的連線，重複釋放若再關一次，會把之後呼叫端開啟的連線提早關掉。
+        await transaction.DisposeAsync();
+
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Open, "重複釋放交易不得關閉呼叫端之後開啟的連線");
+        await connection.DisposeAsync();
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed);
     }
 
     /// <summary>在 EF Core 實際提交／回滾前拋出指定例外，模擬連線中斷造成的提交或回滾失敗。</summary>
