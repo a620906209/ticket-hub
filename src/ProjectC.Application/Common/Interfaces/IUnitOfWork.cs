@@ -17,7 +17,8 @@ public interface IUnitOfWork
     /// （order-placement-p95-phase2 design.md 決策 2：高併發時每次排隊都排到隊尾，尾端延遲被放大）。
     /// <list type="bullet">
     /// <item>MUST 在開啟交易之前呼叫，並以 <c>await using</c> 宣告在交易之前，讓例外與提早 return 時先回滾交易再關連線。</item>
-    /// <item>連線已開啟或已有進行中的交易時 MUST 拋出 <see cref="InvalidOperationException"/>，避免巢狀使用造成另一個呼叫端的連線被提早關閉。</item>
+    /// <item>已有尚未釋放的呼叫端連線（同一工作單元先前由本方法開啟）或已有進行中的交易時 MUST 拋出 <see cref="InvalidOperationException"/>，
+    /// 避免巢狀使用造成另一個呼叫端的連線被提早關閉。連線因先前關閉失敗而仍開啟時不拋出，改為接手並於 dispose 時關閉。</item>
     /// <item>持有期間連線不回連線池，不得在持有期間等待資料庫以外的慢速 I/O（例如 Redis），應先 dispose。</item>
     /// <item>專案目前未啟用 <c>EnableRetryOnFailure</c>；若未來啟用，手動開連線加使用者交易必須包在
     /// <c>CreateExecutionStrategy().ExecuteAsync</c> 內，否則 EF Core 會拋例外。</item>
@@ -28,7 +29,9 @@ public interface IUnitOfWork
 
 /// <summary>
 /// 代表 <see cref="IUnitOfWork.OpenConnectionAsync"/> 開啟的連線；<see cref="IAsyncDisposable.DisposeAsync"/> 關閉連線、歸還連線池，
-/// 重複 dispose 不做事。關閉失敗不拋出，避免蓋掉呼叫端原本的例外。
+/// 重複 dispose 不做事。關閉失敗不拋出，避免蓋掉呼叫端原本的例外；關閉失敗時工作單元的呼叫端連線記錄仍會重設，
+/// 之後的交易由工作單元負責連線。
+/// 交易提交或回滾後，可在交易物件釋放前先 dispose（例如提交後先歸還連線，再呼叫 Redis）；交易未完成時須先釋放交易，違反時記錄 Warning，仍釋放呼叫端的持有，實體連線於交易結束時關閉。
 /// </summary>
 public interface IUnitOfWorkConnection : IAsyncDisposable
 {
