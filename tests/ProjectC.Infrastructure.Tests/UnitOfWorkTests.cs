@@ -427,10 +427,151 @@ public class UnitOfWorkTests
         dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed);
     }
 
-    /// <summary>在 EF Core 實際提交／回滾前拋出指定例外，模擬連線中斷造成的提交或回滾失敗。</summary>
-    private sealed class ThrowingTransactionInterceptor(Exception? rollbackFailure = null, Exception? commitFailure = null)
+    // 以下 UOW-TX-018～021：開始交易失敗時 EF 的開啟計數不會減回，工作單元不處理的話連線會留到 DbContext 釋放（request 結束）。
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenStartFails_ClosesConnectionAndRethrows()
+    {
+        var startFailure = new InvalidOperationException("start failed");
+        var interceptor = new ThrowingTransactionInterceptor(startFailure: startFailure);
+        await using var dbContext = _fixture.CreateDbContext(interceptor);
+        var logger = new ListLogger<UnitOfWork>();
+        var unitOfWork = new UnitOfWork(dbContext, logger);
+
+        var exception = await Record.ExceptionAsync(() => unitOfWork.BeginTransactionAsync(CancellationToken.None));
+
+        exception.Should().BeSameAs(startFailure);
+        dbContext.Database.CurrentTransaction.Should().BeNull();
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed, "開始失敗後工作單元開啟的連線須立即歸還");
+        logger.Entries.Should().NotContain(e => e.Level == LogLevel.Warning);
+        interceptor.StartFailure = null;
+        var beginAgain = async () => await (await unitOfWork.BeginTransactionAsync(CancellationToken.None)).DisposeAsync();
+        await beginAgain.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenCancelledDuringStart_ClosesConnection()
+    {
+        // 連線開啟後、交易開始途中的取消無法用真實 token 穩定打中，改由 interceptor 拋出取消例外模擬（design.md 決策 3）。
+        var interceptor = new ThrowingTransactionInterceptor(startFailure: new OperationCanceledException());
+        await using var dbContext = _fixture.CreateDbContext(interceptor);
+        var unitOfWork = new UnitOfWork(dbContext);
+
+        var act = () => unitOfWork.BeginTransactionAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed, "取消後工作單元開啟的連線須立即歸還");
+        interceptor.StartFailure = null;
+        var beginAgain = async () => await (await unitOfWork.BeginTransactionAsync(CancellationToken.None)).DisposeAsync();
+        await beginAgain.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenStartAndConnectionCloseFail_PreservesStartExceptionAndLogsWarning()
+    {
+        var startFailure = new InvalidOperationException("start failed");
+        var closeFailure = new InvalidOperationException("close failed");
+        await using var dbContext = _fixture.CreateDbContext(
+            new ThrowingTransactionInterceptor(startFailure: startFailure), new ThrowingCloseInterceptor(closeFailure));
+        var logger = new ListLogger<UnitOfWork>();
+        var unitOfWork = new UnitOfWork(dbContext, logger);
+
+        var exception = await Record.ExceptionAsync(() => unitOfWork.BeginTransactionAsync(CancellationToken.None));
+
+        exception.Should().BeSameAs(startFailure, "關閉失敗不得蓋掉開始交易的原例外");
+        logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning)
+            .Which.Exception.Should().BeSameAs(closeFailure);
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenStartFailsOnCallerOpenedConnection_KeepsCallerConnectionOpen()
+    {
+        var startFailure = new InvalidOperationException("start failed");
+        await using var dbContext = _fixture.CreateDbContext(new ThrowingTransactionInterceptor(startFailure: startFailure));
+        var logger = new ListLogger<UnitOfWork>();
+        var unitOfWork = new UnitOfWork(dbContext, logger);
+        await using var connection = await unitOfWork.OpenConnectionAsync(CancellationToken.None);
+
+        var exception = await Record.ExceptionAsync(() => unitOfWork.BeginTransactionAsync(CancellationToken.None));
+
+        // 呼叫端可能還在使用這條連線（下單主路徑），開始失敗的處理不得替呼叫端關閉。
+        exception.Should().BeSameAs(startFailure);
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Open);
+        (await dbContext.Database.SqlQuery<int>($"SELECT 1 AS \"Value\"").SingleAsync()).Should().Be(1);
+        logger.Entries.Should().NotContain(e => e.Level == LogLevel.Warning);
+    }
+
+    // 以下 UOW-TX-022、023：提交後關閉失敗會讓連線停在開啟狀態；之後的交易若以連線狀態判斷歸屬，會誤判為呼叫端連線，
+    // 改由 EF 在提交時關閉，關閉再失敗時已落地的提交會以例外傳給呼叫端。
+
+    [Fact]
+    public async Task CommitAsync_OnLeftoverOpenConnection_WhenCloseFailsAgain_DoesNotThrowAndPersistsChanges()
+    {
+        var venueId = Guid.NewGuid();
+        var closeFailure = new InvalidOperationException("close failed");
+        await using var dbContext = _fixture.CreateDbContext(new SwitchableCloseInterceptor(closeFailure));
+        var logger = new ListLogger<UnitOfWork>();
+        var unitOfWork = new UnitOfWork(dbContext, logger);
+        await using (var firstTransaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None))
+        {
+            await firstTransaction.CommitAsync(CancellationToken.None);
+        }
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Open, "前提：第一次提交後的關閉失敗留下開啟的連線");
+
+        var secondTransaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None);
+        dbContext.Venues.Add(new Venue(venueId, "Leftover Connection Close Failure Venue"));
+
+        var commit = () => secondTransaction.CommitAsync(CancellationToken.None);
+        await commit.Should().NotThrowAsync("資料已落地，關閉連線失敗不得讓呼叫端誤判提交失敗");
+        var dispose = async () => await secondTransaction.DisposeAsync();
+        await dispose.Should().NotThrowAsync();
+
+        logger.Entries.Where(e => e.Level == LogLevel.Warning).Select(e => e.Exception)
+            .Should().Equal(closeFailure, closeFailure);
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Venues.AnyAsync(v => v.Id == venueId)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CommitAsync_OnLeftoverOpenConnection_ClosesConnectionBeforeDispose()
+    {
+        var venueId = Guid.NewGuid();
+        var closeInterceptor = new SwitchableCloseInterceptor(new InvalidOperationException("close failed"));
+        await using var dbContext = _fixture.CreateDbContext(closeInterceptor);
+        var unitOfWork = new UnitOfWork(dbContext);
+        await using (var firstTransaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None))
+        {
+            await firstTransaction.CommitAsync(CancellationToken.None);
+        }
+        dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Open, "前提：第一次提交後的關閉失敗留下開啟的連線");
+        closeInterceptor.IsFailing = false;
+
+        await using (var secondTransaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None))
+        {
+            dbContext.Venues.Add(new Venue(venueId, "Leftover Connection Commit Venue"));
+            await secondTransaction.CommitAsync(CancellationToken.None);
+            dbContext.Database.GetDbConnection().State.Should().Be(ConnectionState.Closed, "接手遺留連線後，提交成功仍須立即歸還連線");
+        }
+
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Venues.AnyAsync(v => v.Id == venueId)).Should().BeTrue();
+    }
+
+    /// <summary>在 EF Core 實際開始／提交／回滾前拋出指定例外，模擬連線中斷造成的開始、提交或回滾失敗。
+    /// <see cref="StartFailure"/> 設為 null 即停止注入開始失敗，用於驗證失敗後可再開始交易。</summary>
+    private sealed class ThrowingTransactionInterceptor(
+        Exception? rollbackFailure = null, Exception? commitFailure = null, Exception? startFailure = null)
         : DbTransactionInterceptor
     {
+        public Exception? StartFailure { get; set; } = startFailure;
+
+        public override ValueTask<InterceptionResult<DbTransaction>> TransactionStartingAsync(
+            DbConnection connection, TransactionStartingEventData eventData, InterceptionResult<DbTransaction> result,
+            CancellationToken cancellationToken = default)
+            => StartFailure is null
+                ? base.TransactionStartingAsync(connection, eventData, result, cancellationToken)
+                : throw StartFailure;
+
         public override ValueTask<InterceptionResult> TransactionRollingBackAsync(
             DbTransaction transaction, TransactionEventData eventData, InterceptionResult result,
             CancellationToken cancellationToken = default)
