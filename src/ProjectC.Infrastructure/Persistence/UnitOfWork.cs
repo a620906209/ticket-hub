@@ -23,8 +23,14 @@ public class UnitOfWork : IUnitOfWork
         if (_dbContext.Database.CurrentTransaction is not null)
             throw new InvalidOperationException("A transaction is already in progress on this unit of work.");
 
+        // 連線由工作單元先開啟、在提交／回滾完成或釋放交易時關閉：交易自行開啟連線時，EF 會在提交成功後於同一呼叫內關閉連線，
+        // 關閉失敗會讓已落地的提交以例外傳給呼叫端（unit-of-work-commit-close-failure design.md 決策 1）。
+        var ownsConnection = _dbContext.Database.GetDbConnection().State == ConnectionState.Closed;
+        if (ownsConnection)
+            await _dbContext.Database.OpenConnectionAsync(cancellationToken);
+
         var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-        return new UnitOfWorkTransaction(_dbContext, transaction, _logger);
+        return new UnitOfWorkTransaction(_dbContext, transaction, ownsConnection, _logger);
     }
 
     public async Task<IUnitOfWorkConnection> OpenConnectionAsync(CancellationToken cancellationToken)
@@ -76,13 +82,15 @@ internal sealed class UnitOfWorkTransaction : IUnitOfWorkTransaction
 {
     private readonly ApplicationDbContext _dbContext;
     private readonly IDbContextTransaction _transaction;
+    private bool _ownsConnection;
     private readonly ILogger _logger;
     private bool _completed;
 
-    public UnitOfWorkTransaction(ApplicationDbContext dbContext, IDbContextTransaction transaction, ILogger logger)
+    public UnitOfWorkTransaction(ApplicationDbContext dbContext, IDbContextTransaction transaction, bool ownsConnection, ILogger logger)
     {
         _dbContext = dbContext;
         _transaction = transaction;
+        _ownsConnection = ownsConnection;
         _logger = logger;
     }
 
@@ -95,6 +103,7 @@ internal sealed class UnitOfWorkTransaction : IUnitOfWorkTransaction
         await _dbContext.SaveChangesAsync(cancellationToken);
         await _transaction.CommitAsync(cancellationToken);
         _completed = true;
+        await CloseOwnedConnectionAsync();
     }
 
     public async Task RollbackAsync(CancellationToken cancellationToken)
@@ -103,6 +112,7 @@ internal sealed class UnitOfWorkTransaction : IUnitOfWorkTransaction
 
         await _transaction.RollbackAsync(cancellationToken);
         _completed = true;
+        await CloseOwnedConnectionAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -118,7 +128,7 @@ internal sealed class UnitOfWorkTransaction : IUnitOfWorkTransaction
         {
             // 不重拋：理由同 UnitOfWorkConnection.DisposeAsync，回滾失敗多代表連線已損毀，伺服器端交易隨連線中斷自動回滾。
             // 交易仍須在 finally 釋放，否則交易與連線會留到 DbContext 結束（unit-of-work-rollback-dispose design.md 決策 1）。
-            _logger.LogWarning(exception, "Automatic rollback of the unit of work transaction failed on dispose (the rollback or the connection close it triggers).");
+            _logger.LogWarning(exception, "Automatic rollback of the unit of work transaction failed on dispose.");
         }
         finally
         {
@@ -132,6 +142,31 @@ internal sealed class UnitOfWorkTransaction : IUnitOfWorkTransaction
                 // 不重拋：同上，避免蓋掉呼叫端原本的例外；釋放失敗時連線可能留到 DbContext 結束，此層無法補救。
                 _logger.LogWarning(exception, "Failed to dispose the unit of work transaction.");
             }
+
+            await CloseOwnedConnectionAsync();
+        }
+    }
+
+    /// <summary>
+    /// 提交或回滾完成後立即歸還連線，不等到釋放交易：呼叫端常在提交後、離開交易範圍前呼叫 Redis 等慢速 I/O，
+    /// 持有連線等待會占住連線池（IUnitOfWork.OpenConnectionAsync 契約）。只關一次，重複關閉會使 EF 開啟計數多減，
+    /// 把之後呼叫端開啟的連線提早關掉。
+    /// </summary>
+    private async Task CloseOwnedConnectionAsync()
+    {
+        if (!_ownsConnection)
+            return;
+
+        _ownsConnection = false;
+        try
+        {
+            await _dbContext.Database.CloseConnectionAsync();
+        }
+        catch (Exception exception)
+        {
+            // 不重拋：提交或回滾已完成，外傳會讓呼叫端誤判結果；釋放時外傳則會蓋掉呼叫端原本的例外。
+            // 關閉失敗的連線可能留到 DbContext 結束，此層無法補救。
+            _logger.LogWarning(exception, "Failed to close the unit of work transaction connection.");
         }
     }
 
