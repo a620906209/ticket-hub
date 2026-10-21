@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 using Moq;
 using ProjectC.Application.Common;
@@ -55,6 +56,55 @@ public class RedisCaptchaServiceTests
 
     private static string RedisKeyFor(string token) => $"captcha:{token}";
 
+    // WSL2 VM 牆上時鐘實測約每 20–30 秒回跳約 1–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多
+    // （同一問題見 QueryCacheTtlSafetyNetTests）。
+    private static readonly TimeSpan ClockStepBackTolerance = TimeSpan.FromSeconds(6);
+
+    // PEXPIRETIME（Redis 7）回傳到期的 Unix 毫秒；key 不存在回 -2、沒有 TTL 回 -1。
+    private const long RedisKeyMissing = -2;
+    private const long RedisNoExpiry = -1;
+    private static readonly TimeSpan RedisMillisecondTruncation = TimeSpan.FromMilliseconds(1);
+
+    // 牆上時鐘前進速度相對單調時鐘的上限倍率（WSL2 實測偏快 2–3%，取 5%）。牆上時鐘另會往前跳（實測約 60ms），往前跳會反映在
+    // 窗口內牆上經過時間，故容許的前進量取「單調經過時間 × 倍率」與「牆上經過時間」的較大者。
+    private const double MaxWallClockRate = 1.05;
+
+    private readonly record struct RedisClockReading(long UnixMilliseconds, long StopwatchTimestamp);
+
+    // Stopwatch 先於 TIME 取得，讓之後算出的單調經過時間涵蓋整段牆上經過時間。
+    private static async Task<RedisClockReading> ReadClockBeforeWriteAsync(IDatabase database)
+    {
+        var stopwatchTimestamp = Stopwatch.GetTimestamp();
+        return new RedisClockReading(await ReadRedisUnixMillisecondsAsync(database), stopwatchTimestamp);
+    }
+
+    private static async Task<long> ReadRedisUnixMillisecondsAsync(IDatabase database)
+    {
+        var reply = (RedisResult[])(await database.ExecuteAsync("TIME"))!;
+        return (long)reply[0] * 1000 + (long)reply[1] / 1000;
+    }
+
+    /// <summary>
+    /// 輪詢直到 Redis 自身已淘汰該 key，且必須在 TTL + 時鐘回跳餘裕內完成。不用固定 Task.Delay：時鐘回跳時
+    /// 固定等待可能不足以跨過 TTL 而誤判（flaky）。
+    /// </summary>
+    private static async Task WaitUntilKeyExpiredAsync(IDatabase database, string key, TimeSpan ttl)
+    {
+        // Stopwatch 為單調時鐘，不受牆上時鐘回跳影響。
+        var stopwatch = Stopwatch.StartNew();
+        // 每次觀察（含觀察到已淘汰的那一次）都檢查期限；只在 key 仍存在時檢查，會放過「超過期限後才觀察到淘汰」。
+        while (true)
+        {
+            var isKeyPresent = await database.KeyExistsAsync(key);
+            stopwatch.Elapsed.Should().BeLessThan(ttl + ClockStepBackTolerance, "驗證碼必須在 TTL（加上時鐘回跳餘裕）內由 Redis 淘汰");
+            if (!isKeyPresent)
+            {
+                return;
+            }
+            await Task.Delay(100);
+        }
+    }
+
     // CAPTCHA-STORE-001：驗證碼寫入時帶有 120 秒 TTL，且儲存的值為雜湊，不是明碼。
     [Fact]
     public async Task GenerateAsync_WritesHashedAnswerWithTtl()
@@ -77,11 +127,38 @@ public class RedisCaptchaServiceTests
     [Fact]
     public async Task VerifyAsync_AfterTtlExpires_ReturnsFalse()
     {
-        var connection = _fixture.CreateConnection();
+        using var connection = _fixture.CreateConnection();
         var service = CreateService(new StubCaptchaImageGenerator("TEST"), new CaptchaOptions { TtlSeconds = 1 }, connection);
+        var database = connection.GetDatabase();
+        var beforeWrite = await ReadClockBeforeWriteAsync(database);
         var challenge = await service.GenerateAsync(CancellationToken.None);
+        var key = RedisKeyFor(challenge.Token);
+        var ttl = TimeSpan.FromSeconds(1);
 
-        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        // Redis 以寫入當下的牆上時鐘加 TTL 記錄到期時刻，因此「到期時刻 − 要求的 TTL」即寫入時刻，TTL 設錯時會偏離真正的寫入時刻。
+        // 不能只要求它落在寫入前後兩次 Redis TIME 之間：回跳 δ 在寫入前或寫入後各會讓其中一端失準，各自放寬 δ 會放過偏差 δ 以內的錯誤 TTL。
+        // 改為要求落在兩個窄區間之一——回跳不在寫入前時，寫入時刻在寫入前 TIME 之後、前進量以內；回跳不在寫入後時，在讀取後 TIME 之前、
+        // 前進量以內。窗口內至多一次回跳時真正的寫入時刻必在其一，TTL 設錯則須偏差恰好約等於 δ 才會通過。
+        // 補上下方輪詢放寬後抓不到的「TTL 被設得比要求長」錯誤，也抓「驗證碼提早失效」錯誤。
+        var expireAt = (long)await database.ExecuteAsync("PEXPIRETIME", key);
+        expireAt.Should().NotBe(RedisKeyMissing, "產生驗證碼後到讀取 TTL 之間 key 不應已過期");
+        expireAt.Should().NotBe(RedisNoExpiry, "驗證碼必須設定 TTL，否則永不失效");
+        var afterRead = await ReadRedisUnixMillisecondsAsync(database);
+        var monotonicElapsed = Stopwatch.GetElapsedTime(beforeWrite.StopwatchTimestamp);
+        var wallElapsed = TimeSpan.FromMilliseconds(afterRead - beforeWrite.UnixMilliseconds);
+        var maxWallAdvance = (wallElapsed > monotonicElapsed * MaxWallClockRate ? wallElapsed : monotonicElapsed * MaxWallClockRate) + RedisMillisecondTruncation;
+        var inferredWriteAt = expireAt - (long)ttl.TotalMilliseconds;
+        var maxWallAdvanceMilliseconds = (long)Math.Ceiling(maxWallAdvance.TotalMilliseconds);
+        var truncationMilliseconds = (long)RedisMillisecondTruncation.TotalMilliseconds;
+        var isNearBeforeWrite = inferredWriteAt >= beforeWrite.UnixMilliseconds - truncationMilliseconds
+            && inferredWriteAt <= beforeWrite.UnixMilliseconds + maxWallAdvanceMilliseconds;
+        var isNearAfterRead = inferredWriteAt >= afterRead - maxWallAdvanceMilliseconds
+            && inferredWriteAt <= afterRead + truncationMilliseconds;
+        (isNearBeforeWrite || isNearAfterRead).Should().BeTrue(
+            "驗證碼的 TTL 必須等於 TtlSeconds（太短會提早失效，太長則過期驗證碼仍可使用）：到期時刻 − TTL = {0}，應在寫入前 TIME {1} 之後或讀取後 TIME {2} 之前 {3}ms 內",
+            inferredWriteAt, beforeWrite.UnixMilliseconds, afterRead, maxWallAdvanceMilliseconds);
+
+        await WaitUntilKeyExpiredAsync(database, key, ttl);
 
         var result = await service.VerifyAsync(challenge.Token, "TEST", CancellationToken.None);
 
