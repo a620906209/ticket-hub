@@ -184,6 +184,7 @@ public class RedisDistributedLockTests
         var database = connection.GetDatabase();
         var beforeWrite = await ReadClockBeforeWriteAsync(database);
         var resultA = await lockA.TryAcquireAsync(key, ttl, CancellationToken.None);
+        resultA.LockResult.Should().Be(LockResult.Acquired, "前提：A 須先取得鎖，否則後續 TTL 檢查的失敗訊息會誤指向鎖提早過期");
         await AssertKeyTtlWithinRequestedAsync(database, key, ttl, beforeWrite);
         await WaitUntilKeyExpiredAsync(database, key, ttl);
         var resultB = await lockB.TryAcquireAsync(key, TimeSpan.FromSeconds(30), CancellationToken.None);
