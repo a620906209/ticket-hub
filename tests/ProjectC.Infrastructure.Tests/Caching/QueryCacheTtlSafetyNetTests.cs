@@ -81,7 +81,7 @@ public class QueryCacheTtlSafetyNetTests
         return @event.Id;
     }
 
-    // WSL2 VM 牆上時鐘實測約每 30 秒回跳 2–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多。
+    // WSL2 VM 牆上時鐘實測約每 20–30 秒回跳約 1–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多。
     private static readonly TimeSpan ClockStepBackTolerance = TimeSpan.FromSeconds(6);
 
     /// <summary>
@@ -92,9 +92,15 @@ public class QueryCacheTtlSafetyNetTests
     {
         // Stopwatch 為單調時鐘，不受牆上時鐘回跳影響。
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        while (await connection.GetDatabase().KeyExistsAsync(key))
+        // 每次觀察（含觀察到已淘汰的那一次）都檢查期限；只在 key 仍存在時檢查，會放過「超過期限後才觀察到淘汰」。
+        while (true)
         {
+            var isKeyPresent = await connection.GetDatabase().KeyExistsAsync(key);
             stopwatch.Elapsed.Should().BeLessThan(ttl + ClockStepBackTolerance, "快取必須在 TTL（加上時鐘回跳餘裕）內由 Redis 淘汰");
+            if (!isKeyPresent)
+            {
+                return;
+            }
             await Task.Delay(100);
         }
     }
@@ -617,6 +623,9 @@ public class QueryCacheTtlSafetyNetTests
         {
             timing.C7Poll = Stopwatch.GetTimestamp();
             var polledExpireTime = await ReadAbsoluteExpiryUnixMillisecondsAsync(database, targetKey);
+            // 期限在判斷淘汰前檢查：只在 key 仍存在時檢查，會放過「超過期限後才觀察到淘汰」。
+            Stopwatch.GetElapsedTime(we, timing.C7Poll.Value).Should().BeLessThan(
+                RaceTtl + ClockStepBackTolerance, "陳舊快取應在 TTL（加上時鐘回跳餘裕）到期後自然過期。{0}", timing.Describe());
             if (polledExpireTime == RedisKeyMissing)
             {
                 break;
@@ -624,8 +633,6 @@ public class QueryCacheTtlSafetyNetTests
 
             timing.LastPolledExpireTime = polledExpireTime;
             polledExpireTime.Should().Be(timing.ExpireTimeAfterSet, "到期時刻自寫入後不得改變。{0}", timing.Describe());
-            Stopwatch.GetElapsedTime(we, timing.C7Poll.Value).Should().BeLessThan(
-                RaceTtl + ClockStepBackTolerance, "陳舊快取應在 TTL（加上時鐘回跳餘裕）到期後自然過期。{0}", timing.Describe());
             await Task.Delay(100);
         }
 

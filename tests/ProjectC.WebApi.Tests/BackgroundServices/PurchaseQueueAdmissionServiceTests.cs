@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -97,6 +98,58 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
         var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var entry = await dbContext.PurchaseQueueEntries.AsNoTracking().SingleAsync(e => e.Id == entryId);
         return entry.Status;
+    }
+
+    // WSL2 VM 牆上時鐘實測約每 20–30 秒回跳約 1–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多
+    // （同一問題見 PurchaseQueueAdmissionServiceLeaderElectionTests）。
+    private static readonly TimeSpan ClockStepBackTolerance = TimeSpan.FromSeconds(6);
+
+    // PEXPIRETIME（Redis 7）回傳到期的 Unix 毫秒；key 不存在回 -2、沒有 TTL 回 -1。
+    private const long RedisKeyMissing = -2;
+    private const long RedisNoExpiry = -1;
+    private static readonly TimeSpan RedisMillisecondTruncation = TimeSpan.FromMilliseconds(1);
+
+    // 牆上時鐘前進速度相對單調時鐘的上限倍率（WSL2 實測偏快 2–3%，取 5%）。牆上時鐘另會往前跳（實測約 60ms），往前跳會反映在
+    // 窗口內牆上經過時間，故容許的前進量取「單調經過時間 × 倍率」與「牆上經過時間」的較大者。
+    private const double MaxWallClockRate = 1.05;
+
+    // 牆上時鐘單次往前跳的餘裕（實測約 60ms）。
+    private static readonly TimeSpan WallClockForwardJumpTolerance = TimeSpan.FromMilliseconds(100);
+
+    private readonly record struct RedisClockReading(long UnixMilliseconds, long StopwatchTimestamp);
+
+    // Stopwatch 先於 TIME 取得，讓之後算出的單調經過時間涵蓋整段牆上經過時間。
+    private static async Task<RedisClockReading> ReadClockBeforeWriteAsync(StackExchange.Redis.IDatabase database)
+    {
+        var stopwatchTimestamp = Stopwatch.GetTimestamp();
+        return new RedisClockReading(await ReadRedisUnixMillisecondsAsync(database), stopwatchTimestamp);
+    }
+
+    private static async Task<long> ReadRedisUnixMillisecondsAsync(StackExchange.Redis.IDatabase database)
+    {
+        var reply = (StackExchange.Redis.RedisResult[])(await database.ExecuteAsync("TIME"))!;
+        return (long)reply[0] * 1000 + (long)reply[1] / 1000;
+    }
+
+    /// <summary>
+    /// 輪詢直到 Redis 自身已淘汰該 key，且必須在 TTL + 時鐘回跳餘裕內完成。不用固定 Task.Delay：時鐘回跳時
+    /// 固定等待可能不足以跨過 TTL 而誤判（flaky）。
+    /// </summary>
+    private static async Task WaitUntilRedisKeyExpiredAsync(StackExchange.Redis.IDatabase database, string key, TimeSpan ttl)
+    {
+        // Stopwatch 為單調時鐘，不受牆上時鐘回跳影響。
+        var stopwatch = Stopwatch.StartNew();
+        // 每次觀察（含觀察到已淘汰的那一次）都檢查期限；只在 key 仍存在時檢查，會放過「超過期限後才觀察到淘汰」。
+        while (true)
+        {
+            var isKeyPresent = await database.KeyExistsAsync(key);
+            stopwatch.Elapsed.Should().BeLessThan(ttl + ClockStepBackTolerance, $"Redis key '{key}' MUST 在 TTL（加上時鐘回跳餘裕）內淘汰");
+            if (!isKeyPresent)
+            {
+                return;
+            }
+            await Task.Delay(100);
+        }
     }
 
     [Fact]
@@ -249,10 +302,39 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
             connectionMultiplexer,
             NullLogger<PurchaseQueueAdmissionService>.Instance);
 
+        var database = connectionMultiplexer.GetDatabase();
+        var beforeWrite = await ReadClockBeforeWriteAsync(database);
         await abandoningService.AdvanceQueueOnceAsync(CancellationToken.None);
 
+        // 推進後立即讀 pending 標記的到期時刻（先於 Postgres 查詢），縮短寫入到讀取的窗口。Redis 以寫入當下的牆上時鐘加 TTL
+        // 記錄到期時刻，因此「到期時刻 − 要求的 TTL」即寫入時刻，TTL 設錯時會偏離真正的寫入時刻。不能只要求它落在寫入前後兩次
+        // Redis TIME 之間：回跳 δ 在寫入前或寫入後各會讓其中一端失準，各自放寬 δ 會放過偏差 δ 以內的錯誤 TTL。改為要求落在兩個窄區間之一——
+        // 回跳不在寫入前時，寫入時刻在寫入前 TIME 之後、前進量以內；回跳不在寫入後時，在讀取後 TIME 之前、前進量以內。
+        // 窗口內至多一次回跳時真正的寫入時刻必在其一，TTL 設錯則須偏差恰好約等於 δ 才會通過。
+        // 補上下方輪詢放寬後抓不到的「TTL 被設得比要求長」錯誤，也抓「pending 標記提早過期、校正機制提前代為落地」錯誤。
+        // 解析度限制：本測試窗口包含整個推進流程（實測約 280ms，隨活動數與負載變大），區間寬度約等於窗口，
+        // 只抓得到偏差大於推進耗時的錯誤 TTL（例如 ×0.6、×2），×0.75 這類小偏差可能通過。
+        var pendingKey = ProjectC.Infrastructure.PurchaseQueue.PurchaseQueueAdmissionRedisKeys.Pending(target.Id);
+        var pendingTtl = TimeSpan.FromSeconds(pendingTtlSeconds);
+        var pendingExpireAt = (long)await database.ExecuteAsync("PEXPIRETIME", pendingKey);
+        pendingExpireAt.Should().NotBe(RedisKeyMissing, "推進決策後到讀取 TTL 之間 pending 標記不應已過期");
+        pendingExpireAt.Should().NotBe(RedisNoExpiry, "pending 標記必須設定 TTL，持有決策的程序中止後才會到期、交由校正機制完成落地");
+        var afterRead = await ReadRedisUnixMillisecondsAsync(database);
+        var monotonicElapsed = Stopwatch.GetElapsedTime(beforeWrite.StopwatchTimestamp);
+        var wallElapsed = TimeSpan.FromMilliseconds(afterRead - beforeWrite.UnixMilliseconds);
+        var maxWallAdvance = (wallElapsed > monotonicElapsed * MaxWallClockRate ? wallElapsed : monotonicElapsed * MaxWallClockRate) + RedisMillisecondTruncation;
+        var inferredWriteAt = pendingExpireAt - (long)pendingTtl.TotalMilliseconds;
+        var maxWallAdvanceMilliseconds = (long)Math.Ceiling(maxWallAdvance.TotalMilliseconds);
+        var truncationMilliseconds = (long)RedisMillisecondTruncation.TotalMilliseconds;
+        var isNearBeforeWrite = inferredWriteAt >= beforeWrite.UnixMilliseconds - truncationMilliseconds
+            && inferredWriteAt <= beforeWrite.UnixMilliseconds + maxWallAdvanceMilliseconds;
+        var isNearAfterRead = inferredWriteAt >= afterRead - maxWallAdvanceMilliseconds
+            && inferredWriteAt <= afterRead + truncationMilliseconds;
+        (isNearBeforeWrite || isNearAfterRead).Should().BeTrue(
+            "pending 標記的 TTL 必須等於 AdmissionPendingTtlSeconds（太短會讓校正機制提前代為落地，太長則程序中止後遲遲不落地）：到期時刻 − TTL = {0}，應在寫入前 TIME {1} 之後或讀取後 TIME {2} 之前 {3}ms 內",
+            inferredWriteAt, beforeWrite.UnixMilliseconds, afterRead, maxWallAdvanceMilliseconds);
+
         (await ReadStatusAsync(target.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting, "批次 UPDATE 被攔截，Postgres 落地應維持失敗前的狀態");
-        var database = connectionMultiplexer.GetDatabase();
         var admittedKey = ProjectC.Infrastructure.PurchaseQueue.PurchaseQueueAdmissionRedisKeys.Admitted(eventId);
         (await database.SortedSetScoreAsync(admittedKey, target.Id.ToString())).Should().NotBeNull(
             "Redis 端的推進決策已經確定且有效，target 應已在 admitted 鏡像中");
@@ -261,10 +343,15 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
         var normalService = CreateService(maxConcurrentAdmittedBuyers: 1);
         await normalService.AdvanceQueueOnceAsync(CancellationToken.None);
 
+        // 前提檢查：負載高時推進到此處可能已超過 pending TTL，此時下一行的 Waiting 斷言失敗並非產品錯誤，先以明確訊息區分。
+        // 以推進開始前起算的單調經過時間判斷（比寫入後起算保守）而非 key 是否存在，否則「校正機制提前清除 pending」這個產品錯誤也會被歸為前提不成立；
+        // 除以 MaxWallClockRate 並扣掉往前跳餘裕，是因為牆上時鐘偏快或往前跳時 Redis 會提早到期。
+        Stopwatch.GetElapsedTime(beforeWrite.StopwatchTimestamp).Should().BeLessThan(pendingTtl / MaxWallClockRate - WallClockForwardJumpTolerance,
+            "測試前提：正常校正須在 pending TTL 內跑完；若失敗代表測試耗時超過 pending TTL（可能是負載或校正流程變慢），並非 pending 標記被提前清除");
         (await ReadStatusAsync(target.Id)).Should().Be(PurchaseQueueEntryStatus.Waiting, "pending 標記存活期間 MUST NOT 被校正機制提前清除或代為完成落地");
 
         // pending TTL 到期後，下一次成功校正才會代為完成落地。
-        await Task.Delay(TimeSpan.FromMilliseconds((pendingTtlSeconds * 1000) + 500));
+        await WaitUntilRedisKeyExpiredAsync(database, pendingKey, pendingTtl);
         await normalService.AdvanceQueueOnceAsync(CancellationToken.None);
 
         (await ReadStatusAsync(target.Id)).Should().Be(PurchaseQueueEntryStatus.Admitted, "pending TTL 到期後，下一次成功校正 MUST 代為完成 Postgres 落地");

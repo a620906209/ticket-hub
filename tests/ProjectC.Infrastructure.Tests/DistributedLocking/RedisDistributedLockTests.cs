@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using ProjectC.Application.Common.Interfaces;
@@ -23,6 +24,85 @@ public class RedisDistributedLockTests
         => new(connectionMultiplexer ?? _fixture.CreateConnection(), logger ?? new RecordingLogger<RedisDistributedLock>());
 
     private static string NewKey() => $"pqle-test:{Guid.NewGuid():N}";
+
+    // WSL2 VM 牆上時鐘實測約每 20–30 秒回跳約 1–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多
+    // （同一問題見 QueryCacheTtlSafetyNetTests）。
+    private static readonly TimeSpan ClockStepBackTolerance = TimeSpan.FromSeconds(6);
+
+    // PEXPIRETIME（Redis 7）回傳到期的 Unix 毫秒；key 不存在回 -2、沒有 TTL 回 -1。
+    private const long RedisKeyMissing = -2;
+    private const long RedisNoExpiry = -1;
+    private static readonly TimeSpan RedisMillisecondTruncation = TimeSpan.FromMilliseconds(1);
+
+    // 牆上時鐘前進速度相對單調時鐘的上限倍率（WSL2 實測偏快 2–3%，取 5%）。牆上時鐘另會往前跳（實測約 60ms），往前跳會反映在
+    // 窗口內牆上經過時間，故容許的前進量取「單調經過時間 × 倍率」與「牆上經過時間」的較大者。
+    private const double MaxWallClockRate = 1.05;
+
+    private readonly record struct RedisClockReading(long UnixMilliseconds, long StopwatchTimestamp);
+
+    // Stopwatch 先於 TIME 取得，讓之後算出的單調經過時間涵蓋整段牆上經過時間；連線由呼叫端事先建好，建連時間才不會放大容許前進量、放寬區間。
+    private static async Task<RedisClockReading> ReadClockBeforeWriteAsync(IDatabase database)
+    {
+        var stopwatchTimestamp = Stopwatch.GetTimestamp();
+        return new RedisClockReading(await ReadRedisUnixMillisecondsAsync(database), stopwatchTimestamp);
+    }
+
+    private static async Task<long> ReadRedisUnixMillisecondsAsync(IDatabase database)
+    {
+        var reply = (RedisResult[])(await database.ExecuteAsync("TIME"))!;
+        return (long)reply[0] * 1000 + (long)reply[1] / 1000;
+    }
+
+    /// <summary>
+    /// 確認 Redis 記錄的 TTL 等於要求值。Redis 以寫入當下的牆上時鐘加 TTL 記錄到期時刻，因此「到期時刻 − 要求的 TTL」即寫入時刻；
+    /// TTL 設錯時這個反推值會偏離真正的寫入時刻。不能只要求它落在寫入前後兩次 Redis TIME 之間：回跳 δ 落在寫入前會讓寫入時刻
+    /// 早於寫入前 TIME，落在寫入後會讓讀取後 TIME 早於寫入時刻，若各自放寬 δ，TTL 偏差 δ 以內的錯誤（例如 ×2、÷10）都會通過。
+    /// 改為要求反推值落在兩個窄區間之一：回跳不在寫入前時，寫入時刻在寫入前 TIME 之後、前進量以內；回跳不在寫入後時，
+    /// 寫入時刻在讀取後 TIME 之前、前進量以內。窗口內至多一次回跳時真正的寫入時刻必在其一，TTL 設錯則須偏差恰好約等於 δ 才會通過。
+    /// 補上 <see cref="WaitUntilKeyExpiredAsync"/> 放寬後抓不到的「TTL 被設得比要求長」錯誤，也抓「鎖提早過期、失去互斥」錯誤。
+    /// </summary>
+    private static async Task AssertKeyTtlWithinRequestedAsync(IDatabase database, string key, TimeSpan ttl, RedisClockReading beforeWrite)
+    {
+        var expireAt = (long)await database.ExecuteAsync("PEXPIRETIME", key);
+        expireAt.Should().NotBe(RedisKeyMissing, "取得鎖後到讀取 TTL 之間鎖不應已過期");
+        expireAt.Should().NotBe(RedisNoExpiry, "鎖必須設定 TTL，持有者當機時才會自動釋放");
+        var afterRead = await ReadRedisUnixMillisecondsAsync(database);
+        var monotonicElapsed = Stopwatch.GetElapsedTime(beforeWrite.StopwatchTimestamp);
+        var wallElapsed = TimeSpan.FromMilliseconds(afterRead - beforeWrite.UnixMilliseconds);
+        var maxWallAdvance = (wallElapsed > monotonicElapsed * MaxWallClockRate ? wallElapsed : monotonicElapsed * MaxWallClockRate) + RedisMillisecondTruncation;
+
+        var inferredWriteAt = expireAt - (long)ttl.TotalMilliseconds;
+        var maxWallAdvanceMilliseconds = (long)Math.Ceiling(maxWallAdvance.TotalMilliseconds);
+        var truncationMilliseconds = (long)RedisMillisecondTruncation.TotalMilliseconds;
+        var isNearBeforeWrite = inferredWriteAt >= beforeWrite.UnixMilliseconds - truncationMilliseconds
+            && inferredWriteAt <= beforeWrite.UnixMilliseconds + maxWallAdvanceMilliseconds;
+        var isNearAfterRead = inferredWriteAt >= afterRead - maxWallAdvanceMilliseconds
+            && inferredWriteAt <= afterRead + truncationMilliseconds;
+        (isNearBeforeWrite || isNearAfterRead).Should().BeTrue(
+            "鎖的 TTL 必須等於呼叫端要求的值（太短會提早失去互斥，太長則持有者當機後遲遲不釋放）：到期時刻 − TTL = {0}，應在寫入前 TIME {1} 之後或讀取後 TIME {2} 之前 {3}ms 內",
+            inferredWriteAt, beforeWrite.UnixMilliseconds, afterRead, maxWallAdvanceMilliseconds);
+    }
+
+    /// <summary>
+    /// 輪詢直到 Redis 自身已淘汰該 key，且必須在 TTL + 時鐘回跳餘裕內完成。不用固定 Task.Delay：時鐘回跳時
+    /// 固定等待可能不足以跨過 TTL 而誤判（flaky）。
+    /// </summary>
+    private static async Task WaitUntilKeyExpiredAsync(IDatabase database, string key, TimeSpan ttl)
+    {
+        // Stopwatch 為單調時鐘，不受牆上時鐘回跳影響。
+        var stopwatch = Stopwatch.StartNew();
+        // 每次觀察（含觀察到已淘汰的那一次）都檢查期限；只在 key 仍存在時檢查，會放過「超過期限後才觀察到淘汰」。
+        while (true)
+        {
+            var isKeyPresent = await database.KeyExistsAsync(key);
+            stopwatch.Elapsed.Should().BeLessThan(ttl + ClockStepBackTolerance, "鎖必須在 TTL（加上時鐘回跳餘裕）內由 Redis 淘汰");
+            if (!isKeyPresent)
+            {
+                return;
+            }
+            await Task.Delay(100);
+        }
+    }
 
     [Fact]
     public async Task TryAcquireAsync_SingleCaller_ReturnsAcquired()
@@ -74,11 +154,19 @@ public class RedisDistributedLockTests
     public async Task TryAcquireAsync_AfterTtlExpiresWithoutRelease_AllowsOtherCallerToAcquire()
     {
         var key = NewKey();
-        await CreateLock().TryAcquireAsync(key, TimeSpan.FromMilliseconds(300), CancellationToken.None);
+        var ttl = TimeSpan.FromSeconds(1);
+        using var connection = _fixture.CreateConnection();
+        using var holderConnection = _fixture.CreateConnection();
+        using var otherCallerConnection = _fixture.CreateConnection();
+        var database = connection.GetDatabase();
+        var beforeWrite = await ReadClockBeforeWriteAsync(database);
+        var holderResult = await CreateLock(holderConnection).TryAcquireAsync(key, ttl, CancellationToken.None);
+        holderResult.LockResult.Should().Be(LockResult.Acquired, "前提：持有者須先取得鎖，否則後續 TTL 檢查的失敗訊息會誤指向鎖提早過期");
+        await AssertKeyTtlWithinRequestedAsync(database, key, ttl, beforeWrite);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(600));
+        await WaitUntilKeyExpiredAsync(database, key, ttl);
 
-        var result = await CreateLock().TryAcquireAsync(key, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var result = await CreateLock(otherCallerConnection).TryAcquireAsync(key, TimeSpan.FromSeconds(30), CancellationToken.None);
         result.LockResult.Should().Be(LockResult.Acquired, "TTL 到期後鎖應自動釋放，不需任何實例手動介入");
     }
 
@@ -86,18 +174,25 @@ public class RedisDistributedLockTests
     public async Task ReleaseAsync_WithStaleOwnerTokenAfterAnotherCallerAcquiredNewLock_IsNoOp()
     {
         var key = NewKey();
-        var lockA = CreateLock();
-        var lockB = CreateLock();
+        using var connectionA = _fixture.CreateConnection();
+        using var connectionB = _fixture.CreateConnection();
+        var lockA = CreateLock(connectionA);
+        var lockB = CreateLock(connectionB);
 
-        var resultA = await lockA.TryAcquireAsync(key, TimeSpan.FromMilliseconds(300), CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(600));
+        var ttl = TimeSpan.FromSeconds(1);
+        using var connection = _fixture.CreateConnection();
+        var database = connection.GetDatabase();
+        var beforeWrite = await ReadClockBeforeWriteAsync(database);
+        var resultA = await lockA.TryAcquireAsync(key, ttl, CancellationToken.None);
+        resultA.LockResult.Should().Be(LockResult.Acquired, "前提：A 須先取得鎖，否則後續 TTL 檢查的失敗訊息會誤指向鎖提早過期");
+        await AssertKeyTtlWithinRequestedAsync(database, key, ttl, beforeWrite);
+        await WaitUntilKeyExpiredAsync(database, key, ttl);
         var resultB = await lockB.TryAcquireAsync(key, TimeSpan.FromSeconds(30), CancellationToken.None);
         resultB.LockResult.Should().Be(LockResult.Acquired, "前提：A 的鎖已逾時，B 應該能取得新鎖");
 
         // A 的釋放操作「遲到」——這時鎖的持有者其實已經是 B。
         await lockA.ReleaseAsync(key, resultA.OwnerToken!, CancellationToken.None);
 
-        var database = _fixture.CreateConnection().GetDatabase();
         var currentValue = await database.StringGetAsync(key);
         currentValue.ToString().Should().Be(resultB.OwnerToken, "A 的遲到釋放不得誤刪 B 目前持有的鎖");
     }
@@ -172,7 +267,7 @@ public class RedisDistributedLockTests
     {
         // 以實際經過時間計算逾時：每次取鎖在 Redis 不可用時本身就要等連線逾時（約 5 秒），
         // 只累加 pollIntervalMs 會讓名義上 15 秒的上限實際拖到數分鐘。Stopwatch 為單調時鐘。
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         while (true)
         {
             var result = await distributedLock.TryAcquireAsync(key, TimeSpan.FromSeconds(30), CancellationToken.None);

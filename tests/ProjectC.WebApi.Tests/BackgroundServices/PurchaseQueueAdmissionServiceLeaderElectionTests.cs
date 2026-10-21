@@ -92,20 +92,26 @@ public class PurchaseQueueAdmissionServiceLeaderElectionTests : IClassFixture<Cu
         return await database.KeyExistsAsync(LockKey);
     }
 
-    // WSL2 VM 牆上時鐘實測約每 30 秒回跳 2–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多。
+    // WSL2 VM 牆上時鐘實測約每 20–30 秒回跳約 1–3 秒，Redis 以牆上時鐘計算到期，key 實際存活時間可能比 TTL 長這麼多。
     private static readonly TimeSpan ClockStepBackTolerance = TimeSpan.FromSeconds(6);
 
     /// <summary>
     /// 輪詢直到 Redis 自身已淘汰該 key，且必須在 TTL + 時鐘回跳餘裕內完成。不用固定 Task.Delay：時鐘回跳時
-    /// 固定等待可能不足以跨過 TTL 而誤判（flaky）。上限貼近 TTL，TTL 若被誤設為過長的值仍會失敗。
+    /// 固定等待可能不足以跨過 TTL 而誤判（flaky）。期限為 TTL + 時鐘回跳餘裕，只抓得到 TTL 被誤設超過此期限的錯誤。
     /// </summary>
     private static async Task WaitUntilRedisKeyExpiredAsync(IDatabase database, string key, TimeSpan ttl)
     {
         // Stopwatch 為單調時鐘，不受牆上時鐘回跳影響。
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        while (await database.KeyExistsAsync(key))
+        // 每次觀察（含觀察到已淘汰的那一次）都檢查期限；只在 key 仍存在時檢查，會放過「超過期限後才觀察到淘汰」。
+        while (true)
         {
+            var isKeyPresent = await database.KeyExistsAsync(key);
             stopwatch.Elapsed.Should().BeLessThan(ttl + ClockStepBackTolerance, $"Redis key '{key}' MUST 在 TTL（加上時鐘回跳餘裕）內淘汰");
+            if (!isKeyPresent)
+            {
+                return;
+            }
             await Task.Delay(100);
         }
     }
