@@ -495,3 +495,8 @@ loadtest/.output/
 
 # purchase-flow-ux 量測腳本的 dev server 暫存副本（tasks.md 1.1「暫存副本」），用完即刪，不進版控
 web/public/__pfux-*
+
+# graphify
+graphify-out/
+.claude/settings.json.graphify-bak
+.claude/settings.local.json
