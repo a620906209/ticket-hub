@@ -252,7 +252,7 @@
 - **涵蓋範圍**：每一條 Acceptance Criteria 至少對應一個測試；業務核心邏輯優先確保涵蓋
 - **TDD 預設**：凡 task 涉及可觀察行為且適合自動化測試，先新增或修改最小相關測試並執行，確認測試因目標行為不符而失敗（不是編譯或環境錯誤）；再做最小實作使測試通過。若進行重構，重構後重跑相關測試；若無需重構，只將重構步驟記錄為 N/A。將 RED（命令、失敗測試／斷言、實際失敗訊息原文摘錄（例如 Expected／Actual，只寫「失敗」不算證據）、目標行為失敗原因及其發生在正式程式碼修改前）、GREEN 與重構後重跑（或 N/A）的命令和結果摘要，記錄在 `tasks.md` 對應 task 下；沒有 `tasks.md` 時記錄於實作交接摘要，且呼叫 `strict-reviewer` 時須將該摘要完整附在 prompt 中（subagent 讀不到對話內容，未附上會因無法核對證據而判定 blocking）。相關測試通過且證據已記錄後才標記 task 完成。測試與實作可在同一 task 內完成，不要求 `tasks.md` 一定拆成獨立 task。
 - **TDD 例外**：純文件或沒有合理自動化行為測試的 task，可將 TDD 標示為 N/A 並說明原因；這只豁免 RED／GREEN 流程。若 task 對應 Acceptance Criteria，仍須依一般測試規範驗證，或使用 `design.md` 已正式核准的替代驗證。不得把編譯、環境或測試設定失敗當成預期的 RED。
-- **RED 還原驗證**：「RED 發生在修改前」只能自行申報、無法查證，因此 bug fix，以及下單、排隊、座位／庫存等核心業務邏輯的 task，GREEN 後另須證明「測試在沒有這次修改時會失敗」：由主 agent（非 `strict-reviewer`，其維持唯讀）執行 `git stash push -u -- <正式程式碼路徑>` → 在容器內跑相關測試，確認因目標行為不符而失敗 → `git stash pop`，並將命令與失敗輸出記錄於 RED 證據旁。pop 前先以 `git stash list` 確認該 stash 存在；pop 失敗或有衝突時立即停止並回報，不得自行修復工作樹。
+- **RED 還原驗證**：「RED 發生在修改前」只能自行申報、無法查證，因此 bug fix，以及下單、排隊、座位／庫存等核心業務邏輯的 task，GREEN 後另須證明「測試在沒有這次修改時會失敗」：由主 agent（非 `strict-reviewer`，其維持唯讀）執行 `git stash push -u -- <正式程式碼路徑>` → 在容器內跑相關測試，確認因目標行為不符而失敗 → `git stash pop`，並將命令與失敗輸出記錄於 RED 證據旁。pop 前先以 `git stash list` 確認該 stash 存在；pop 失敗或有衝突時立即停止並回報，不得自行修復工作樹。尚未 commit 的修改一律用 `bash scripts/verify-test-evidence.sh restore` 執行；暫時改動正式程式碼的驗證用同一支腳本的 `mutate`，一次一個改動。理由：手動操作曾連續遺漏命令與 pop 輸出，合併改動也曾遮蔽彼此的結果。
 - **證據貼原文**：RED、還原驗證、全套測試的紀錄一律貼實際輸出——每個失敗測試的名稱與訊息、每個測試專案的摘要行、`git stash` 指令輸出；不得以數字、「全數通過」或「與 X 相同」代替。輸出沒擷取完整就不算驗證過。
 - **測試框架**：xUnit（預設）；斷言可搭配 FluentAssertions；mock 用 Moq / NSubstitute
 - 整合測試使用 Testcontainers 啟動獨立 DB 容器，禁止連線至開發用的 db 服務
@@ -270,11 +270,12 @@
 3. **規格審查**：`spec-reviewer` 修到 PASS，warning 不需要為了消除而再跑一輪；符合觸發條件時再跑 `design-hardener`。PASS 後暫停，等使用者交叉審查並明確指示才實作；每個階段轉換分開確認
 4. **實作**：`/opsx:apply` 逐 task 依「測試規範」的 TDD 執行（RED → GREEN → 重構），證據寫入 `tasks.md` 後才勾選
 5. **防禦性最終檢查**：程式碼全部完成後套用 `hardener`（見「防禦性檢查規則」），結果記在 `tasks.md` 的「hardener 最終檢查」task
-6. **審查迴圈**：每輪同時跑 `strict-reviewer` 與一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前一輪結論），修正後重跑，直到兩者都沒有 blocking。理由：多次 change 中 strict-reviewer PASS 後仍由對抗式審查或人工找出真實 bug。例外：若 `git diff` 確認自上次雙方 PASS 後只改了 `tasks.md` 的證據紀錄，由一個 reviewer 核對紀錄即可，不需重跑全套測試；只要動到其他檔案，就回到完整流程。不設輪數上限：還有具體失敗情境的 blocking 就繼續
+6. **審查迴圈**：每輪依序跑 `strict-reviewer` 與一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前一輪結論），修正後重跑，直到兩者都沒有 blocking。理由：多次 change 中 strict-reviewer PASS 後仍由對抗式審查或人工找出真實 bug；依序跑是因為會執行容器的審查同時進行曾造成大量假失敗。例外：若 `git diff` 確認自上次雙方 PASS 後只改了 `tasks.md` 的證據紀錄，由一個 reviewer 核對紀錄即可，不需重跑全套測試；只要動到其他檔案，就回到完整流程。不設輪數上限：還有具體失敗情境的 blocking 就繼續
 7. **前端真實瀏覽器驗證**（有前端變更時）：以 claude-in-chrome 實際操作受影響流程，數字與狀態以頁面文字或 DB 核對，不只依截圖判讀。理由：router、HMR、原生表單驗證、相機等問題只在真實瀏覽器出現
 8. **歸檔與合併**：`/opsx:archive`（含主 spec 同步）→ merge 回 master
 
 - 任何步驟都不自動 commit / push，等使用者明確指示
+- 另開工具（如 Devin）交叉審查時：prompt 只給 change 名稱、commit 與審查目標，不描述改了什麼或為什麼改；重審可附前輪 blocking 的編號與參考位置供回歸核對。程式有改動時以高階模型審完整 diff，只改證據紀錄時可用較輕的模型，每輪的模型與 commit 記入 `tasks.md`。透過 herdr 送出後，先確認 `agent_status` 變成 `working` 才等結果，否則可能讀到上一輪的 verdict
 - 緊急 hotfix 或無對應 spec 的小型改動（見「無 spec 時的處理」）略過 1–3 與 8，仍須走 4（TDD）、5–7
 
 ### Task 執行前
