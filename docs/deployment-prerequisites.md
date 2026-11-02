@@ -8,7 +8,7 @@
 
 ### 1. 限制健康檢查端點的來源
 
-`/health/ready` 匿名且不限流，大量併發請求可能佔滿 DB 連線池，讓業務請求排隊或逾時。2 秒逾時只限制單次檢查，不限制頻率或併發。理由與取捨見 `api-health-checks` 的 `design.md` Risks。
+`/health/ready` 匿名且不限流，每次探測建立一條不經連線池的實體連線，大量併發請求可能耗盡 PostgreSQL 的 `max_connections`，讓業務請求連不上 DB。2 秒逾時只限制單次檢查，不限制頻率或併發。理由與取捨見 `api-health-checks` 的 `design.md` Risks。
 
 - 可信來源：部署平台的探針（K8s 為 kubelet，從節點發出）與維運人員。其他叢集內工作負載不因位於叢集內就視為可信。
 - 以入口控制、NetworkPolicy 或等效機制，只讓可信來源存取 `/health/live` 與 `/health/ready`。

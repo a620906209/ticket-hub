@@ -29,5 +29,5 @@ api 目前沒有健康檢查 endpoint，後續部署到 K8s 時，readiness 與 
 - **相依**：無新增套件，Health Checks 已包含在 ASP.NET Core shared framework。
 - **API**：新增兩個匿名 GET 端點，路徑不在 `/api` 底下，不影響既有端點；web 的 `/api` proxy 不會轉送這兩個路徑。
 - **測試**：`tests/ProjectC.WebApi.Tests` 新增健康檢查整合測試與測試用 factory。
-- **文件**：`docs/k8s-todo.md`、`docs/deployment-prerequisites.md`。
+- **文件**：`docs/k8s-todo.md`、`docs/deployment-prerequisites.md`、`docs/exception-log-masking-todo.md`。
 - **DB／migration**：無。

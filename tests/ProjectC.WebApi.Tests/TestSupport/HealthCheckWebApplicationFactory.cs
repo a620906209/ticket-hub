@@ -54,6 +54,16 @@ public sealed class HealthCheckWebApplicationFactory : CustomWebApplicationFacto
 
     public ConcurrentDictionary<string, int> HealthCheckExecutionCounts { get; } = new();
 
+    public FreezableTcpProxy CreateFreezableDatabaseProxy()
+    {
+        var builder = new NpgsqlConnectionStringBuilder(TestDatabaseConnectionString);
+        var proxy = new FreezableTcpProxy(builder.Host!, builder.Port);
+        builder.Host = "127.0.0.1";
+        builder.Port = proxy.Port;
+        HostConnectionString = builder.ConnectionString;
+        return proxy;
+    }
+
     // 額度為 1，最遲第 2 次就該回 429；未出現就明確失敗，避免限流沒生效時探測測試假通過。
     public async Task ExhaustRateLimitAsync(Func<HttpClient, CancellationToken, Task<HttpResponseMessage>> sendControlRequestAsync)
     {

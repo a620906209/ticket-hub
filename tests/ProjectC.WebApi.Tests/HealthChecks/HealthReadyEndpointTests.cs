@@ -63,6 +63,41 @@ public class HealthReadyEndpointTests : IClassFixture<HealthCheckWebApplicationF
             });
     }
 
+    // HC-READY-TIMEOUT：運作中的 Pod 遇到 DB 凍結是最常見的情況，此時若重用池中的閒置連線，連線 Timeout 不起作用。
+    [Fact]
+    public async Task GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout()
+    {
+        FreezableTcpProxy? proxy = null;
+        try
+        {
+            await RunWithFactoryAsync(
+                factory => proxy = factory.CreateFreezableDatabaseProxy(),
+                async factory =>
+                {
+                    var client = factory.CreateClient();
+                    (await client.GetAsync(ReadyPath)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+                    proxy!.Freeze();
+
+                    var stopwatch = Stopwatch.StartNew();
+                    var response = await client.GetAsync(ReadyPath);
+                    await response.Content.ReadAsStringAsync();
+                    stopwatch.Stop();
+
+                    response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+                    stopwatch.Elapsed.Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(1.5));
+                    stopwatch.Elapsed.Should().BeLessThanOrEqualTo(TimeSpan.FromSeconds(4));
+                });
+        }
+        finally
+        {
+            if (proxy is not null)
+            {
+                await proxy.DisposeAsync();
+            }
+        }
+    }
+
     // HC-READY-TIMEOUT：探針週期與 failureThreshold 依賴這個上限，無回應的 DB 不得拖住探測。
     [Fact]
     public async Task GetHealthReady_WhenDatabaseDoesNotRespond_ReturnsServiceUnavailableWithinTimeout()

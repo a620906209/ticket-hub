@@ -146,11 +146,11 @@
 - [x] 6.2 執行全套測試：`docker compose exec api dotnet test`，確認沒有回歸，尤其是日誌與 HTTPS 相關測試。
   - TDD：N/A，回歸驗證。
   - 完成紀錄（每個測試專案的摘要行原文；失敗則列出每個測試名稱與訊息）：
-    - `Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, Duration: 109 ms - ProjectC.Domain.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, Duration: 96 ms - ProjectC.Domain.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:   527, Skipped:     0, Total:   527, Duration: 1 s - ProjectC.Application.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:    38, Skipped:     0, Total:    38, Duration: 9 s - ProjectC.LoadTest.Seeder.Tests.dll (net10.0)`
-    - `Passed!  - Failed:     0, Passed:   260, Skipped:     0, Total:   260, Duration: 50 s - ProjectC.Infrastructure.Tests.dll (net10.0)`
-    - `Passed!  - Failed:     0, Passed:   578, Skipped:     0, Total:   578, Duration: 2 m 48 s - ProjectC.WebApi.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   260, Skipped:     0, Total:   260, Duration: 51 s - ProjectC.Infrastructure.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   579, Skipped:     0, Total:   579, Duration: 2 m 52 s - ProjectC.WebApi.Tests.dll (net10.0)`
 
 - [x] 6.3 實機驗證：在 compose 環境從容器內呼叫兩個端點，確認皆為 200 且內容為 `Healthy`；`docker compose stop db` 後確認 ready 為 503、live 為 200；再 `docker compose start db` 確認 ready 恢復 200。
   - TDD：N/A，補充驗證真實容器環境；自動化行為由 2.x 涵蓋。
@@ -158,6 +158,7 @@
     - 正常：live `Healthy [200] 0.003274s`；ready `Healthy [200] 0.030224s`
     - `docker compose stop db` 後：ready `Unhealthy [503] 0.015416s`；live `Healthy [200] 0.001063s`
     - `docker compose start db` 後：ready `Healthy [200] 0.012989s`；live `Healthy [200] 0.000980s`
+    - 7.1 修正後補充（`docker compose pause db` 模擬運作中 DB 凍結）：ready `Unhealthy [503] 2.028365s`；`docker compose unpause db` 後 ready `Healthy [200] 0.015250s`
 
 - [ ] 6.4 探測流程直接呼叫相依的替代驗證（design.md「已核准的驗證例外」）。對應 HC-LIVE-NO-CHECKS、HC-READY-ONLY-DATABASE 所屬 Requirement 中繞過 Health Check 機制的部分。
   - TDD：N/A，已核准的替代驗證。
@@ -173,6 +174,15 @@
     - 失敗情境：加入欄位後檢查一輸出 `src/ProjectC.WebApi/HealthChecks/DatabaseReadinessHealthCheck.cs:14:    private readonly StackExchange.Redis.IConnectionMultiplexer _x = null!;`，`exit=0`；加入 `app.Use` 後檢查二多出 `+    app.Use((context, next) => next());`，不通過。
     - 還原後：檢查一無輸出，`exit=1`。
     - strict-reviewer 結論：見審查迴圈，完成後補上。
+
+## 7. 審查補強
+
+- [x] 7.1 預熱後 DB 凍結時維持 2 秒上限（HC-READY-TIMEOUT，第 1 輪對抗式審查發現，design 決策 3）。
+  - 測試先行：`GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout`，以 `FreezableTcpProxy` 在探測成功後凍結 DB。
+  - 還原驗證：N/A，RED 即為未修改正式程式碼時的失敗；不是核心業務邏輯。
+  - 完成紀錄：
+    RED（`docker compose exec api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe"`，於修改正式程式碼前執行）：`GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout`：`Expected stopwatch.Elapsed to be less than or equal to 4s, but found 34s, 14ms and 587.0µs.`；`Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 36 s - ProjectC.WebApi.Tests.dll (net10.0)`
+    GREEN（加上 `Pooling = false`）：`Passed!  - Failed:     0, Passed:    38, Skipped:     0, Total:    38, Duration: 34 s - ProjectC.WebApi.Tests.dll (net10.0)`。重構：N/A。
 
 ## Workflow follow-up
 

@@ -49,9 +49,11 @@ live 不檢查任何相依，因為重啟行程修不好外部故障。以 tag �
 
 實測結果（apply 階段）：端點接受 TCP 但不回應時，只傳 token 給 `CanConnectAsync` 不會中斷，`/health/ready` 花 15 秒，等於 Npgsql 預設的連線 Timeout；內建服務會等 check 回傳，所以 registration 的逾時沒有實際效果。曾嘗試 `CanConnectAsync(cancellationToken).WaitAsync(cancellationToken)` 放棄等待，但 scope 釋放 `DbContext` 時連線仍在進行，拋出 `InvalidOperationException: Can't close, connection is in state Connecting`，回應變成 500，所以不採用。
 
-因此 check 在呼叫 `CanConnectAsync` 前，以 `Database.SetConnectionString` 為這次檢查的 `DbContext` 設定 `Timeout`，值與 registration 共用常數 `DatabaseReadinessHealthCheck.TimeoutSeconds`。內建服務每次檢查建立獨立 scope，所以全域連線字串與其他 DB 操作不受影響。實際結束等待的是 Npgsql 的連線 Timeout；registration 的 timeout 保留，負責取消傳入的 token，兩者同為 2 秒。
+因此 check 在呼叫 `CanConnectAsync` 前，以 `Database.SetConnectionString` 為這次檢查的 `DbContext` 設定 `Timeout`，值與 registration 共用常數 `DatabaseReadinessHealthCheck.TimeoutSeconds`。內建服務每次檢查建立獨立 scope，所以全域連線字串與其他 DB 操作不受影響。實際結束等待的是 Npgsql 的連線 Timeout；registration 的 timeout 保留，負責取消傳入的 token，兩者同為 2 秒，會互相競爭，實測都回 503。
 
-已接受的取捨：連線字串不同，Npgsql 會為探測另建一個連線池，正常時最多多保留少量閒置連線。
+對抗式審查發現，連線 Timeout 只管建立新連線：預熱後 DB 才凍結時，探測重用池中的閒置連線，等待改由命令逾時決定，`/health/ready` 卡 34 秒。候選方案實測結果：`CommandTimeout = 2` 為 6.02 秒，再加 `CancellationTimeout = -1` 仍為 6.02 秒，都超過 4 秒上限；`Pooling = false` 為 2.01 秒。因此探測的連線字串另外設 `Pooling = false`，每次都建立新連線。以 `GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout` 保護。
+
+已接受的取捨：每次探測建立並關閉一條實體連線，一般探針頻率下成本很小；探測不受業務連線池的上限約束，併發風險見 Risks。連線已建立、DB 才在命令途中凍結的極短窗口，該次探測仍可能等到命令逾時，下一次探測就會回到 2 秒，不另外處理。
 
 ### 決策 4：使用內建 response writer
 
@@ -90,7 +92,7 @@ check 內的例外由內建服務轉為 Unhealthy，只有服務本身失敗才�
 
 `observability` 要求每次請求產生摘要，這裡仍會產生，只是等級較低；該 Requirement 約束內容不含敏感資訊，所以不需修改。
 
-DB 故障時的失敗原因不會由 check 回報（`CanConnectAsync` 只回 `false`）。依 aspnetcore 原始碼，內建 Health Check 服務會以 Error 記錄 check 結果，但通常不含例外；EF Core 的連線錯誤在 `errorsExpected` 路徑可能降為 Debug，預設等級下看不到。因此預設等級下只知道探測失敗，不一定知道原因。這是為了簡單而接受的取捨，實際輸出在 3.1 確認。若日誌含主機名稱，屬內部資訊可接受；密碼不得出現，由 HC-LOG-FAILURE-NO-PASSWORD 以專用標記密碼驗證。
+DB 故障時的失敗原因不會由 check 回報（`CanConnectAsync` 只回 `false`）。依 aspnetcore 原始碼，內建 Health Check 服務會以 Error 記錄 check 結果，逾時情境會含完整堆疊，其他情況通常不含例外；EF Core 的連線錯誤在 `errorsExpected` 路徑可能降為 Debug，預設等級下看不到。因此預設等級下只知道探測失敗，不一定知道原因。這是為了簡單而接受的取捨，實際輸出在 3.1 確認。若日誌含主機名稱，屬內部資訊可接受；密碼不得出現，由 HC-LOG-FAILURE-NO-PASSWORD 以專用標記密碼驗證。
 
 ### 決策 6：以 `UseWhen` 將探測端點排除於 HTTPS 轉址之外
 
@@ -146,13 +148,13 @@ Testing 環境不執行 seeder，預期 DB 不可連線時 host 仍可啟動；�
 
 ## Risks / Trade-offs
 
-- **`/health/ready` 匿名且不限流，大量併發請求可能佔滿 DB 連線池，讓業務請求排隊或逾時** → 2 秒逾時只限制單次檢查，不限制頻率或併發；web 的 proxy 只轉送 `/api`，但這不涵蓋直接連到 api 的來源。本次不實作來源限制，因為入口與網路設定屬於後續部署 change，改由下列上線 gate 約束：
+- **`/health/ready` 匿名且不限流，大量併發請求各自建立實體連線，可能耗盡 PostgreSQL 的 `max_connections`，讓業務請求連不上 DB** → 2 秒逾時只限制單次檢查，不限制頻率或併發；web 的 proxy 只轉送 `/api`，但這不涵蓋直接連到 api 的來源。本次不實作來源限制，因為入口與網路設定屬於後續部署 change，改由下列上線 gate 約束：
   - **可信來源**：部署平台的探針（K8s 為 kubelet，從節點發出）與維運人員。其他叢集內工作負載不因位於叢集內就視為可信。
   - **上線 gate**：K8s 或 compose／VPS 部署前，須以入口控制、NetworkPolicy 或等效機制，只讓可信來源存取這兩個路徑，並實測不可信來源確實無法連到；未完成前，MUST NOT 讓 api 暴露給不受信任的網路或工作負載。規則須放行探針來源。
   - **實測原因**：NetworkPolicy 是否生效取決於 CNI，Docker Desktop 尚未確認；K8s 的 `NodePort` 與 compose 未綁定 `127.0.0.1` 的 port 發布（`docker-compose.yml` 的 `API_HOST_PORT`）都會繞過「僅內部可達」的假設。
   - **必要驗收**：部署 change 的提案 MUST 將來源限制的設定列為 task，並將以下三項列為 AC 與驗證 task：探針來源可達且 Pod 能 Ready、維運來源可達、不可信 workload 與外部來源不可達。缺少任一項的部署提案不得進入實作。
   - **追蹤與限制**：repo 目前沒有 `k8s/`、production compose 或部署 change，本 change 沒有可設定或實測的部署拓樸，也無法以程式阻止未受保護的部署；gate 在部署 change 建立前只是流程約束。tasks 5.1 將 gate 與必要驗收寫入 `docs/k8s-todo.md` 第 1 項與「驗收方向」，後者是部署提案細化 AC 的來源；VPS 部署提案同樣適用。K8s 與 VPS 共用的前置條件彙整於 `docs/deployment-prerequisites.md`。
-- **連線池耗盡時 ready 逾時，高負載下 Pod 可能被移出 Service 並加重其他 Pod 負載** → K8s change 設定探針時應使用大於 1 的 `failureThreshold`，並在壓測時觀察。本次不處理。
+- **DB 連線數耗盡時 ready 失敗，高負載下 Pod 可能被移出 Service 並加重其他 Pod 負載** → K8s change 設定探針時應使用大於 1 的 `failureThreshold`，並在壓測時觀察。本次不處理。
 - **DB 故障期間，每次探測都產生 Error 日誌** → 接受。這是真實故障訊號，頻率由探針週期決定。
 - **Redis 故障時 captcha 失敗，探針看不出來** → 已接受（決策 2）。
 - **`GlobalExceptionHandler` 不遮蔽例外內容，若未預期例外的訊息本身含密碼會被記錄** → 既有的全站缺口，非本次引入，也不限於探測端點。本次只驗證探測流程不帶入密碼，以及真實 DB 失敗不外洩；使用者已核准限期例外，全站遮蔽須在正式部署 K8s 前以獨立 change 完成，待辦記於 `docs/exception-log-masking-todo.md`。
