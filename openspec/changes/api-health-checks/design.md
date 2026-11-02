@@ -47,6 +47,12 @@ live 不檢查任何相依，因為重啟行程修不好外部故障。以 tag �
 
 是否真的能中斷 Npgsql 的連線流程，以 HC-READY-TIMEOUT 實測，並在 GREEN 後暫時移除 timeout 確認測試會失敗（tasks 2.2）。
 
+實測結果（apply 階段）：端點接受 TCP 但不回應時，只傳 token 給 `CanConnectAsync` 不會中斷，`/health/ready` 花 15 秒，等於 Npgsql 預設的連線 Timeout；內建服務會等 check 回傳，所以 registration 的逾時沒有實際效果。曾嘗試 `CanConnectAsync(cancellationToken).WaitAsync(cancellationToken)` 放棄等待，但 scope 釋放 `DbContext` 時連線仍在進行，拋出 `InvalidOperationException: Can't close, connection is in state Connecting`，回應變成 500，所以不採用。
+
+因此 check 在呼叫 `CanConnectAsync` 前，以 `Database.SetConnectionString` 為這次檢查的 `DbContext` 設定 `Timeout`，值與 registration 共用常數 `DatabaseReadinessHealthCheck.TimeoutSeconds`。內建服務每次檢查建立獨立 scope，所以全域連線字串與其他 DB 操作不受影響。實際結束等待的是 Npgsql 的連線 Timeout；registration 的 timeout 保留，負責取消傳入的 token，兩者同為 2 秒。
+
+已接受的取捨：連線字串不同，Npgsql 會為探測另建一個連線池，正常時最多多保留少量閒置連線。
+
 ### 決策 4：使用內建 response writer
 
 內建預設 writer 只輸出整體狀態文字，預設狀態碼對應為 Healthy／Degraded → 200、Unhealthy → 503。本次沒有 Degraded 來源。不自訂 writer，不加入 JSON 明細，因為端點匿名，明細會暴露內部資訊。

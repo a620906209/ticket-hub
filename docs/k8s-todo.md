@@ -1,6 +1,6 @@
 # K8s 部署待辦（2026-10-28）
 
-狀態：**尚未開始**。目前沒有雲端部署環境，先以 Docker Desktop 內建 K8s（kubeadm 模式）在本機驗證 manifest。部署到共享 VPS 的另一條線見記憶 `project_cloud_deploy_deferred`；VPS 剩餘記憶體約 858MB，跑不動 K8s 控制平面，因此 VPS 部署仍以 compose 為準。
+狀態：**尚未開始**。目前沒有雲端部署環境，先以 Docker Desktop 內建 K8s（kubeadm 模式）在本機驗證 manifest。部署到共享 VPS 的另一條線與所有部署的前置條件見 `docs/deployment-prerequisites.md`；VPS 剩餘記憶體約 858MB，跑不動 K8s 控制平面，因此 VPS 部署仍以 compose 為準。
 
 ## 目標與定位
 
@@ -22,9 +22,13 @@
 
 ### 1. api 新增健康檢查 endpoint
 
-- 內容：`/health/live`（行程存活）與 `/health/ready`（DB、Redis 等相依就緒）。
+- 由 `api-health-checks` change 處理。
+- 內容：`/health/live`（行程存活，不檢查相依）與 `/health/ready`（只檢查 DB）。
+- 只檢查 DB 的理由：Redis 故障不應讓所有 Pod 移出 Service。已接受的取捨：Redis 故障時需要 captcha 的流程仍會失敗，這不由探針反映。
 - 原因：`src` 內沒有任何 `MapHealthChecks` / `AddHealthChecks`，K8s 的 readiness / liveness 探針沒有可探測的路徑；compose 的 k6 也註記「api 沒有 healthcheck」。
 - 需補 spec，並依 TDD 流程撰寫測試。
+- 前置條件：正式部署前須完成 `docs/exception-log-masking-todo.md` 的遮蔽 change（`api-health-checks` design「已核准的安全規則例外」）。
+- 上線 gate：K8s 或 compose／VPS 部署前，須只讓可信來源（部署平台探針、維運人員）存取 `/health/live` 與 `/health/ready`；規則須放行探針來源，並實測不可信來源無法連到。未完成前不得讓 api 暴露給不受信任的網路或工作負載（`api-health-checks` design Risks）。
 
 ### 2. Secret 與 ConfigMap 分流
 
@@ -74,3 +78,5 @@
 - 瀏覽器開啟 web，完成登入 → 瀏覽活動 → 下單 → 付款的主流程。
 - 刪除 api Pod 後自動重建，服務恢復；滾動更新期間請求不中斷。
 - Secret 值不出現在版控與 log 中。
+- 健康檢查端點已設定來源限制：探針來源可達並使 Pod Ready、維運來源可達、不可信 workload 與外部來源不可達。VPS（compose）部署提案同樣適用。
+- 例外日誌遮蔽 change（`docs/exception-log-masking-todo.md`）已完成。

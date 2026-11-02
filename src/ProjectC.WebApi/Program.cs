@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -74,6 +75,7 @@ using ProjectC.Infrastructure.Tickets;
 using ProjectC.WebApi.BackgroundServices;
 using ProjectC.WebApi.Common;
 using ProjectC.WebApi.ExceptionHandling;
+using ProjectC.WebApi.HealthChecks;
 using ProjectC.WebApi.Logging;
 using ProjectC.WebApi.OpenApi;
 
@@ -482,6 +484,11 @@ try
         }
     });
 
+    // readiness 只檢查 DB：Redis 是所有 Pod 共用的相依，納入判定會把可降級的功能變成全站中斷
+    // （api-health-checks design.md 決策 2）。
+    builder.Services.AddHealthChecks()
+        .AddCheck<DatabaseReadinessHealthCheck>("database", tags: [HealthCheckPaths.ReadyTag], timeout: TimeSpan.FromSeconds(DatabaseReadinessHealthCheck.TimeoutSeconds));
+
     var app = builder.Build();
 
     // RateLimitingOptions 沒有 ValidateOnStart()，這裡強制在啟動時觸發一次 IOptions<T>.Value 解析，
@@ -526,17 +533,32 @@ try
     // logger（只有 Console，沒有 Seq、沒有 appsettings 的等級設定），實測發現、非文件假設。
     // 明確指定為 DI 解析出來的 Serilog.ILogger（UseSerilog 一律會註冊，不受 preserveStaticLogger
     // 影響），才是這次 host 真正建置出來的那個 Logger。
-    app.UseSerilogRequestLogging(options => options.Logger = app.Services.GetRequiredService<Serilog.ILogger>());
+    app.UseSerilogRequestLogging(options =>
+    {
+        options.Logger = app.Services.GetRequiredService<Serilog.ILogger>();
+        options.GetLevel = ProbeRequestLogLevel.GetLevel;
+    });
 
     app.UseExceptionHandler();
 
-    app.UseHttpsRedirection();
+    // 平台探針以 HTTP 直連，被轉址後探測結果就不再反映實際狀態（api-health-checks design.md 決策 6）。
+    app.UseWhen(
+        context => !HealthCheckPaths.IsProbePath(context.Request.Path),
+        branch => branch.UseHttpsRedirection());
 
     app.UseAuthentication();
     app.UseAuthorization();
     app.UseRateLimiter();
 
     app.MapControllers();
+
+    // 明確停用限流：不依賴「目前沒有 GlobalLimiter」這個現況（api-health-checks design.md 決策 8）。
+    app.MapHealthChecks(HealthCheckPaths.Live, new HealthCheckOptions { Predicate = _ => false })
+        .AllowAnonymous()
+        .DisableRateLimiting();
+    app.MapHealthChecks(HealthCheckPaths.Ready, new HealthCheckOptions { Predicate = registration => registration.Tags.Contains(HealthCheckPaths.ReadyTag) })
+        .AllowAnonymous()
+        .DisableRateLimiting();
 
     app.Run();
 }

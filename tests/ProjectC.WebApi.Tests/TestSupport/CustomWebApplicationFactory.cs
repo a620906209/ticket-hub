@@ -45,6 +45,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
     // PurchaseQueueAdmissionServiceLeaderElectionTests 這類本已對排程延遲敏感的計時測試更容易 flaky）。
     protected virtual bool NeedsWorkingRedis => true;
 
+    // 子類別需要以測試容器連線為基礎改寫 host 連線字串時使用（例如改成不存在的資料庫名稱）。
+    protected string TestDatabaseConnectionString => _connectionString;
+
     public CustomWebApplicationFactory()
     {
         var dbBuilder = new PostgreSqlBuilder("postgres:16-alpine")
