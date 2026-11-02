@@ -146,11 +146,11 @@
 - [x] 6.2 執行全套測試：`docker compose exec api dotnet test`，確認沒有回歸，尤其是日誌與 HTTPS 相關測試。
   - TDD：N/A，回歸驗證。
   - 完成紀錄（每個測試專案的摘要行原文；失敗則列出每個測試名稱與訊息）：
-    - `Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, Duration: 105 ms - ProjectC.Domain.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, Duration: 114 ms - ProjectC.Domain.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:   527, Skipped:     0, Total:   527, Duration: 1 s - ProjectC.Application.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:    38, Skipped:     0, Total:    38, Duration: 9 s - ProjectC.LoadTest.Seeder.Tests.dll (net10.0)`
-    - `Passed!  - Failed:     0, Passed:   260, Skipped:     0, Total:   260, Duration: 50 s - ProjectC.Infrastructure.Tests.dll (net10.0)`
-    - `Passed!  - Failed:     0, Passed:   589, Skipped:     0, Total:   589, Duration: 2 m 52 s - ProjectC.WebApi.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   260, Skipped:     0, Total:   260, Duration: 1 m 21 s - ProjectC.Infrastructure.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   589, Skipped:     0, Total:   589, Duration: 3 m 22 s - ProjectC.WebApi.Tests.dll (net10.0)`
 
 - [x] 6.3 實機驗證：在 compose 環境從容器內呼叫兩個端點，確認皆為 200 且內容為 `Healthy`；`docker compose stop db` 後確認 ready 為 503、live 為 200；再 `docker compose start db` 確認 ready 恢復 200。
   - TDD：N/A，補充驗證真實容器環境；自動化行為由 2.x 涵蓋。
@@ -236,18 +236,34 @@
 - [x] 7.4 探測日誌等級與路徑比對的單元測試（第 3 輪對抗式審查：這些 mutation 原本沒有測試失敗）。
   - TDD：既有實作已符合，以暫時改動正式程式碼取代 RED；不是核心業務邏輯。未處理：`CanConnectAsync` 改傳 `CancellationToken.None` 時行為測試仍過，2 秒上限由連線 Timeout 維持，觀察不到行為差異。
   - 完成紀錄：
-    暫時改動（`statusCode < 500`、Live 改 `Ordinal`、Ready 改 `StartsWithSegments("/health")`）時：
-    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.IsProbePath_WhenPathIsNotExactProbePath_ReturnsFalse(path: "/health/foo") [27 ms]
-    Expected HealthCheckPaths.IsProbePath(path) to be False, but found True.
-    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.IsProbePath_WhenPathIsNotExactProbePath_ReturnsFalse(path: "/health") [3 ms]
-    Expected HealthCheckPaths.IsProbePath(path) to be False, but found True.
-    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.IsProbePath_WhenPathIsNotExactProbePath_ReturnsFalse(path: "/health/live/") [2 ms]
-    Expected HealthCheckPaths.IsProbePath(path) to be False, but found True.
-    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.GetLevel_WhenProbeReturnsNonOkBelow500_ReturnsError(statusCode: 404) [6 ms]
+    每個暫時改動單獨套用，跑完以 `git checkout --` 還原再做下一個（`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~ProbeRequestLogLevelTests"`）。合併套用時 Ready 的 `StartsWithSegments` 會讓 `/Health/Live` 仍回 true，遮蔽 Live 的 `Ordinal` 改動，所以不能合併驗證。
+
+    M1 `return statusCode < 500 && exception is null`：
+    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.GetLevel_WhenProbeReturnsNonOkBelow500_ReturnsError(statusCode: 404) [26 ms]
     Expected ProbeRequestLogLevel.GetLevel(httpContext, 1, null) to be LogEventLevel.Error {value: 4}, but found LogEventLevel.Debug {value: 1}.
     Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.GetLevel_WhenProbeReturnsNonOkBelow500_ReturnsError(statusCode: 499) [2 ms]
     Expected ProbeRequestLogLevel.GetLevel(httpContext, 1, null) to be LogEventLevel.Error {value: 4}, but found LogEventLevel.Debug {value: 1}.
-    Failed!  - Failed:     5, Passed:     2, Skipped:     0, Total:     7, Duration: 50 ms - ProjectC.WebApi.Tests.dll (net10.0)
+    Failed!  - Failed:     2, Passed:     5, Skipped:     0, Total:     7, Duration: 46 ms - ProjectC.WebApi.Tests.dll (net10.0)
+
+    M2 `path.Equals(Live, StringComparison.Ordinal)`：
+    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.IsProbePath_WhenCaseDiffers_ReturnsTrue(path: "/Health/Live") [22 ms]
+    Expected HealthCheckPaths.IsProbePath(path) to be True, but found False.
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 44 ms - ProjectC.WebApi.Tests.dll (net10.0)
+
+    M3 `path.Equals(Ready, StringComparison.Ordinal)`：
+    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.IsProbePath_WhenCaseDiffers_ReturnsTrue(path: "/HEALTH/READY") [21 ms]
+    Expected HealthCheckPaths.IsProbePath(path) to be True, but found False.
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 38 ms - ProjectC.WebApi.Tests.dll (net10.0)
+
+    M4 Ready 改 `path.StartsWithSegments("/health")`：
+    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.IsProbePath_WhenPathIsNotExactProbePath_ReturnsFalse(path: "/health/foo") [28 ms]
+    Expected HealthCheckPaths.IsProbePath(path) to be False, but found True.
+    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.IsProbePath_WhenPathIsNotExactProbePath_ReturnsFalse(path: "/health") [4 ms]
+    Expected HealthCheckPaths.IsProbePath(path) to be False, but found True.
+    Failed ProjectC.WebApi.Tests.HealthChecks.ProbeRequestLogLevelTests.IsProbePath_WhenPathIsNotExactProbePath_ReturnsFalse(path: "/health/live/") [2 ms]
+    Expected HealthCheckPaths.IsProbePath(path) to be False, but found True.
+    Failed!  - Failed:     3, Passed:     4, Skipped:     0, Total:     7, Duration: 50 ms - ProjectC.WebApi.Tests.dll (net10.0)
+
     還原後 GREEN：`Passed!  - Failed:     0, Passed:     7, Skipped:     0, Total:     7, Duration: 21 ms - ProjectC.WebApi.Tests.dll (net10.0)`。重構：N/A。
 
 ## Workflow follow-up
