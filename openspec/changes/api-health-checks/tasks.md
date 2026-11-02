@@ -179,11 +179,18 @@
 
 - [x] 7.1 預熱後 DB 凍結時維持 2 秒上限（HC-READY-TIMEOUT，第 1 輪對抗式審查發現，design 決策 3）。
   - 測試先行：`GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout`，以 `FreezableTcpProxy` 在探測成功後凍結 DB。
-  - 還原驗證（屬 bug fix；修正已 commit，`git stash` 無未提交變更可暫存，改以 `git show 18fb10e^:src/ProjectC.WebApi/HealthChecks/DatabaseReadinessHealthCheck.cs` 覆寫檔案，跑完以 `git checkout --` 還原，`git status --short` 無輸出）：
-    `Failed ProjectC.WebApi.Tests.HealthChecks.HealthReadyEndpointTests.GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout [36 s]`
-    `Expected stopwatch.Elapsed to be less than or equal to 4s, but found 34s, 19ms and 554.6µs.`
-    `Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 36 s - ProjectC.WebApi.Tests.dll (net10.0)`
-    還原修正後：`Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 4 s - ProjectC.WebApi.Tests.dll (net10.0)`
+  - 還原驗證（屬 bug fix；修正已 commit，工作樹沒有可 stash 的變更，所以先 `git reset --mixed 18fb10e^` 讓修正回到未提交狀態，只 stash 正式程式碼，測試檔保留；pop 後 `git reset --mixed 9bc041b` 回到原 HEAD，`git status --short` 與 `git stash list` 皆無輸出）：
+    $ git stash push -u -- src/ProjectC.WebApi/HealthChecks/DatabaseReadinessHealthCheck.cs
+    Saved working directory and index state WIP on feature/api-health-checks: 81153e2 實作 api-health-checks 健康檢查端點
+    $ git stash list
+    stash@{0}: WIP on feature/api-health-checks: 81153e2 實作 api-health-checks 健康檢查端點
+    Failed ProjectC.WebApi.Tests.HealthChecks.HealthReadyEndpointTests.GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout [36 s]
+    Expected stopwatch.Elapsed to be less than or equal to 4s, but found 34s, 17ms and 967.2µs.
+    Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 36 s - ProjectC.WebApi.Tests.dll (net10.0)
+    $ git stash list
+    stash@{0}: WIP on feature/api-health-checks: 81153e2 實作 api-health-checks 健康檢查端點
+    $ git stash pop
+    pop 後：`Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 4 s - ProjectC.WebApi.Tests.dll (net10.0)`
   - 完成紀錄：
     RED（`docker compose exec api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe"`，於修改正式程式碼前執行）：`GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout`：`Expected stopwatch.Elapsed to be less than or equal to 4s, but found 34s, 14ms and 587.0µs.`；`Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 36 s - ProjectC.WebApi.Tests.dll (net10.0)`
     GREEN（加上 `Pooling = false`）：`Passed!  - Failed:     0, Passed:    38, Skipped:     0, Total:    38, Duration: 34 s - ProjectC.WebApi.Tests.dll (net10.0)`。重構：N/A。
