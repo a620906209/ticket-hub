@@ -76,6 +76,16 @@ internal static class HealthEndpointTestSupport
         endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>().Should().BeNull();
     }
 
+    public static void AssertAnonymousAllowed(IServiceProvider services, string path)
+    {
+        var endpoint = services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .SingleOrDefault(candidate => candidate.RoutePattern.RawText == path);
+
+        endpoint.Should().NotBeNull($"{path} 必須已對應為端點");
+        endpoint!.Metadata.GetMetadata<Microsoft.AspNetCore.Authorization.IAllowAnonymous>().Should().NotBeNull();
+    }
+
     public static async Task AssertUnexpectedExceptionResponseAsync(HttpResponseMessage response)
     {
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);

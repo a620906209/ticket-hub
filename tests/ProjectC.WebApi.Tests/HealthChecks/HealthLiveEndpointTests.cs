@@ -123,6 +123,11 @@ public class HealthLiveEndpointTests : IClassFixture<HealthCheckWebApplicationFa
     public void HealthEndpoints_Metadata_DisableRateLimitingWithoutPolicy()
         => AssertRateLimitingExplicitlyDisabled(_factory.Services, LivePath);
 
+    // HC-ANONYMOUS：目前沒有 FallbackPolicy，只看狀態碼分不出端點是否明確允許匿名；日後加上 FallbackPolicy 時探針不得變成 401。
+    [Fact]
+    public void GetHealthLive_Metadata_AllowAnonymous()
+        => AssertAnonymousAllowed(_factory.Services, LivePath);
+
     // HC-BODY-EXCEPTION
     [Fact]
     public async Task GetHealthLive_WhenHealthCheckServiceThrows_ReturnsGenericProblemDetails()

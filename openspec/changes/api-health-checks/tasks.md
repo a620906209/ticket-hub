@@ -146,11 +146,11 @@
 - [x] 6.2 執行全套測試：`docker compose exec api dotnet test`，確認沒有回歸，尤其是日誌與 HTTPS 相關測試。
   - TDD：N/A，回歸驗證。
   - 完成紀錄（每個測試專案的摘要行原文；失敗則列出每個測試名稱與訊息）：
-    - `Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, Duration: 96 ms - ProjectC.Domain.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, Duration: 93 ms - ProjectC.Domain.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:   527, Skipped:     0, Total:   527, Duration: 1 s - ProjectC.Application.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:    38, Skipped:     0, Total:    38, Duration: 9 s - ProjectC.LoadTest.Seeder.Tests.dll (net10.0)`
-    - `Passed!  - Failed:     0, Passed:   260, Skipped:     0, Total:   260, Duration: 51 s - ProjectC.Infrastructure.Tests.dll (net10.0)`
-    - `Passed!  - Failed:     0, Passed:   579, Skipped:     0, Total:   579, Duration: 2 m 52 s - ProjectC.WebApi.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   260, Skipped:     0, Total:   260, Duration: 50 s - ProjectC.Infrastructure.Tests.dll (net10.0)`
+    - `Passed!  - Failed:     0, Passed:   582, Skipped:     0, Total:   582, Duration: 2 m 49 s - ProjectC.WebApi.Tests.dll (net10.0)`
 
 - [x] 6.3 實機驗證：在 compose 環境從容器內呼叫兩個端點，確認皆為 200 且內容為 `Healthy`；`docker compose stop db` 後確認 ready 為 503、live 為 200；再 `docker compose start db` 確認 ready 恢復 200。
   - TDD：N/A，補充驗證真實容器環境；自動化行為由 2.x 涵蓋。
@@ -164,13 +164,13 @@
   - TDD：N/A，已核准的替代驗證。
   - 檢查一：`git grep -nE --untracked "IConnectionMultiplexer|IDatabase\b|IDistributedLock|IQueryCache|HttpClient|Seq|Redis" -- src/ProjectC.WebApi/HealthChecks`，須無輸出（exit code 1）。
   - 檢查二：`git diff master -- src/ProjectC.WebApi/Program.cs` 中，新增的 `Use`、`Map`、`Run`、`ResponseWriter` 行只能是兩個 `MapHealthChecks`，以及排除 HTTPS 轉址的 `UseWhen` 與其內的 `UseHttpsRedirection`；有其他新增即不通過。
-  - 檢查三：`DatabaseReadinessHealthCheck` 的建構子只依賴 `ApplicationDbContext`，`CheckHealthAsync` 除了為本次檢查設定連線 `Timeout`（design.md 決策 3）之外，只呼叫 `CanConnectAsync`。
+  - 檢查三：`DatabaseReadinessHealthCheck` 的建構子只依賴 `ApplicationDbContext`，`CheckHealthAsync` 除了為本次檢查設定連線 `Timeout` 與 `Pooling`（design.md 決策 3）之外，只呼叫 `CanConnectAsync`。
   - 失敗情境驗證：在 `DatabaseReadinessHealthCheck` 暫時加入 `IConnectionMultiplexer` 欄位，確認檢查一有輸出；在 `Program.cs` 暫時加入一個 `app.Use`，確認檢查二不通過；還原後重跑三項。
   - `strict-reviewer` 須核對完整探測路徑（管線、端點對應與 `DatabaseReadinessHealthCheck`）符合以上三項，不得只確認檢查命令的字面結果。
   - 完成紀錄（三項檢查與失敗情境的輸出原文、還原後結果、strict-reviewer 結論）：
     - 檢查一：無輸出，`check1 exit=1`。
     - 檢查二：新增行為 `app.UseWhen(`、`branch => branch.UseHttpsRedirection());`、兩個 `app.MapHealthChecks(...)`，另有 `app.UseSerilogRequestLogging(options =>`：這是既有呼叫改為多行以加入 `GetLevel`，不是新增 middleware。
-    - 檢查三：建構子只依賴 `ApplicationDbContext`；`CheckHealthAsync` 除設定連線 `Timeout` 外只呼叫 `CanConnectAsync`。
+    - 檢查三：建構子只依賴 `ApplicationDbContext`；`CheckHealthAsync` 除設定連線 `Timeout` 與 `Pooling` 外只呼叫 `CanConnectAsync`。
     - 失敗情境：加入欄位後檢查一輸出 `src/ProjectC.WebApi/HealthChecks/DatabaseReadinessHealthCheck.cs:14:    private readonly StackExchange.Redis.IConnectionMultiplexer _x = null!;`，`exit=0`；加入 `app.Use` 後檢查二多出 `+    app.Use((context, next) => next());`，不通過。
     - 還原後：檢查一無輸出，`exit=1`。
     - strict-reviewer 結論：見審查迴圈，完成後補上。
@@ -183,8 +183,21 @@
   - 完成紀錄：
     RED（`docker compose exec api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe"`，於修改正式程式碼前執行）：`GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout`：`Expected stopwatch.Elapsed to be less than or equal to 4s, but found 34s, 14ms and 587.0µs.`；`Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 36 s - ProjectC.WebApi.Tests.dll (net10.0)`
     GREEN（加上 `Pooling = false`）：`Passed!  - Failed:     0, Passed:    38, Skipped:     0, Total:    38, Duration: 34 s - ProjectC.WebApi.Tests.dll (net10.0)`。重構：N/A。
+- [x] 7.2 HC-READY-DNS-FAILURE：名稱無法解析時回 503（第 2 輪對抗式審查，design 決策 3 收窄 2 秒上限）。
+  - TDD：N/A，規格收窄後補的既有行為驗證，正式程式碼未修改，沒有 RED。
+  - 完成紀錄：見下方 7.3 的 GREEN。
+
+- [x] 7.3 兩個端點的匿名 metadata 測試（HC-ANONYMOUS，第 2 輪對抗式審查：移除 `.AllowAnonymous()` 時現有測試全過）。
+  - TDD：既有實作已符合，以暫時移除 `.AllowAnonymous()` 取代 RED；不是核心業務邏輯。
+  - 完成紀錄：
+    移除時：
+    Expected endpoint!.Metadata.GetMetadata<Microsoft.AspNetCore.Authorization.IAllowAnonymous>() not to be <null>.
+    Failed ProjectC.WebApi.Tests.HealthChecks.HealthLiveEndpointTests.GetHealthLive_Metadata_AllowAnonymous [2 ms]
+    Failed ProjectC.WebApi.Tests.HealthChecks.HealthReadyEndpointTests.GetHealthReady_Metadata_AllowAnonymous [6 ms]
+    Failed!  - Failed:     2, Passed:    39, Skipped:     0, Total:    41, Duration: 38 s - ProjectC.WebApi.Tests.dll (net10.0)
+    還原後 GREEN：`Passed!  - Failed:     0, Passed:    41, Skipped:     0, Total:    41, Duration: 38 s - ProjectC.WebApi.Tests.dll (net10.0)`。重構：N/A。
 
 ## Workflow follow-up
 
-- 實作後執行 `graphify update .`。
+- [x] 實作後執行 `graphify update .`。
 - 沒有前端變更，不需瀏覽器驗證。

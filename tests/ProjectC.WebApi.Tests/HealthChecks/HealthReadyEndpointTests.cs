@@ -63,6 +63,21 @@ public class HealthReadyEndpointTests : IClassFixture<HealthCheckWebApplicationF
             });
     }
 
+    // HC-READY-DNS-FAILURE
+    [Fact]
+    public async Task GetHealthReady_WhenDatabaseHostCannotBeResolved_ReturnsServiceUnavailable()
+    {
+        await RunWithFactoryAsync(
+            factory => factory.HostConnectionString =
+                "Host=projectc-db-host.invalid;Database=projectc_tests;Username=projectc_tests;Password=projectc_tests",
+            async factory =>
+            {
+                var response = await factory.CreateClient().GetAsync(ReadyPath);
+
+                response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+            });
+    }
+
     // HC-READY-TIMEOUT：運作中的 Pod 遇到 DB 凍結是最常見的情況，此時若重用池中的閒置連線，連線 Timeout 不起作用。
     [Fact]
     public async Task GetHealthReady_WhenDatabaseFreezesAfterSuccessfulProbe_ReturnsServiceUnavailableWithinTimeout()
@@ -233,6 +248,11 @@ public class HealthReadyEndpointTests : IClassFixture<HealthCheckWebApplicationF
     [Fact]
     public void HealthEndpoints_Metadata_DisableRateLimitingWithoutPolicy()
         => AssertRateLimitingExplicitlyDisabled(_factory.Services, ReadyPath);
+
+    // HC-ANONYMOUS：目前沒有 FallbackPolicy，只看狀態碼分不出端點是否明確允許匿名；日後加上 FallbackPolicy 時探針不得變成 401。
+    [Fact]
+    public void GetHealthReady_Metadata_AllowAnonymous()
+        => AssertAnonymousAllowed(_factory.Services, ReadyPath);
 
     // HC-BODY-EXCEPTION
     [Fact]

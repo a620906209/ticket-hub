@@ -28,7 +28,7 @@
 - **THEN** 系統回傳 HTTP 200，且沒有任何已註冊的健康檢查被執行
 
 ### Requirement: 就緒探測只依資料庫判定
-`GET /health/ready` SHALL 只以資料庫連線能力判定就緒：2 秒內確認可連線時回傳 HTTP 200；連線失敗或超過 2 秒未完成時回傳 HTTP 503。Redis 與 Seq 的狀態 MUST NOT 影響此端點的結果。
+`GET /health/ready` SHALL 只以資料庫連線能力判定就緒：2 秒內確認可連線時回傳 HTTP 200；連線失敗或超過 2 秒未完成時回傳 HTTP 503。2 秒上限不包含資料庫主機名稱解析的時間；名稱解析失敗時仍 MUST 回傳 HTTP 503。Redis 與 Seq 的狀態 MUST NOT 影響此端點的結果。
 
 #### Scenario: HC-READY-HEALTHY 資料庫可連線時回報就緒
 - **WHEN** 資料庫可連線，呼叫端發出 `GET /health/ready`
@@ -40,6 +40,10 @@
 
 #### Scenario: HC-READY-DB-MISSING 目標資料庫不存在時回報未就緒
 - **WHEN** 資料庫伺服器可連線但目標資料庫不存在，呼叫端發出 `GET /health/ready`
+- **THEN** 系統回傳 HTTP 503
+
+#### Scenario: HC-READY-DNS-FAILURE 資料庫主機名稱無法解析時回報未就緒
+- **WHEN** 資料庫主機名稱無法解析，呼叫端發出 `GET /health/ready`
 - **THEN** 系統回傳 HTTP 503
 
 #### Scenario: HC-READY-TIMEOUT 資料庫無回應時於逾時後回報未就緒
