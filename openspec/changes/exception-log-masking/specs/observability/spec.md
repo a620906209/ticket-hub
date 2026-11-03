@@ -96,3 +96,11 @@
 #### Scenario: OBS-EXMASK-020 超長例外文字的超出部分不輸出
 - **WHEN** 例外文字長度超過 64 KB，且 64 KB 之後的位置含 `Password=s3cret-pw`
 - **THEN** 輸出不含 `s3cret-pw`，且結尾含固定的截斷標記
+
+#### Scenario: OBS-EXMASK-021 JWT 跨越 64 KB 邊界時不輸出任何片段
+- **WHEN** 例外文字長度超過 64 KB，其中一個 JWT 起於 64 KB 邊界之前、延伸到邊界之後
+- **THEN** 輸出不含該 JWT 的任何連續 10 個以上字元的片段，且結尾含固定的截斷標記
+
+#### Scenario: OBS-EXMASK-022 含空白密碼被 64 KB 邊界切斷時不輸出任何片段
+- **WHEN** 例外文字長度超過 64 KB，且 `Password=my s3cret pw` 被 64 KB 邊界切在中間
+- **THEN** 輸出不含 `my`、`s3cret`、`pw` 三段中任何一段緊接在 `Password=` 之後的內容，且結尾含固定的截斷標記

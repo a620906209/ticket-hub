@@ -63,7 +63,7 @@
 | JWT | `eyJ` 開頭的三段式字串 |
 | `scheme://user:password@host` | 只換 password 段 |
 
-Regex 一律 `IgnoreCase | CultureInvariant`，並設定 match timeout（100 ms）。輸入長度上限 64 KB：超過時只對前 64 KB 做遮蔽並在尾端附加固定截斷標記，整段不輸出超出部分，避免未遮蔽的尾段外洩。規則不使用巢狀量詞。
+Regex 一律 `IgnoreCase | CultureInvariant`，並設定 match timeout（100 ms）。輸入長度上限 64 KB：超過時先取前 64 KB，再退回到其中最後一個分隔字元（空白、換行、`;`、`,`、引號）之前，丟棄尾端殘段；若前 64 KB 內沒有任何分隔字元則整段丟棄。對保留部分做遮蔽後，在尾端附加固定截斷標記，超出部分一律不輸出。退回分隔字元的理由：JWT、Bearer token 等格式需完整比對，邊界切開的殘段不會命中 regex，直接輸出會外洩前綴；退回後殘段不會輸出，而保留部分尾端若是 `Password=my` 這類未閉合的值，會被「無引號 Password 值到分號或行尾」的規則遮蔽。規則不使用巢狀量詞。
 
 key 比對允許可選的前綴詞與引號（涵蓋 `access_token`、`client_secret`、`api_key`、JSON 的 `"password":"x"`）。無引號的 `Password`／`Pwd` 值取到 `;` 或行尾（連線字串允許未加引號的空白）；其他 key 的無引號值以空白、`;`、`,`、`&`、`)`、引號為終止。理由：例外文字可能來自外部輸入（例如請求參數反映在訊息中），要避免 regex 被惡意輸入拖成 ReDoS；timeout 命中走決策 4 的 fail-safe。
 
@@ -71,7 +71,7 @@ key 比對允許可選的前綴詞與引號（涵蓋 `access_token`、`client_se
 
 ### 決策 4：遮蔽失敗改輸出只含型別的占位文字
 
-遮蔽過程擲出任何例外（含 `RegexMatchTimeoutException`）時，捕捉後以 `MaskedException` 承載「型別名稱 + 固定占位說明」，不含原始訊息與堆疊，照常轉發；同時向內層另送一筆固定範本的 Warning（`Exception masking failed for {ExceptionType}`，不帶例外文字），可被 Seq 查詢也可測試。不用 `SelfLog`：它是 process 全域且預設未啟用，專案內也沒有啟用，production 不會有獨立訊號。不重擲：Serilog 本身會吞 sink 例外，重擲只會讓該筆日誌消失，且呼叫端無從得知。
+遮蔽過程擲出任何例外（含 `RegexMatchTimeoutException`）時，捕捉後以 `MaskedException` 承載「只含原例外型別名稱」的文字，不含原始訊息、堆疊與其他說明文字，照常轉發；同時向內層另送一筆固定範本的 Warning（`Exception masking failed for {ExceptionType}`，不帶例外文字），可被 Seq 查詢也可測試。不用 `SelfLog`：它是 process 全域且預設未啟用，專案內也沒有啟用，production 不會有獨立訊號。不重擲：Serilog 本身會吞 sink 例外，重擲只會讓該筆日誌消失，且呼叫端無從得知。
 
 這是專案「禁止吞例外」規則下的明確例外邏輯：捕捉後有處理（降級輸出）與記錄（固定範本 Warning），不是靜默失敗。取得文字（`exception.ToString()`，自訂例外的 `Message` 可能擲例外）也在 try 範圍內。
 

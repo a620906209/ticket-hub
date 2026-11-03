@@ -8,7 +8,7 @@
 | OBS-EXMASK-002 | 4.2 |
 | OBS-EXMASK-003 | 3.1 |
 | OBS-EXMASK-004 | 3.1 |
-| OBS-EXMASK-005 ~ 008、017 ~ 020 | 2.1 |
+| OBS-EXMASK-005 ~ 008、017 ~ 022 | 2.1 |
 | OBS-EXMASK-009 | 2.1、3.1 |
 | OBS-EXMASK-010 | 3.1 |
 | OBS-EXMASK-011 | 3.1 |
@@ -31,7 +31,7 @@
 
 ## 2. 敏感文字遮蔽器
 
-- [ ] 2.1 TDD（Scenario 005～009）：先建立 `SensitiveTextMasker.Mask(string)` 骨架（原樣回傳），再新增測試：`Pwd=`／`Password=` 保留 key 並遮值（含單雙引號包住的值）、Bearer 與 JWT、`redis://user:pw@host` 只換密碼段、`apikey=`／`SECRET:`／`Token=` 不分大小寫、不含敏感格式的文字完全不變、`Server=db;Port=5432` 等相鄰欄位原樣保留。預期 RED：斷言輸出不含 `s3cret-pw` 失敗，實際輸出仍含明文。另含：`Password: s3cret-pw`（Scenario 017）；JSON 與前綴 key（Scenario 018）；含空白的連線字串密碼（Scenario 019）；超過 64 KB 的文字，64 KB 之後的明文不輸出且結尾含截斷標記（Scenario 020）；公開的格式清單中每條 regex 的 `MatchTimeout` 皆不是 `Regex.InfiniteMatchTimeout` 且不大於 100 ms；以確定性的病態輸入（針對本清單實際 regex 構造，實作時於 design 補上案例）呼叫 `Mask`，以 `Stopwatch` 斷言在上限內回傳或擲 `RegexMatchTimeoutException`。最小實作使其通過；格式清單集中為單一有序清單（以唯讀集合公開供測試檢查），每條 regex 設 match timeout。驗證：該測試類別全數通過。
+- [ ] 2.1 TDD（Scenario 005～009）：先建立 `SensitiveTextMasker.Mask(string)` 骨架（原樣回傳），再新增測試：`Pwd=`／`Password=` 保留 key 並遮值（含單雙引號包住的值）、Bearer 與 JWT、`redis://user:pw@host` 只換密碼段、`apikey=`／`SECRET:`／`Token=` 不分大小寫、不含敏感格式的文字完全不變、`Server=db;Port=5432` 等相鄰欄位原樣保留。預期 RED：斷言輸出不含 `s3cret-pw` 失敗，實際輸出仍含明文。另含：`Password: s3cret-pw`（Scenario 017）；JSON 與前綴 key（Scenario 018）；含空白的連線字串密碼（Scenario 019）；超過 64 KB 的文字，64 KB 之後的明文不輸出且結尾含截斷標記（Scenario 020）；敏感值跨越 64 KB 邊界：JWT 起於邊界前、延伸到邊界後，以及含空白的 `Password=my s3cret pw` 被邊界切在中間，輸出都不含該 JWT 的任何片段、不含 `my`／`s3cret`／`pw` 的任何一段，且結尾含截斷標記（Scenario 021、022）；公開的格式清單中每條 regex 的 `MatchTimeout` 皆不是 `Regex.InfiniteMatchTimeout` 且不大於 100 ms；以確定性的病態輸入（針對本清單實際 regex 構造，實作時於 design 補上案例）呼叫 `Mask`，以 `Stopwatch` 斷言在上限內回傳或擲 `RegexMatchTimeoutException`。最小實作使其通過；格式清單集中為單一有序清單（以唯讀集合公開供測試檢查），每條 regex 設 match timeout。驗證：該測試類別全數通過。
   - RED 紀錄（命令、失敗測試名稱與 Expected／Actual 原文，需標明在修改正式程式碼前）：
   - GREEN 紀錄：
   - 重構後重跑紀錄（或 N/A）：
