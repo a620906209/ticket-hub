@@ -11,9 +11,9 @@
 ## What Changes
 
 - 在 Serilog 管線最外層加入遮蔽層：所有 sink（Console、Seq、測試用記憶體 sink）收到的 `LogEvent`，其例外已先遮蔽。
-- 遮蔽對象為例外的完整文字（`Message`、`InnerException` 鏈、`AggregateException` 內層）；例外型別名稱與堆疊原樣保留。
+- 遮蔽對象為例外的完整文字（`Message`、`InnerException` 鏈、`AggregateException` 內層）；例外型別名稱與堆疊原樣保留（文字不超過 64 KB 時）；超過 64 KB 時只保證開頭 32 KB 內的型別與訊息、結尾 32 KB 內的堆疊，見 design.md。
 - 遮蔽四類格式：連線字串 `Password=`／`Pwd=`、Bearer／JWT、`scheme://user:pass@host`、`ApiKey`／`Secret`／`Token` 的 `key=value`。命中後值換成 `***`，key 保留。格式清單集中在單一位置。
-- 例外文字沒有任何命中時，`LogEvent` 原樣通過，不替換例外物件，降低對既有行為與測試的影響。
+- 例外文字不超過 64 KB 且沒有任何命中時，`LogEvent` 原樣通過（超過 64 KB 一律依截斷政策處理，見 design.md），不替換例外物件，降低對既有行為與測試的影響。
 - 收尾文件：`docs/deployment-prerequisites.md` 第 2 項與 `docs/exception-log-masking-todo.md` 標為已完成；`api-health-checks` 的限期例外因此失效。
 
 不做：不改 500 回應本文、不遮蔽日誌訊息範本的屬性值、不修改現有各處 log 呼叫。

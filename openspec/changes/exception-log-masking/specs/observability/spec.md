@@ -45,18 +45,18 @@
 - **THEN** 輸出不含 `k-123`、`k-456`、`k-789`
 
 #### Scenario: OBS-EXMASK-009 不含敏感格式的例外文字不被改動
-- **WHEN** 例外訊息不含任何上述格式（例如 `Sequence contains no elements`）
+- **WHEN** 例外訊息不含任何上述格式（例如 `Sequence contains no elements`），且例外文字長度不超過 64 KB
 - **THEN** 日誌輸出的例外文字與遮蔽前完全相同
 
 ### Requirement: 遮蔽後保留排錯所需的例外資訊
-系統 SHALL 在遮蔽後的日誌中保留原始例外的型別名稱、堆疊追蹤與內部例外鏈的層次結構，只替換命中敏感格式的值。
+系統 SHALL 在遮蔽後的日誌中保留原始例外的型別名稱、堆疊追蹤與內部例外鏈的層次結構，只替換命中敏感格式的值。例外文字超過 64 KB 時，系統 SHALL 僅保證保留文字開頭 32 KB 內的型別與訊息，以及結尾 32 KB 內的堆疊；位於中間而被省略的內部例外型別、訊息，以及被省略的內部例外鏈層數與順序，皆不在保證範圍內。本規格中的「KB」一律以 UTF-16 字元數計（1 KB ＝ 1,024 個 `string.Length` 單位），不是位元組數。
 
 #### Scenario: OBS-EXMASK-010 遮蔽後仍可辨識例外型別與堆疊
 - **WHEN** 一個 `InvalidOperationException` 的訊息含 `Password=s3cret-pw`，且該例外是從某方法拋出
 - **THEN** 日誌輸出的例外文字含 `InvalidOperationException`、該方法在堆疊中的位置，且不含 `s3cret-pw`
 
 #### Scenario: OBS-EXMASK-011 內部例外鏈的型別順序保留
-- **WHEN** 例外鏈為外層 `A` 包住內層 `B`，且 `B` 的訊息含 `Password=s3cret-pw`
+- **WHEN** 例外文字長度不超過 64 KB，例外鏈為外層 `A` 包住內層 `B`，且 `B` 的訊息含 `Password=s3cret-pw`
 - **THEN** 日誌輸出的例外文字中 `A` 的型別名稱出現在 `B` 之前，且 `B` 的型別名稱存在
 
 ### Requirement: 遮蔽失敗時不得外洩原文也不得丟失日誌
@@ -93,14 +93,22 @@
 - **WHEN** 例外訊息含 `Pool=true;Password=my s3cret pw;Port=5432`
 - **THEN** 輸出不含 `my`、`s3cret`、`pw` 這三段密碼內容，且 `Pool=true`、`Port=5432` 原樣保留
 
-#### Scenario: OBS-EXMASK-020 超長例外文字的超出部分不輸出
-- **WHEN** 例外文字長度超過 64 KB，且 64 KB 之後的位置含 `Password=s3cret-pw`
-- **THEN** 輸出不含 `s3cret-pw`，且結尾含固定的截斷標記
+#### Scenario: OBS-EXMASK-020 超長例外文字的省略部分不輸出
+- **WHEN** 例外文字長度超過 64 KB，且位於頭段與尾段之間（第 32 KB 之後、距結尾 32 KB 之前）的位置含 `Password=s3cret-pw`
+- **THEN** 輸出不含 `s3cret-pw`，且輸出含固定的截斷標記
 
-#### Scenario: OBS-EXMASK-021 JWT 跨越 64 KB 邊界時不輸出任何片段
-- **WHEN** 例外文字長度超過 64 KB，其中一個 JWT 起於 64 KB 邊界之前、延伸到邊界之後
-- **THEN** 輸出不含該 JWT 的任何連續 10 個以上字元的片段，且結尾含固定的截斷標記
+#### Scenario: OBS-EXMASK-021 JWT 跨越頭段上限時不輸出任何片段
+- **WHEN** 例外文字長度超過 64 KB，其中一個 JWT 起於頭段上限（第 32 KB）之前、延伸到其之後
+- **THEN** 輸出不含該 JWT 的任何連續 10 個以上字元的片段，且輸出含固定的截斷標記
 
-#### Scenario: OBS-EXMASK-022 含空白密碼被 64 KB 邊界切斷時不輸出任何片段
-- **WHEN** 例外文字長度超過 64 KB，且 `Password=my s3cret pw` 被 64 KB 邊界切在中間
-- **THEN** 輸出不含 `my`、`s3cret`、`pw` 三段中任何一段緊接在 `Password=` 之後的內容，且結尾含固定的截斷標記
+#### Scenario: OBS-EXMASK-022 含空白密碼被頭段上限切斷時不輸出任何片段
+- **WHEN** 例外文字長度超過 64 KB，且 `Password=my s3cret pw` 被頭段上限（第 32 KB）切在中間
+- **THEN** 輸出不含 `my`、`s3cret`、`pw` 三段中任何一段緊接在 `Password=` 之後的內容，且輸出含固定的截斷標記
+
+#### Scenario: OBS-EXMASK-023 超長訊息的例外仍保留型別與堆疊
+- **WHEN** 例外的訊息超過 64 KB，堆疊追蹤位於訊息之後，且訊息中段含 `Password=s3cret-pw`
+- **THEN** 輸出含該例外的型別名稱與堆疊中至少一個 `at ` 開頭的堆疊框架，含固定的截斷標記，且不含 `s3cret-pw`
+
+#### Scenario: OBS-EXMASK-024 含逗號的 URL 密碼被邊界切開時不輸出任何片段
+- **WHEN** 例外文字長度超過 64 KB，且 `redis://user:abc,def@cache:6379` 被頭段上限（第 32 KB）切在 `def` 中
+- **THEN** 輸出不含 `abc` 緊接在 `redis://user:` 之後的內容，且含固定的截斷標記
