@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket-Hub k6 壓測報告</title>
+<style>
+  :root { --bg: #f7f7f5; --card: #fff; --text: #1f2328; --muted: #5f6670; --line: #d8dbe0; --accent: #2f6fbf; --good: #1f6b3f; --bad: #a12a2a; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.75 "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif; }
+  .layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); max-width: 1400px; margin: 0 auto; }
+  nav { position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 24px 20px; border-right: 1px solid var(--line); font-size: 14px; line-height: 1.5; }
+  nav a { display: block; padding: 4px 0; color: var(--muted); text-decoration: none; }
+  nav a:hover { color: var(--accent); }
+  nav .group { margin: 18px 0 4px; font-weight: 700; color: var(--text); }
+  main { padding: 32px 40px 80px; min-width: 0; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 28px 32px; margin-bottom: 28px; }
+  h1 { font-size: 30px; line-height: 1.3; margin: 0 0 8px; }
+  h2 { font-size: 24px; line-height: 1.35; margin: 0 0 16px; }
+  h3 { font-size: 19px; line-height: 1.4; margin: 36px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+  h4 { font-size: 16px; line-height: 1.4; margin: 24px 0 8px; }
+  h3, h4, section { scroll-margin-top: 16px; }
+  .source { color: var(--muted); font-size: 14px; }
+  blockquote { margin: 16px 0; padding: 4px 16px; background: var(--bg); border-left: 3px solid var(--line); color: var(--muted); font-size: 15px; }
+  blockquote p { margin: 6px 0; }
+  li > p { margin: 4px 0; }
+  code { font: 0.88em Consolas, "Cascadia Mono", monospace; background: #eef0f2; padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: #eef0f2; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+  pre code { background: none; padding: 0; overflow-wrap: normal; }
+  .table { overflow-x: auto; margin: 14px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  th { background: var(--bg); white-space: nowrap; }
+  td:first-child, #overview td:nth-child(4) { white-space: nowrap; }
+  .good { color: var(--good); font-weight: 700; }
+  .bad { color: var(--bad); font-weight: 700; }
+  @media (max-width: 860px) {
+    .layout { display: block; }
+    nav { position: static; height: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
+    main { padding: 16px; }
+    section { padding: 18px 16px; }
+  }
+  @media print {
+    nav { display: none; }
+    .layout { display: block; }
+    section { border: 0; padding: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav aria-label="報告目錄">
+  <a href="#overview"><strong>總覽</strong></a>
+  <div class="group"><a href="#r0" style="color:inherit">基準報告</a></div>
+  <a href="#r0-1">結論</a>
+  <a href="#r0-2">執行環境</a>
+  <a href="#r0-3">資料表</a>
+  <a href="#r0-8">伺服器端交叉核對（與 k6 腳本無關的資料來源）</a>
+  <a href="#r0-9">exit code 與 runVerdict 核對</a>
+  <a href="#r0-10">未通過的歸因（design 決策 7 的順序）</a>
+  <a href="#r0-12">Debug／Release 差異</a>
+  <a href="#r0-13">故障注入驗證</a>
+  <a href="#r0-14">執行過程中的偏差與事故</a>
+  <a href="#r0-15">觀察（未驗證，供後續調查）</a>
+  <a href="#r0-16">判讀與限制</a>
+  <a href="#r0-17">後續</a>
+  <div class="group"><a href="#r1" style="color:inherit">第一階段優化</a></div>
+  <a href="#r1-1">1. 優化前量測（LT_MEASURE_TAG=before）</a>
+  <a href="#r1-7">2. 優化 C 之後（LT_MEASURE_TAG=after-c，座位票 1 次，不取樣）</a>
+  <a href="#r1-8">3. 優化 A 之後（LT_MEASURE_TAG=after-a，兩個 scenario 各 1 次，不取樣）</a>
+  <a href="#r1-9">4. 正式驗收（Release／Debug × 數量票／座位票各 3 次）</a>
+  <a href="#r1-15">5. 最終判定與限制</a>
+  <a href="#r1-16">6. 數量票 A/B 對照（Debug，2026-10-06）</a>
+  <div class="group"><a href="#r2" style="color:inherit">第二階段優化</a></div>
+  <a href="#r2-1">1. 起點（引用第一階段，不重量）</a>
+  <a href="#r2-2">2. B1：下單改以 FOR SHARE 鎖 Event（LT_MEASURE_TAG=after-b1-warm）</a>
+  <a href="#r2-3">3. B2：每筆下單只借一次連線（LT_MEASURE_TAG=after-b2-warm）</a>
+  <a href="#r2-4">4. 切換排隊模式延遲探測（LT_MEASURE_TAG=after-b2-probe4，B2 狀態）</a>
+  <a href="#r2-5">5. 正式驗收（Release／Debug × 數量票／座位票各 3 次）</a>
+  <a href="#r2-10">6. 最終判定與限制</a>
+</nav>
+<main>
+<section id="overview">
+<h1>Ticket-Hub k6 壓測總覽</h1>
+<p>情境：500 個虛擬使用者同時搶 50 張票。目標：Release 下 P95 &lt; 500ms、不超賣。三次正式驗收各 12 次執行，都沒有超賣與 5xx。</p>
+<div class="table"><table>
+<thead><tr><th>階段</th><th>數量票 P95 中位數 (ms)</th><th>座位票 P95 中位數 (ms)</th><th>判定</th><th>說明</th></tr></thead>
+<tbody>
+<tr><td><a href="#r0">基準</a></td><td>802.33</td><td>4834.73</td><td class="bad">未達成</td><td>兩種票皆未達標</td></tr>
+<tr><td><a href="#r1">第一階段</a></td><td>814.45</td><td>711.04</td><td class="bad">未達成</td><td>座位票約降為 1/6，數量票維持原水準</td></tr>
+<tr><td><a href="#r2">第二階段</a></td><td>414.61</td><td>241.28</td><td>部分達成</td><td>座位票達成，但依賴執行順序；數量票冷啟動第 1 次 918.34ms 未通過</td></tr>
+</tbody></table></div>
+<p class="source">表中為 Release 組態、各 3 次的中位數。每次都要通過才算達標，所以中位數低於 500ms 不等於達成。結果只代表本機 Docker Compose／WSL2 環境，不代表正式環境容量。</p>
+</section>
+<section id="r0">
+<h2>Ticket-Hub 搶票壓測報告（k6）</h2>
+<p class="source">來源：<a href="report.md"><code>docs/load-test/report.md</code></a></p>
+<blockquote><p>OpenSpec change：<code>k6-load-test</code>。執行日期：2026-10-05。重現步驟見 <a href="../../loadtest/README.md"><code>loadtest/README.md</code></a>。</p></blockquote>
+<h3 id="r0-1">結論</h3>
+<div class="table"><table><thead><tr><th>§5 目標</th><th>結果</th></tr></thead><tbody><tr><td>500 併發搶 50 張</td><td>✅ 12 次執行都有 500 個 VU 送出，k6 量到的送出時距 max−min ≤ 118ms；伺服器端 Seq 日誌交叉核對見下方</td></tr><tr><td>0% 超賣</td><td>✅ 12 次都是成功數 = <code>QuantitySold</code> = 50，沒有座位被重複售出，<code>oversell_check_failed</code> 皆為 0</td></tr><tr><td>P95 &lt; 500ms</td><td>❌ <strong>未達成</strong>。以 Release 為準：數量票 P95 中位數 802.33ms，座位票 4834.73ms</td></tr></tbody></table></div>
+<p>依 spec「3 次 <code>runVerdict.passed</code> 都為 true 才通過」，4 組（Release／Debug × 數量票／座位票）全部<strong>未通過</strong>，12 次的失敗原因都只有 <code>http_req_duration{name:place-order}: p(95)&lt;500</code>，沒有其他門檻失敗。</p>
+<p>依 5.7 的規則，<strong>沒有</strong>調整門檻或產品程式碼。P95 的瓶頸分析與優化不在此 change 範圍內（見文末「後續」）。</p>
+<h3 id="r0-2">執行環境</h3>
+<ul><li><p>主機：Windows 11 + Docker Desktop 29.8.1（Compose 5.5.1），WSL2 kernel <code>6.18.40.1-microsoft-standard-WSL2</code>，Docker 可用 20 CPU、約 15.5 GiB 記憶體。</p></li><li><p>映像檔：<code>postgres:16-alpine</code>、<code>redis:7-alpine</code>、<code>datalust/seq:2026.1.17114</code>、<code>grafana/k6:2.3.0</code>；api 為既有開發用 SDK image。</p></li><li><p>程式版本：分支 <code>feature/k6-load-test</code>，基準 commit <code>445d246</code>，加上本 change 尚未 commit 的壓測檔案。<code>src/</code> 沒有任何變更。</p></li><li><p>k6、api、PostgreSQL、Redis、Seq 都在同一台主機上，共用 CPU 與磁碟。</p></li><li><p>每次執行前都重新執行 seeder，並以 api 容器 PID 1 的指令列確認組態：</p></li></ul>
+<div class="table"><table><thead><tr><th>批次</th><th>時間（UTC）</th><th>api PID 1 指令列</th></tr></thead><tbody><tr><td>Debug</td><td>10:28–10:43</td><td><code>dotnet watch --project src/ProjectC.WebApi/ProjectC.WebApi.csproj run --no-launch-profile --urls http://0.0.0.0:8080</code></td></tr><tr><td>Release</td><td>11:59–12:26</td><td><code>dotnet run --project src/ProjectC.WebApi/ProjectC.WebApi.csproj -c Release --no-launch-profile --urls http://0.0.0.0:8080</code></td></tr></tbody></table></div>
+<p>Release 仍搭配 <code>ASPNETCORE_ENVIRONMENT=Development</code>，屬於「Release 組態 + Development 環境」，不是完整的正式環境設定。</p>
+<h3 id="r0-3">資料表</h3>
+<p>以下由 <code>aggregate.js</code> 從 12 份 summary JSON 產生，原樣貼上未手改；原始檔與 <code>report-tables.md</code> 放在本目錄。</p>
+<h4 id="r0-4">Release × 數量票（count-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>1182.84</td><td>1211.40</td><td>50</td><td>450</td><td>0</td><td>50</td><td>92.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>802.33</td><td>815.69</td><td>50</td><td>450</td><td>0</td><td>50</td><td>100.00</td><td class="bad">未通過</td></tr><tr><td>3</td><td>779.74</td><td>792.89</td><td>50</td><td>450</td><td>0</td><td>50</td><td>74.00</td><td class="bad">未通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 802.33／最小值 779.74／最大值 1182.84</p></li><li><p>P99 (ms)（3 次有值）：中位數 815.69／最小值 792.89／最大值 1211.40</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 2 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 3 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r0-5">Release × 座位票（seat-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>5403.99</td><td>5628.98</td><td>50</td><td>450</td><td>0</td><td>50</td><td>81.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>4834.73</td><td>5019.62</td><td>50</td><td>450</td><td>0</td><td>50</td><td>90.00</td><td class="bad">未通過</td></tr><tr><td>3</td><td>4818.04</td><td>5088.10</td><td>50</td><td>450</td><td>0</td><td>50</td><td>93.00</td><td class="bad">未通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 4834.73／最小值 4818.04／最大值 5403.99</p></li><li><p>P99 (ms)（3 次有值）：中位數 5088.10／最小值 5019.62／最大值 5628.98</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 2 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 3 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r0-6">Debug × 數量票（count-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>604.85</td><td>617.30</td><td>50</td><td>450</td><td>0</td><td>50</td><td>102.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>611.44</td><td>626.33</td><td>50</td><td>450</td><td>0</td><td>50</td><td>81.00</td><td class="bad">未通過</td></tr><tr><td>3</td><td>627.89</td><td>642.47</td><td>50</td><td>450</td><td>0</td><td>50</td><td>107.00</td><td class="bad">未通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 611.44／最小值 604.85／最大值 627.89</p></li><li><p>P99 (ms)（3 次有值）：中位數 626.33／最小值 617.30／最大值 642.47</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 2 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 3 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r0-7">Debug × 座位票（seat-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>4996.08</td><td>5221.53</td><td>50</td><td>450</td><td>0</td><td>50</td><td>113.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>5019.12</td><td>5199.94</td><td>50</td><td>450</td><td>0</td><td>50</td><td>80.00</td><td class="bad">未通過</td></tr><tr><td>3</td><td>4983.35</td><td>5161.49</td><td>50</td><td>450</td><td>0</td><td>50</td><td>118.00</td><td class="bad">未通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 4996.08／最小值 4983.35／最大值 5019.12</p></li><li><p>P99 (ms)（3 次有值）：中位數 5199.94／最小值 5161.49／最大值 5221.53</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 2 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 3 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h3 id="r0-8">伺服器端交叉核對（與 k6 腳本無關的資料來源）</h3>
+<ul><li><p><strong>Seq 請求日誌</strong>（Serilog <code>RequestLoggingMiddleware</code>，依各次執行的時間窗查 <code>POST /api/orders</code> 與 <code>/confirm</code>）：12 次都是 201 × 50、409 × 450、其他狀態 0，confirm 2xx × 50。與 k6 的成功數、409 數完全一致。</p></li><li><p><strong>伺服器端 P95</strong>（<code>Elapsed</code>，api 內 Stopwatch 計時）與 k6 P95 相近：數量票 596.7–1042.5ms，座位票 4830.8–5368.6ms。都超過 500ms，P95 未達標不是 k6 端量測造成的。</p></li><li><p><strong>伺服器收到請求的時間分布</strong>（日誌時間戳減 <code>Elapsed</code>）：11 次在 37–206ms 內，Release 座位票第 3 次為 881ms（中間有一段 640ms 空隙，可能是時鐘倒退落在這段時間窗）。12 次都在 1000ms 內。</p></li><li><p><strong>資料庫唯讀查詢</strong>（<code>docker compose exec db psql</code>，只用 SELECT）：12 個壓測活動各有 50 筆訂單（全部同一狀態）、50 筆 OrderItem；座位票 50 席售出、<code>EventSeatId</code> 無重複；數量票剩餘數量為 0。</p></li><li><p>未解釋的差異：Release 座位票第 3 次的伺服器端 P95（5280.3ms）<strong>高於</strong> k6 P95（4818.0ms），其餘 11 次都是伺服器端略低。正常情況下伺服器端計時應該包含在客戶端計時內。可能原因是執行緒集區飢餓，讓 log 計時的延續工作晚於回應送出，但<strong>未驗證</strong>。這不影響「未通過」的結論。</p></li></ul>
+<h3 id="r0-9">exit code 與 runVerdict 核對</h3>
+<p>12 次的 exit code 都是 99（k6 threshold 失敗），<code>runVerdict.passed</code> 都是 false，兩者一致。沒有「exit code 非 0 但 <code>runVerdict.passed</code> 為 true」的情況，判定邏輯沒有發現缺陷。</p>
+<h3 id="r0-10">未通過的歸因（design 決策 7 的順序）</h3>
+<ol><li><p><strong>產品問題</strong>：12 次的 <code>oversell_check_failed</code>、<code>place_order_5xx</code>、<code>place_order_unexpected</code>、<code>confirm_failed</code> 都是 0，<code>QuantitySold</code> 都等於 <code>orders_created</code>（50）→ 沒有。</p></li><li><p><strong>壓測環境未達預期併發</strong>：12 次的 <code>buyer_iterations_completed</code> 都是 500，<code>place_order_send_offset_ms</code> 的最大值減最小值都 ≤ 118ms（門檻 1000ms）→ 沒有。</p></li><li><p><strong>座位票成功數 &lt; 50</strong>：6 次座位票的成功數都是 50 → 不適用。</p></li></ol>
+<p>所以 12 次未通過的原因只有 P95 超過 500ms，判讀為<strong>產品在本機環境下的回應時間未達目標</strong>，不是壓測環境或判定邏輯的問題。</p>
+<h4 id="r0-11">送出時距以「最大值減最小值」判定</h4>
+<p>Debug 數量票第 3 次、Debug 座位票第 2 次、Release 座位票第 3 次，每個 VU 量到的送出時距都是負的（最大值 -620／-1503／-1496ms），但最大值減最小值只有 80–107ms。</p>
+<p>原因：k6 腳本只能用牆上時鐘。<code>Date.now()</code> 與 <code>exec.instance.currentTestRunDuration</code> 都是牆上時鐘，k6 沒有 <code>performance.now()</code>。2026-10-05 實測，本機 WSL2 時鐘約每 29 秒倒退約 1.53 秒。VU 等待期間若時鐘倒退，所有 VU 的時距會一起平移，但彼此的差距不變。</p>
+<p>因此 design 決策 7 的「併發佐證」改為判定最大值減最小值 ≤ 1000ms（<code>evaluateSendSpread</code>，同時寫進 <code>runVerdict</code> 與彙整）。原本的「最大值 ≤ 1000ms」規則會被時鐘倒退影響，所以不採用。12 份 summary 都含 min／max，彙整時重新計算，不需要重跑。重算後判定與原本相同。</p>
+<h3 id="r0-12">Debug／Release 差異</h3>
+<div class="table"><table><thead><tr><th>組</th><th>P95 中位數（ms）</th><th>P99 中位數（ms）</th></tr></thead><tbody><tr><td>Release × 數量票</td><td>802.33</td><td>815.69</td></tr><tr><td>Debug × 數量票</td><td>611.44</td><td>626.33</td></tr><tr><td>Release × 座位票</td><td>4834.73</td><td>5088.10</td></tr><tr><td>Debug × 座位票</td><td>4996.08</td><td>5199.94</td></tr></tbody></table></div>
+<ul><li><p>座位票兩種組態都在約 5 秒，差異不大。</p></li><li><p>數量票的 Release 反而比 Debug 慢。Release 第 1 次（1182.84ms）是 api 重啟後的第一批請求，冷啟動可能有影響，但第 2、3 次（約 780–800ms）仍然比 Debug 慢。兩批相隔約 1.5 小時，主機上其他負載也可能不同。</p></li></ul>
+<p>兩組都顯示 Release 的編譯最佳化沒有改善回應時間。瓶頸<strong>可能</strong>不在 CPU／JIT，而在資料庫連線或鎖等待（見下方觀察），但<strong>未經驗證</strong>。</p>
+<h3 id="r0-13">故障注入驗證</h3>
+<p>確認門檻真的能讓壓測失敗（每項都帶 <code>LT_API_BUILD=debug</code>，執行前重跑 seeder）：</p>
+<div class="table"><table><thead><tr><th>故障</th><th>結果</th></tr></thead><tbody><tr><td><code>p95</code>（數量票）</td><td>exit 99；<code>http_req_duration{name:place-order}</code> 的 <code>p(95)&lt;1</code> 為 <code>ok=false</code></td></tr><tr><td><code>quantity51</code>（數量票）</td><td>exit 99；成功數 51；<code>orders_created: count&lt;=50</code> 與 <code>oversell_check_failed: count==0</code> 為 <code>ok=false</code>；verify 原因含 <code>QuantitySold &gt; 50 (QuantitySold=51)</code></td></tr><tr><td><code>bad-buyer-token</code>（座位票）</td><td>exit 99；api 日誌 500 次 <code>POST /api/orders</code> 都回 401；<code>place_order_unexpected: count==0</code> 與 <code>orders_created: count&gt;=1</code> 為 <code>ok=false</code></td></tr><tr><td><code>bad-admin-token</code></td><td>exit 107；setup 在建立場館時收到 401 而中止，沒有下單</td></tr><tr><td><code>setup-timeout</code></td><td>exit 100；setup 逾時中止，沒有下單</td></tr></tbody></table></div>
+<p>另外確認了以下設定錯誤都會讓 setup 中止（exit 107）、沒有下單：<code>LT_API_BUILD</code> 未設定或為 <code>prod</code>、<code>LT_RUN</code> 未設定或為 <code>4</code>、只有 499 個買家 token、目標 summary 檔已存在（事後確認既有檔案未被覆寫）。</p>
+<h3 id="r0-14">執行過程中的偏差與事故</h3>
+<ul><li><p><strong>第一次 Release 批次無效，已整批重跑。</strong> k6 服務有 <code>depends_on: api</code>，第一次 Release 批次執行 k6 時沒有帶 <code>--no-deps</code>，Compose 依預設 compose 檔把 api 重建回 <code>dotnet watch</code>。結果這 6 次標為 release 的執行，實際上打在 Debug 上，第 1 次還遇到 api 重啟而 setup 中止。這是組態標籤錯誤，不是以 token 過期等理由排除失敗結果。原始檔保留在 <code>loadtest/.output/invalid-release-attempt/</code>（不進版控），不列入資料表。修正方式：k6 一律以 <code>run --rm --no-deps</code> 執行，並改成每一次執行前都檢查 PID 1。</p></li><li><p><strong><code>setup-timeout</code> 故障注入由 1s 改為 1ms。</strong> 實測 API 熱機後，setup 能在 1 秒內完成，原本的 1s 不會觸發逾時。</p></li><li><p><strong>seeder 遇到 PostgreSQL <code>too many clients</code>。</strong> 每次壓測後約 2 分鐘內，seeder 會因 PostgreSQL 連線數達上限（<code>max_connections</code> 為 100）而失敗。流程是每 30 秒重試一次，最多 5 次，成功後才執行 k6，不沿用舊的 token 檔。</p></li></ul>
+<h3 id="r0-15">觀察（未驗證，供後續調查）</h3>
+<ul><li><p>壓測後 PostgreSQL 連線在約 2 分鐘內維持在上限，推測壓測期間 api 的 Npgsql 連線池已撐到上限，請求在等待連線。這可能是 P95 偏高的原因之一，尤其座位票還要取得座位的悲觀鎖。</p></li><li><p>12 次的 5xx 都是 0，表示連線池上限造成的是排隊等待，而不是失敗。</p></li></ul>
+<h3 id="r0-16">判讀與限制</h3>
+<ul><li><p>所有服務與 k6 都在同一台本機上，k6 本身也會占用 CPU，數字只能代表本機開發環境，不能直接推論正式環境。</p></li><li><p>Release 仍是 Development 環境（例如 Serilog 寫 Seq、通知以 log 代替寄信），並非正式環境設定。</p></li><li><p>WSL2 時鐘會倒退，影響送出時距的絕對值，所以改以 max−min 判定（見上方說明）。k6 的 HTTP 計時與伺服器端 <code>Elapsed</code> 都用單調時鐘，不受影響。</p></li><li><p>每組只跑 3 次，樣本數小。不過同組內 P95 的差距不大（Release 數量票第 1 次除外），結論（P95 未達標）不受波動影響。</p></li></ul>
+<h3 id="r0-17">後續</h3>
+<ul><li><p>P95 未達標需要另開 change：分析連線池、鎖等待與資料庫查詢，再決定是否優化產品程式碼或調整目標。此 change 不處理。</p></li></ul>
+</section>
+<section id="r1">
+<h2>下單 P95 優化結果報告</h2>
+<p class="source">來源：<a href="p95-optimization-report.md"><code>docs/load-test/p95-optimization-report.md</code></a></p>
+<blockquote><p>OpenSpec change：<code>order-placement-p95-optimization</code>。結果只代表本機 Docker Compose／WSL2 環境（api 與 PostgreSQL 同機、<code>max_connections</code> 100），不代表正式環境容量。</p><p>目標：Release 下 P95 &lt; 500ms（201 與 409 合併計算）。基準報告 <code>docs/load-test/report.md</code> 不修改。</p></blockquote>
+<h3 id="r1-1">1. 優化前量測（<code>LT_MEASURE_TAG=before</code>）</h3>
+<p>量測執行與正式驗收分開：量測執行疊加 <code>docker-compose.loadtest-measure.yml</code>（OrderService 分段 log 進 Seq），Release 組態；分段耗時以應用端 <code>Stopwatch</code> 單調時鐘計算，百分位由原始值精確計算（<code>loadtest/lib/phase-stats.jq</code>）。</p>
+<h4 id="r1-2">1.1 無競爭基準（1 VU 依序 50 筆，每筆不同買家）</h4>
+<div class="table"><table><thead><tr><th>票種</th><th>P50 (ms)</th><th>P95 (ms)</th><th>判定</th><th>檔案</th></tr></thead><tbody><tr><td>數量票</td><td>5.92</td><td>8.00</td><td>有效（50/50 為 201）</td><td><code>measure-before-baseline-count-summary.json</code></td></tr><tr><td>座位票</td><td>15.04</td><td>33.34</td><td>有效（50/50 為 201）</td><td><code>measure-before-baseline-seat-summary.json</code></td></tr></tbody></table></div>
+<p>分段中位數（<code>measure-before-phases-baseline-{count,seat}.json</code>）：</p>
+<div class="table"><table><thead><tr><th>票種</th><th>PreTransaction</th><th>BeginTransaction</th><th>EventLockWait</th><th>InLock</th><th>Commit</th><th>Total</th></tr></thead><tbody><tr><td>數量票</td><td>1.21</td><td>0.03</td><td>0.46</td><td>0.57</td><td>2.30</td><td>4.85</td></tr><tr><td>座位票</td><td>1.60</td><td>0.03</td><td>0.43</td><td>8.83</td><td>3.09</td><td>14.01</td></tr></tbody></table></div>
+<p>座位票與數量票的差距幾乎全在鎖內（InLock 8.83ms 對 0.57ms），對應鎖內整張 SeatMap 載入（優化 C 的目標）。</p>
+<p><strong>非 201 的 exit code 確認（tasks 3.2）</strong>：把 <code>tokens.json</code> 的買家 token 簽章改壞（admin token 不動）後以 <code>LT_MEASURE_TAG=non201-check</code> 執行座位票基準，50 筆皆 401，k6 exit code 99、<code>baseline.isValid=false</code>（<code>measure-non201-check-baseline-seat-summary.json</code>）；之後還原 token 檔。</p>
+<h4 id="r1-3">1.2 競爭下的分段耗時（500 VU 同時下單，各 1 次）</h4>
+<div class="table"><table><thead><tr><th>Scenario</th><th>k6 P95 (ms)</th><th>伺服器 Total p95 (ms)</th><th>成功／409／5xx</th><th>檔案</th></tr></thead><tbody><tr><td>數量票</td><td>761.53</td><td>748.9</td><td>50／450／0</td><td><code>measure-before-phases-count-ticket.json</code></td></tr><tr><td>座位票</td><td>4832.77</td><td>4787.1</td><td>50／450／0</td><td><code>measure-before-phases-seat-ticket.json</code></td></tr></tbody></table></div>
+<p>各分段平均（ms；各分段連續，逐筆加總與 Total 相差最多 4.51ms，為 commit 後的 Redis 鏡像清理）：</p>
+<div class="table"><table><thead><tr><th>Scenario × 結果</th><th>筆數</th><th>PreTransaction</th><th>BeginTransaction</th><th>EventLockWait</th><th>InLock</th><th>Commit</th><th>Total</th></tr></thead><tbody><tr><td>數量票 409</td><td>450</td><td>248.4</td><td>147.1</td><td>138.9</td><td>1.0</td><td>—</td><td>535.4</td></tr><tr><td>數量票 201</td><td>50</td><td>36.6</td><td>14.0</td><td>188.8</td><td>2.9</td><td>4.5</td><td>247.2</td></tr><tr><td>座位票 409</td><td>450</td><td>161.8</td><td>1767.3</td><td>940.2</td><td>9.4</td><td>—</td><td>2878.8</td></tr><tr><td>座位票 201</td><td>50</td><td>39.5</td><td>186.0</td><td>516.5</td><td>11.9</td><td>3.9</td><td>757.7</td></tr></tbody></table></div>
+<h4 id="r1-4">1.3 等待事件分布</h4>
+<p>取自兩次被判無效的數量票量測（見 1.4）：取樣期間 <code>projectc_dev</code> 連線數峰值 98–99（取樣本身另占 1 條），連線數 ≥ 50 的取樣點中，<code>active / Lock / tuple</code> 占 590 個連線樣本，其餘（<code>idle ClientRead</code>、<code>Lock transactionid</code>、<code>WALSync</code>）合計約 50。即絕大多數連線停在 Event 列鎖的等待上。</p>
+<h4 id="r1-5">1.4 被判無效的量測執行</h4>
+<div class="table"><table><thead><tr><th>次</th><th>Scenario</th><th>原因</th><th>檔案</th></tr></thead><tbody><tr><td>1</td><td>數量票（含等待事件取樣）</td><td>api log 出現 <code>too many clients</code>，5xx 100、confirm 失敗 16、QuantitySold 34</td><td><code>measure-before-invalid/attempt1/</code></td></tr><tr><td>2</td><td>數量票（含等待事件取樣）</td><td>同上，<code>too many clients</code> 306 次、5xx 91、QuantitySold 31</td><td><code>measure-before-invalid/attempt2/</code></td></tr></tbody></table></div>
+<p>連續 2 次因連線數無效，依 tasks 3.3 停止重跑並進入 3.4 決策點。使用者決定（2026-10-06）：<strong>不納入連線池調整</strong>，改以不取樣的方式各重跑 1 次（即 1.2 的結果，api log <code>too many clients</code> 0 次）；等待事件分布沿用兩次無效執行的取樣。api 連線池（Npgsql 預設上限 100）與 PostgreSQL <code>max_connections</code>（100）相同，沒有餘裕，取樣多占的 1 條連線足以造成拒絕連線。</p>
+<p>另觀察：第 2 次無效執行的 k6 P95 為 21.2ms，與伺服器 Total p95 1396.6ms 矛盾，同一次 <code>send_offset_max</code> 為 −671ms（牆上時鐘倒退）。推測 k6 的請求耗時受 WSL2 牆上時鐘倒退影響，<strong>未驗證</strong>；有效的 2 次執行中 k6 P95 與伺服器 Total p95 相差 &lt; 2%。</p>
+<h4 id="r1-6">1.5 瓶頸判定（tasks 3.4）</h4>
+<p><strong>序列化（Event 列鎖）為根本瓶頸，連線池等待為其衍生現象。</strong></p>
+<ul><li><p>座位票 409 的 Total 平均 2878.8ms 中，BeginTransaction（向連線池取連線）占 1767.3ms、EventLockWait 占 940.2ms；鎖內實際工作只有 9.4ms。</p></li><li><p>每筆在鎖內的時間 × 500 筆依序通過，約等於整體延遲：座位票 9.4ms × 500 ≈ 4.7s（P95 4.8s），數量票 1.0ms × 500 ≈ 0.5s（P95 0.76s）。</p></li><li><p>連線池耗盡的原因是等鎖的請求各自握著一條連線；連線上限受 <code>max_connections</code> 100 限制，加大連線池只會把等待從連線池移到鎖佇列，不會縮短序列化時間。</p></li><li><p>因此依序執行：優化 C（座位分區檢查移到交易前，移除鎖內 SeatMap 載入）縮短鎖內時間；優化 A（交易前提前 409）讓註定失敗的請求不進入鎖佇列、不占連線。</p></li></ul>
+<h3 id="r1-7">2. 優化 C 之後（<code>LT_MEASURE_TAG=after-c</code>，座位票 1 次，不取樣）</h3>
+<p>座位樣板改在交易前依 SeatId 批次讀取並比對座位圖成員與分區，鎖內不再重讀活動、不再載入整張座位圖。</p>
+<div class="table"><table><thead><tr><th>指標</th><th>優化前</th><th>優化 C 後</th></tr></thead><tbody><tr><td>k6 P95 (ms)</td><td>4832.77</td><td>1169.26</td></tr><tr><td>伺服器 Total p95 (ms)</td><td>4787.1</td><td>1087.5</td></tr><tr><td>InLock 中位數／p95 (ms)</td><td>8.77／—</td><td>0.75／1.15</td></tr><tr><td>成功／409／5xx</td><td>50／450／0</td><td>50／450／0（QuantitySold 50、超賣 0）</td></tr><tr><td>api log <code>too many clients</code></td><td>0</td><td>0</td></tr></tbody></table></div>
+<p>各分段平均（ms）：</p>
+<div class="table"><table><thead><tr><th>結果</th><th>筆數</th><th>PreTransaction</th><th>BeginTransaction</th><th>EventLockWait</th><th>InLock</th><th>Commit</th><th>Total</th></tr></thead><tbody><tr><td>409</td><td>450</td><td>298.2</td><td>335.6</td><td>145.0</td><td>1.0</td><td>—</td><td>779.8</td></tr><tr><td>201</td><td>50</td><td>305.6</td><td>43.3</td><td>162.0</td><td>1.7</td><td>3.9</td><td>516.4</td></tr></tbody></table></div>
+<ul><li><p>鎖內時間降到與數量票相同量級（優化前數量票 InLock 中位數 0.57ms），序列化總長約 500 × 1ms，符合 1.5 的推論。</p></li><li><p>瓶頸轉移：PreTransaction 平均約 300ms 成為最大分段（交易前的讀取也要向同一個連線池取連線），BeginTransaction 仍有 335.6ms 的連線池等待。仍未達 P95 &lt; 500ms，接著做優化 A（交易前提前 409，讓注定失敗的 450 筆不進鎖佇列、不占連線）。</p></li><li><p>本次 k6 P95 比伺服器 Total p95 高 7.5%（優化前有效執行 &lt; 2%），同一次 <code>send_offset_max</code> 為 −2034ms（牆上時鐘倒退）；差距來源<strong>未驗證</strong>，以伺服器分段為主要依據。檔案：<code>measure-after-c-seat-ticket-release-run1-summary.json</code>、<code>measure-after-c-phases-seat-ticket.json</code>。</p></li></ul>
+<h3 id="r1-8">3. 優化 A 之後（<code>LT_MEASURE_TAG=after-a</code>，兩個 scenario 各 1 次，不取樣）</h3>
+<p>交易外讀到活動且未開排隊模式時，以 no-tracking 資料判斷座位不可暫扣／計數庫存不足即回 409，不開交易。</p>
+<div class="table"><table><thead><tr><th>Scenario</th><th>k6 P95 (ms)</th><th>伺服器 Total p95 (ms)</th><th>成功／409／5xx</th><th>提早 409 筆數</th><th>檔案</th></tr></thead><tbody><tr><td>座位票</td><td>1249.27</td><td>1136.1</td><td>50／450／0</td><td><strong>0</strong></td><td><code>measure-after-a-phases-seat-ticket.json</code></td></tr><tr><td>數量票</td><td>938.46</td><td>922.6</td><td>50／450／0</td><td><strong>0</strong></td><td><code>measure-after-a-phases-count-ticket.json</code></td></tr></tbody></table></div>
+<p>兩次皆 <code>too many clients</code> 0 次、QuantitySold 50、超賣 0。</p>
+<p><strong>優化 A 在此情境沒有觸發。</strong> 450 筆 409 全部在鎖內被拒（<code>BeginTransactionMs</code> 皆非 null）：</p>
+<ul><li><p>壓測是 500 VU 同一時刻送出，交易外讀取（PreTransaction）在請求開始後數百毫秒內完成，那時搶到的訂單還在 Event 鎖佇列裡、尚未 commit，交易外讀到的座位／庫存全是「可售」。座位票 409 的 PreTransaction p95 411.9ms，早於第一筆成功訂單完成（最短 Total 444.7ms）。</p></li><li><p>程式路徑本身有效：壓測結束後對已售完的計數票種再送 1 筆，回 409、<code>BeginTransactionMs=null</code>、Total 1.85ms（不進鎖、不占連線）。即優化 A 只對「售完之後才到的請求」有效，對同時湧入的第一波沒有作用。</p></li><li><p>數量票 P95 從 761.53 變為 938.46ms：優化 A 不增加資料庫查詢（沿用交易前已讀到的資料），優化 C 不影響數量票，差異應屬執行間波動；本次只跑 1 次，<strong>未驗證</strong>（後續 A/B 對照見第 6 節，確認不是程式碼造成）。座位票 1169.26 → 1249.27ms 同理。</p></li><li><p>本次數量票 <code>send_offset_max</code> 為 −2042ms（牆上時鐘倒退）；座位票 77ms，k6 P95 與伺服器 Total p95 相差 10%（1249.27 對 1136.1），原因<strong>未驗證</strong>。</p></li></ul>
+<h3 id="r1-9">4. 正式驗收（Release／Debug × 數量票／座位票各 3 次）</h3>
+<p>2026-10-06 依 <code>loadtest/README.md</code> 執行：不帶 <code>LT_MEASURE_TAG</code>、不疊加量測 override（每次執行前確認 api 環境變數不含 <code>Serilog__MinimumLevel__Override__*</code>、PID 1 組態正確）、不取樣、每次前重跑 seeder、間隔至少 60 秒。下表為 <code>aggregate.js</code> 輸出，未經修改。</p>
+<h4 id="r1-10">Release × 數量票（count-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>1273.22</td><td>1289.37</td><td>50</td><td>450</td><td>0</td><td>50</td><td>102.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>786.28</td><td>803.67</td><td>50</td><td>450</td><td>0</td><td>50</td><td>88.00</td><td class="bad">未通過</td></tr><tr><td>3</td><td>814.45</td><td>834.77</td><td>50</td><td>450</td><td>0</td><td>50</td><td>88.00</td><td class="bad">未通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 814.45／最小值 786.28／最大值 1273.22</p></li><li><p>P99 (ms)（3 次有值）：中位數 834.77／最小值 803.67／最大值 1289.37</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 2 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 3 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r1-11">Release × 座位票（seat-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>5.34</td><td>5.73</td><td>50</td><td>450</td><td>0</td><td>50</td><td>763.00</td><td class="good">通過</td></tr><tr><td>2</td><td>711.04</td><td>730.65</td><td>50</td><td>450</td><td>0</td><td>50</td><td>99.00</td><td class="bad">未通過</td></tr><tr><td>3</td><td>731.08</td><td>743.07</td><td>50</td><td>450</td><td>0</td><td>50</td><td>105.00</td><td class="bad">未通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 711.04／最小值 5.34／最大值 731.08</p></li><li><p>P99 (ms)（3 次有值）：中位數 730.65／最小值 5.73／最大值 743.07</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 2 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 3 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r1-12">Debug × 數量票（count-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>1284.57</td><td>1309.51</td><td>50</td><td>450</td><td>0</td><td>50</td><td>85.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>834.84</td><td>881.38</td><td>50</td><td>450</td><td>0</td><td>50</td><td>102.00</td><td class="bad">未通過</td></tr><tr><td>3</td><td>747.37</td><td>761.73</td><td>50</td><td>450</td><td>0</td><td>50</td><td>84.00</td><td class="bad">未通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 834.84／最小值 747.37／最大值 1284.57</p></li><li><p>P99 (ms)（3 次有值）：中位數 881.38／最小值 761.73／最大值 1309.51</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 2 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 3 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r1-13">Debug × 座位票（seat-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>841.05</td><td>890.91</td><td>50</td><td>450</td><td>0</td><td>50</td><td>67.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>740.70</td><td>756.05</td><td>50</td><td>450</td><td>0</td><td>50</td><td>104.00</td><td class="bad">未通過</td></tr><tr><td>3</td><td>705.02</td><td>722.89</td><td>50</td><td>450</td><td>0</td><td>50</td><td>75.00</td><td class="bad">未通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 740.70／最小值 705.02／最大值 841.05</p></li><li><p>P99 (ms)（3 次有值）：中位數 756.05／最小值 722.89／最大值 890.91</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 2 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li><li><p>第 3 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r1-14">4.1 執行說明</h4>
+<ul><li><p>12 次全部 QuantitySold 50、成功 50、409 450、5xx 0，無超賣。</p></li><li><p>seeder 在每次執行前都因 api 連線池仍占著連線而 <code>too many clients</code> 失敗 3～4 次，依 README 間隔 30 秒重試後皆成功（exit 0），沒有沿用舊 token。</p></li><li><p><strong>Release × 座位票第 1 次的 P95 5.34ms 不可信</strong>：該次 <code>place_order_send_offset_ms</code> 介於 −753 與 10ms（送出時距 763ms，其他執行約 100ms），代表壓測進行中牆上時鐘倒退；同一次 place-order 中位數 0.30ms，低於本機一次 HTTP 往返的合理下限。依「任何結果都計入」的規則不排除、不重跑，資料表照列；判定不受影響（另兩次仍未達標）。</p></li><li><p>另有 5 次（count debug 2、count release 2、seat debug 1／2、seat release 2）全部請求的送出時距整體偏移約 −2000ms、但 max−min 仍約 100ms，推測時鐘倒退發生在送出之前，P95 與其他執行同量級；是否影響延遲數字<strong>未驗證</strong>。</p></li><li><p>Release 與 Debug 的數量票第 1 次（1273.22ms、1284.57ms）都是 api 重啟後的第一次執行，明顯高於第 2、3 次（747～835ms）；推測為冷啟動（JIT、連線池建立），<strong>未驗證</strong>。</p></li></ul>
+<h3 id="r1-15">5. 最終判定與限制</h3>
+<p><strong>未達成 P95 &lt; 500ms</strong>（Release 數量票中位數 814.45ms、座位票中位數 711.04ms）。</p>
+<div class="table"><table><thead><tr><th>Scenario（Release，P95 中位數）</th><th>優化前（<code>k6-load-test</code> 基準）</th><th>本 change 後</th></tr></thead><tbody><tr><td>數量票</td><td>約 0.8s</td><td>814.45ms</td></tr><tr><td>座位票</td><td>約 4.8s</td><td>711.04ms</td></tr></tbody></table></div>
+<ul><li><p>座位票延遲降為約 1/6，主因為優化 C；數量票不受優化 C 影響，維持原水準。</p></li><li><p>優化 A 在同時湧入的情境沒有觸發（見第 3 節），對本次驗收數字沒有貢獻；程式路徑對「售完後才到的請求」有效，保留。</p></li><li><p>限制：結果只代表本機 Docker Compose／WSL2（api 與 PostgreSQL 同機、<code>max_connections</code> 100）；WSL2 牆上時鐘會倒退，影響 k6 端計時（見 4.1）；每組只有 3 次。</p></li></ul>
+<p><strong>數量票未達標原因</strong>：鎖內工作本來就很短，延遲來自鎖外的排隊。<code>measure-after-a-phases-count-ticket.json</code>（500 筆）中 InLock 中位數僅 0.69ms，但 PreTransaction p95 664.2ms、BeginTransaction（向連線池取連線）p95 548.0ms、EventLockWait p95 296.7ms，Total p95 922.6ms。500 筆同時到達時，交易前讀取與開交易都在等連線池（上限受 <code>max_connections</code> 100 限制），優化 C 不影響此路徑，優化 A 因交易外讀到的庫存在第一波全為可售而未觸發。要再降需縮小 Event 列鎖範圍或減少每請求占用連線的時間（候選 B，另開 change）。</p>
+<p><strong>座位票未達標原因</strong>：優化 C 已把鎖內時間從中位數 8.77ms 降到 0.78ms（<code>measure-after-a-phases-seat-ticket.json</code>），序列化不再是主因；剩餘延遲同樣在鎖外：PreTransaction 中位數 351.1ms／p95 411.6ms、BeginTransaction 中位數 420.6ms／p95 620.6ms、EventLockWait p95 298.8ms，Total p95 1136.1ms（量測模式含 Debug log 輸出到 Seq；正式驗收無量測 log 時 P95 中位數 711.04ms）。瓶頸已轉為連線池等待，與數量票相同，後續方向同上（候選 B，另開 change）。</p>
+<h3 id="r1-16">6. 數量票 A/B 對照（Debug，2026-10-06）</h3>
+<p>第 3 節數量票 P95 從 761.53 升到 938.46ms、第 4 節 Debug 數量票中位數 834.84ms，當時無法判斷是程式碼還是環境造成。為此在同一環境、同一流程下對照兩版 <code>src/</code>：HEAD（<code>31acd57</code>）與優化前（<code>09cbf84</code>），其餘檔案相同。</p>
+<ul><li><p>流程：每版先 force-recreate api（Debug，<code>dotnet watch</code>），跑 1 次暖身，再跑 3 次 <code>count-ticket.js</code>；每次前重跑 seeder，結束後間隔 60 秒。</p></li><li><p>開始前等容器內的外部 <code>dotnet test</code> 結束，並清除殘留的 Testcontainers；每次執行時本專案以外的容器數均為 0。</p></li><li><p>6 次全部成功 50、409 450、5xx 0、QuantitySold 50；<code>place_order_send_offset_ms</code> 介於 0～109ms，無時鐘倒退。</p></li></ul>
+<div class="table"><table><thead><tr><th>次</th><th>HEAD P95 (ms)</th><th>優化前 P95 (ms)</th><th>HEAD 中位數 (ms)</th><th>優化前中位數 (ms)</th></tr></thead><tbody><tr><td>1</td><td>1565.67</td><td>1284.12</td><td>1068.12</td><td>849.94</td></tr><tr><td>2</td><td>926.73</td><td>1173.17</td><td>546.08</td><td>700.25</td></tr><tr><td>3</td><td>914.80</td><td>1078.76</td><td>584.95</td><td>685.98</td></tr><tr><td>3 次中位數</td><td><strong>926.73</strong></td><td><strong>1173.17</strong></td><td><strong>584.95</strong></td><td><strong>700.25</strong></td></tr></tbody></table></div>
+<ul><li><p>結論：同環境下 HEAD 不比優化前慢，第 2、3 次 P95 與中位數都低約 15～20%。第 3 節的「數量票變慢」應屬環境因素（當時有殘留 Testcontainers 與外部測試同時執行），而非程式碼。</p></li><li><p>兩版第 1 次都明顯偏高，與 4.1 的冷啟動觀察一致；1 次暖身不足以消除，原因<strong>未驗證</strong>。</p></li><li><p>限制：每版只有 3 次且第 1 次為離群值，只能確認方向，不構成統計上的顯著差異；只測 Debug，未測 Release。</p></li><li><p>原始檔：<code>measure-ab-head-warm-count-ticket-debug-run{1,2,3}-summary.json</code>、<code>measure-ab-base-warm-count-ticket-debug-run{1,2,3}-summary.json</code>。檔名的 <code>-warm</code> 是對照腳本的變數覆寫錯誤所致，三個檔案都是正式執行；暖身那次的結果已被第 1 次覆蓋。</p></li></ul>
+</section>
+<section id="r2">
+<h2>下單 P95 優化第二階段結果報告</h2>
+<p class="source">來源：<a href="p95-phase2-report.md"><code>docs/load-test/p95-phase2-report.md</code></a></p>
+<blockquote><p>OpenSpec change：<code>order-placement-p95-phase2</code>。結果只代表本機 Docker Compose／WSL2 環境（api 與 PostgreSQL 同機、<code>max_connections</code> 100），不代表正式環境容量。</p><p>目標：Release 下 P95 &lt; 500ms（201 與 409 合併計算）。先前基準 <code>docs/load-test/report.md</code>、<code>docs/load-test/p95-optimization-report.md</code> 不修改。</p></blockquote>
+<h3 id="r2-1">1. 起點（引用第一階段，不重量）</h3>
+<p>第一階段正式驗收（<code>docs/load-test/p95-optimization-report.md</code> 第 4、5 節）：Release P95 中位數數量票 814.45ms、座位票 711.04ms，未達成 P95 &lt; 500ms。</p>
+<p>第一階段最後一次量測（<code>LT_MEASURE_TAG=after-a</code>，Release，量測模式）的分段 p95（毫秒）：</p>
+<div class="table"><table><thead><tr><th>Scenario</th><th>PreTransaction</th><th>BeginTransaction</th><th>EventLockWait</th><th>InLock</th><th>Commit</th><th>Total</th><th>k6 P95</th><th>檔案</th></tr></thead><tbody><tr><td>座位票</td><td>411.6</td><td>620.6</td><td>298.8</td><td>1.3</td><td>5.4</td><td>1136.1</td><td>1249.27</td><td><code>measure-after-a-phases-seat-ticket.json</code></td></tr><tr><td>數量票</td><td>664.2</td><td>548.0</td><td>296.7</td><td>1.9</td><td>4.0</td><td>922.6</td><td>938.46</td><td><code>measure-after-a-phases-count-ticket.json</code></td></tr></tbody></table></div>
+<p>第一階段判定剩餘延遲在鎖外：Event 列 <code>FOR UPDATE</code> 讓同活動的下單逐筆通過（EventLockWait），排隊中的交易各占一條連線，造成連線池等待（BeginTransaction）。</p>
+<h3 id="r2-2">2. B1：下單改以 <code>FOR SHARE</code> 鎖 Event（<code>LT_MEASURE_TAG=after-b1-warm</code>）</h3>
+<p>量測方式（design 決策 3 的冷啟動控制）：Release + <code>docker-compose.loadtest-measure.yml</code>，force-recreate api 後先跑座位票、數量票各 1 次暖身（<code>after-b1-warm-warmup</code>，捨棄），再各量 1 次，每次間隔 60 秒。執行前確認無外部 <code>dotnet test</code>、無殘留 Testcontainers。</p>
+<p>分段 p95（毫秒，500 筆）：</p>
+<div class="table"><table><thead><tr><th>Scenario</th><th>PreTransaction</th><th>BeginTransaction</th><th>EventLockWait</th><th>InLock</th><th>Commit</th><th>Total</th><th>k6 P95</th><th>成功／409／5xx</th><th>檔案</th></tr></thead><tbody><tr><td>座位票</td><td>311.0</td><td>100.5</td><td><strong>20.0</strong></td><td>44.1</td><td>29.3</td><td>359.0</td><td>384.54</td><td>50／450／0</td><td><code>measure-after-b1-warm-phases-seat-ticket.json</code></td></tr><tr><td>數量票</td><td>163.8</td><td>311.1</td><td><strong>3.5</strong></td><td>224.8</td><td>18.1</td><td>481.5</td><td>496.44</td><td>50／450／0</td><td><code>measure-after-b1-warm-phases-count-ticket.json</code></td></tr></tbody></table></div>
+<p>兩次皆 <code>check-measure-logging.sh</code> 通過（Seq 500 筆）、api log 無 <code>too many clients</code> 或連線池逾時、限流 0 筆、超賣 0。</p>
+<p><strong>EventLockWait 明顯下降</strong>（座位票 p95 298.8 → 20.0ms、數量票 296.7 → 3.5ms），B1 採用條件的第一項成立；第二項（切換排隊模式延遲探測）見第 4 節。</p>
+<ul><li><p>等待移到鎖內：InLock 從約 1ms 升到座位票 p95 44.1ms、數量票 p95 224.8ms。InLock 包含座位／票種 <code>FOR UPDATE</code> 的等待，Event 不再逐筆通過後，同座位（座位票）與同票種（數量票）的請求改在這些列上互等。數量票所有請求鎖同一筆 <code>TicketType</code>，總序列化不變，與 design「數量票熱點」風險一致。</p></li><li><p>Total p95 座位票 1136.1 → 359.0ms、數量票 922.6 → 481.5ms；k6 P95 座位票 1249.27 → 384.54ms、數量票 938.46 → 496.44ms。各只跑 1 次，量測模式含 Debug log 成本，僅看比例。</p></li></ul>
+<p><strong>作廢的第一次量測（<code>after-b1</code>，2026-10-06 18:36～18:43 UTC）</strong>：api 重啟後第一個 scenario（座位票）是冷啟動，k6 P95 694.20ms、Total p95 578.5ms，比暖機後的 384.54／359.0ms 慢很多；數量票 621.21／596.6ms。第一次 <code>after-b2</code> 也有同樣問題（數量票為重啟後第一次），兩版各有一個 scenario 冷啟動，一度誤判 B2 讓數量票變慢並回退。冷啟動的影響比 B1／B2 之間的差距還大，因此改為上述控制暖機的量測，原始檔案保留在 <code>loadtest/.output/</code> 供查。</p>
+<h3 id="r2-3">3. B2：每筆下單只借一次連線（<code>LT_MEASURE_TAG=after-b2-warm</code>）</h3>
+<p>量測方式同第 2 節（暖身 <code>after-b2-warm-warmup</code> 捨棄）。</p>
+<p>分段 p95（毫秒；ConnectionOpen、PreTransaction、Total 為 500 筆，BeginTransaction、EventLockWait、InLock 只計進交易的請求，見下方「樣本數不同」）：</p>
+<div class="table"><table><thead><tr><th>Scenario</th><th>ConnectionOpen</th><th>PreTransaction</th><th>BeginTransaction</th><th>EventLockWait</th><th>InLock</th><th>Commit</th><th>Total</th><th>k6 P95</th><th>成功／409／5xx</th><th>檔案</th></tr></thead><tbody><tr><td>座位票</td><td>165.4</td><td>186.8</td><td>0.02</td><td>15.0</td><td>45.0</td><td>43.8</td><td>197.8</td><td>235.47</td><td>50／450／0</td><td><code>measure-after-b2-warm-phases-seat-ticket.json</code></td></tr><tr><td>數量票</td><td>286.1</td><td>287.9</td><td>0.02</td><td>7.3</td><td>313.6</td><td>21.1</td><td>372.9</td><td>380.78</td><td>50／450／0</td><td><code>measure-after-b2-warm-phases-count-ticket.json</code></td></tr></tbody></table></div>
+<p>兩次皆 <code>check-measure-logging.sh</code> 通過、api log 無 <code>too many clients</code>、限流 0 筆、超賣 0。</p>
+<ul><li><p><strong>樣本數不同</strong>：BeginTransaction、EventLockWait、InLock 在 B1 皆為 500 筆，B2 只有座位票 133 筆、數量票 149 筆（其餘在交易前就以提早 409 結束，沒有這三段）。以下這三段的前後比較是不同母體的 p95，不是同一批請求的對照；B2 判定只依 n 皆為 500 的 Total 與 k6 P95。</p></li><li><p><strong>提早 409 在 B2 才生效</strong>：B1 的兩次量測 500 筆全部進交易（提早 409 為 0 筆）；B2 下座位票 367 筆、數量票 351 筆在交易外就回 409。機制是推論（log 沒有逐查詢的時間可直接驗證；以下 commit 時間取成功 log 時間，含 commit 後的 Redis 呼叫），兩個 scenario 不同：數量票要等第 50 筆成功（售完）後才可能提早 409，售完時間 B1 約在第一個請求後 +374ms、B2 約 +334ms，B2 的 351 筆提早 409 拿到連線的時間全在 +333ms 之後（此處改用分段推回的 commit 結束：最早一筆比最後一筆售出的 commit 結束晚約 0.04ms，若用成功 log 時間反而早約 0.1ms，皆在換算誤差內，推測是售出者歸還的連線直接交給它），也就是交易前讀取排到連線池等待之後、售完後才讀；座位票只要該座位被買走就可能提早 409，B2 第一筆 commit 約 +23ms（B1 約 +247ms），先拿到連線的請求不必在 BeginTransaction 再排隊、更早提交，加上交易前讀取排在連線池等待之後，讀到已提交的結果。B1 下座位票 19 筆、數量票 9 筆的交易前階段結束晚於最後一筆成功，仍沒有提早 409；推論的前提是決定 409 的座位／票種讀取在交易前階段的前段（之後還有活動、實名等查詢，B1 每次查詢各自排連線池）。B2 的改善可能有部分來自這個效果，不只是「連線池只排一次」，且與突發流量的形狀有關；但未量化：數量票 B2 最慢的 25 筆（p95 尾端）全是進交易的請求，座位票則有 15 筆是提早 409，提早 409 對尾端的幫助若有，主要是少佔連線的間接效果。</p></li><li><p>連線池等待集中到開頭一次：BeginTransaction p95 從座位票 100.5ms、數量票 311.1ms 降到 0.02ms，等待移到 ConnectionOpen（座位票 165.4ms、數量票 286.1ms）。</p></li><li><p>數量票 InLock p95 224.8 → 313.6ms：拿到連線的請求更快進到 <code>TicketType</code> 鎖互等，熱點本身沒有消失。</p></li><li><p><code>OpenConnectionAsync</code> 本身拋例外（例如等連線池逾時）時 ConnectionOpen 為 null，不會計入統計；本次 500 筆皆有值，沒有這種情況。日後若出現連線池逾時，ConnectionOpen p95 會低估等待，須同時看例外 log 數。</p></li><li><p>Total p95 座位票 359.0 → 197.8ms、數量票 481.5 → 372.9ms；k6 P95 座位票 384.54 → 235.47ms、數量票 496.44 → 380.78ms。</p></li></ul>
+<p><strong>判定：B2 採用</strong>（兩個 scenario 的 Total p95 與 k6 P95 都比 B1 快，design 決策 5）。</p>
+<h3 id="r2-4">4. 切換排隊模式延遲探測（<code>LT_MEASURE_TAG=after-b2-probe4</code>，B2 狀態）</h3>
+<p>另跑一次座位票量測（force-recreate api，先暖身 1 次 <code>after-b2-probe4-warmup</code> 捨棄），不納入分段比較。觸發方式：k6 log 出現 <code>setup ok</code> 後啟動 sidecar 容器（api image、共用 db 的 PID namespace、接在 compose 網路上），輪詢 db 的 postgres process title，執行中或交易中的連線達 3 條即視為突發流量開始（腳本留存於 <code>loadtest/.output/queue-switch-probe-after-b2-probe4.sidecar.sh</code>），直接在容器網路內以 admin API 送出 PATCH <code>queue-mode</code>（開，再關），客戶端逾時 30 秒。sidecar 不開資料庫連線（api 連線池 100 = <code>max_connections</code> 100，多一條會讓 api 拿不到連線）。結果：<code>loadtest/.output/queue-switch-probe-after-b2-probe4.txt</code>。</p>
+<p>重疊判定只用 Seq 的伺服器時間（api 同一行程、同一時鐘）：切換開始 = PATCH 請求 log 時間 − 耗時；共享鎖持有區間 = 下單分段 log 推回的「取得 Event 鎖」到「Commit 結束」（EventLockWaitMs 有值的 142 筆）。</p>
+<div class="table"><table><thead><tr><th>切換</th><th>伺服器開始（UTC）</th><th>狀態</th><th>伺服器耗時</th><th>開始時持有共享鎖的請求</th><th>切換開始後才取得共享鎖的請求</th></tr></thead><tbody><tr><td>開啟</td><td>21:38:06.809</td><td>204</td><td>222.4ms</td><td>13</td><td>128</td></tr><tr><td>關閉</td><td>21:38:07.038</td><td>204</td><td>3.6ms</td><td>0</td><td>0</td></tr></tbody></table></div>
+<ul><li><p>共享鎖持有區間 21:38:06.713～07.024；開啟切換在 07.031 完成。</p></li><li><p><strong>延遲主要來自 api 端積壓，不是列鎖</strong>：切換開始時 500 筆中已有 499 筆進入下單流程（下單 log 以 TotalMs 往回推，不含 middleware），其中 435 筆還在等連線（ConnectionOpen）。PATCH 與下單共用同一個連線池（同一個 <code>AddDbContext</code>），handler 先開交易借連線再 <code>GetForUpdateAsync</code>。（ConnectionOpen 也含建立實體連線的時間，不全是排隊。）PATCH 拿到連線的時間沒有量到，下限依以下推論：切換開始時持有連線的有 63 筆（另 1 筆已結束），在第一筆釋放（+14.5ms）前又有 5 筆拿到連線，表示當下還在建立實體連線；499 筆需求遠超過連線池上限 100（重建的同時持有數最高 101 可佐證），推論連線池名額已分配完（含建立中的實體連線，所以持有數 63 低於 100），PATCH 只能排隊；連線池滿之後拿到連線的順序近似先到先得（切換開始後拿到連線的 436 筆中，順序倒置的配對約 1.5%），切換前 20ms 內進入的 249 筆在 +123～+169ms 才拿到連線，這 249 筆被任何後到者超前最多 18.9ms。更大的超前都發生在實體連線仍在建立的時段：全體最大 121ms 那一對兩方都在突發開頭進入，被超前者在切換開始後 +49.7ms 才拿到連線，同樣落在實體連線建立的時段；切換開始後到約 +52ms 仍有新連線建立完成，期間有一筆 S−83.4ms 進入、+51.3ms 拿到連線的請求超前 53.3ms，推測是拿到剛建好的實體連線，不是排隊超前。越接近切換開始進入的請求越晚拿到連線：切換前最後 10 筆（S−5.0～−0.3ms 進入）在 +157.8～+168.8ms 拿到。PATCH 最可能在 +158～+169ms 拿到連線；下表 +123ms 是寬鬆下限（須超前約 35～46ms，大於觀察到的 18.9ms），+169ms 也不是上限（倒置約 1.5%，晚於 +169ms 時之後才取得共享鎖的可能為 0 筆）。依 PATCH 拿到連線的可能時間推算：</p>
+<div class="table"><table><thead><tr><th>PATCH 拿到連線</th><th>之後才取得共享鎖</th><th>當時持有共享鎖</th><th>列鎖等待上限</th></tr></thead><tbody><tr><td>+123ms（06.932）</td><td>26 筆</td><td>9 筆</td><td>約 92ms</td></tr><tr><td>+150ms</td><td>8 筆</td><td>7 筆</td><td>約 65ms</td></tr><tr><td>+158ms（最可能區間起點）</td><td>6 筆</td><td>6 筆</td><td>約 57ms</td></tr><tr><td>+169ms（06.978）</td><td>4 筆</td><td>6 筆</td><td>約 46ms</td></tr></tbody></table></div>
+<p>表中「128 筆」大多是切換還沒拿到連線時就取得共享鎖的請求，不能算是插隊。切換 handler 沒有分段 log，以上由下單 log 推算，沒有直接量到切換送出 <code>FOR UPDATE</code> 的時間點；時間都來自 api 容器的牆上時鐘加 Stopwatch 耗時，WSL2 時鐘偶有跳動；以此重建的同時持有連線數最高算到 101（上限 100），換算誤差約 1ms 等級。列鎖等待上限未扣除切換 commit、Redis 與回應的時間（最後一個持有者釋放到 PATCH log 約 7.6ms）。</p></li><li><p><strong>寫入者飢餓本次未觀測到，也無法排除</strong>：列鎖等待上限約 46～92ms（最可能約 46～57ms）、切換拿到連線後才取得共享鎖的約 0～26 筆（最可能 4～6 筆）。這次探測量到的是端到端上限：222ms 遠低於 3 秒門檻，<strong>B1 採用</strong>（design 決策 3）。若要直接量列鎖等待，需在切換 handler 的 <code>GetForUpdateAsync</code> 前後加分段 log，本 change 不做。</p></li><li><p>500 筆皆為成功或 409、沒有 403：切換在所有持有者結束後才提交，突發流量中的下單都讀到排隊模式關閉。</p></li><li><p>持續流量下共享鎖持有者可能沒有空檔，切換的等待不再有上限；本次 k6 是一次性突發，量不到（<strong>已接受的限制</strong>：B1 採用只建立在一次性突發的量測上，design 決策 3 已知風險，6.x 一併記入 project-scope §8）。本次沒有排隊中的使用者，未觀察入場推進。</p></li></ul>
+<p>作廢的探測（皆未與突發流量重疊，不採計）：</p>
+<ul><li><p><code>after-b1-probe</code>（2 次，B1 狀態）、<code>after-b2-probe</code>、<code>after-b2-probe2</code>：主機依 <code>setup ok</code> 定時送出。最初報告曾以主機 curl 時間對照 Seq 時間判定 <code>after-b2-probe</code> 重疊，對抗式審查以 Seq 的 PATCH log 查出切換其實晚於最後一筆下單約 81ms（主機與容器時鐘差約 130～210ms 且不固定），已更正。</p></li><li><p><code>after-b2-probe3</code>：主機經 <code>docker compose exec</code> 讀 db 的 process title 觸發，Windows 端的串流與 curl 延遲讓切換仍晚約 320ms。</p></li></ul>
+<h3 id="r2-5">5. 正式驗收（Release／Debug × 數量票／座位票各 3 次）</h3>
+<p>2026-10-07 03:51～04:48 UTC 依 <code>loadtest/README.md</code> 執行，流程與第一階段相同：不帶 <code>LT_MEASURE_TAG</code>、不疊加量測 override（每次執行前確認 api 環境變數不含 <code>Serilog__MinimumLevel__Override__*</code>、PID 1 組態正確）、不取樣、每次前重跑 seeder、間隔至少 60 秒。先 force-recreate api 為 Release 跑 3 輪（每輪數量票、座位票各 1 次），再 force-recreate 回 Debug 跑 3 輪；<strong>沒有捨棄用的暖身</strong>（README 未要求，維持與第一階段同口徑）。開始前確認 api 容器內無外部 <code>dotnet test</code>、殘留的 Testcontainers 已清除（手動確認，未留存紀錄）。第一階段的 12 份 summary 與 <code>report-tables.md</code> 已移到 <code>loadtest/.output/p95-optimization-phase1/</code>。</p>
+<ul><li><p>12 次的 <code>place_order_unexpected</code> 皆為 0（無 401 等非預期狀態）、成功 50、409 450、5xx 0、QuantitySold 50、超賣 0。</p></li><li><p>seeder 除了 api 重建後的第一次以外，每次都失敗 4 次（<code>Routine: InitProcess</code>，共 40 次；推測為前一輪留下的連線占滿 <code>max_connections</code>，見 README 第 1 步），每次間隔 30 秒。腳本會記錄每一次失敗（含第 5 次），log 中沒有 <code>try 5</code>，表示每次都在第 5 次成功（exit 0）後才執行 k6；成功輸出沒有逐次留存，只有最後一次的 <code>tokens.json</code>（04:45:52 UTC）可直接對照。第一階段同樣重試（<code>p95-optimization-phase1/formal.log</code> 38 次）。</p></li><li><p>暫存腳本 <code>formal.log</code> 的 <code>k6exit=</code> 欄位取到的是 <code>date</code> 的結束碼，恆為 0，不能當作 k6 exit code（第一階段相同）。單次判定以 summary 的 <code>runVerdict</code> 為準；k6 log 中只有兩次未通過的執行出現 threshold 失敗。</p></li></ul>
+<p>下表為 <code>aggregate.js</code> 輸出，未經修改。</p>
+<h4 id="r2-6">Release × 數量票（count-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>918.34</td><td>945.86</td><td>50</td><td>450</td><td>0</td><td>50</td><td>102.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>414.61</td><td>431.75</td><td>50</td><td>450</td><td>0</td><td>50</td><td>105.00</td><td class="good">通過</td></tr><tr><td>3</td><td>369.37</td><td>376.18</td><td>50</td><td>450</td><td>0</td><td>50</td><td>113.00</td><td class="good">通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 414.61／最小值 369.37／最大值 918.34</p></li><li><p>P99 (ms)（3 次有值）：中位數 431.75／最小值 376.18／最大值 945.86</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r2-7">Release × 座位票（seat-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>241.28</td><td>249.74</td><td>50</td><td>450</td><td>0</td><td>50</td><td>89.00</td><td class="good">通過</td></tr><tr><td>2</td><td>203.26</td><td>223.60</td><td>50</td><td>450</td><td>0</td><td>50</td><td>112.00</td><td class="good">通過</td></tr><tr><td>3</td><td>266.67</td><td>278.31</td><td>50</td><td>450</td><td>0</td><td>50</td><td>119.00</td><td class="good">通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 241.28／最小值 203.26／最大值 266.67</p></li><li><p>P99 (ms)（3 次有值）：中位數 249.74／最小值 223.60／最大值 278.31</p></li><li><p>判定：通過</p></li></ul>
+<h4 id="r2-8">Debug × 數量票（count-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>693.90</td><td>704.26</td><td>50</td><td>450</td><td>0</td><td>50</td><td>56.00</td><td class="bad">未通過</td></tr><tr><td>2</td><td>408.88</td><td>423.72</td><td>50</td><td>450</td><td>0</td><td>50</td><td>127.00</td><td class="good">通過</td></tr><tr><td>3</td><td>392.43</td><td>404.87</td><td>50</td><td>450</td><td>0</td><td>50</td><td>117.00</td><td class="good">通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 408.88／最小值 392.43／最大值 693.90</p></li><li><p>P99 (ms)（3 次有值）：中位數 423.72／最小值 404.87／最大值 704.26</p></li><li><p>判定：未通過</p>
+<ul><li><p>第 1 次：runVerdict 未通過：threshold failed: http_req_duration{name:place-order}: p(95)&lt;500</p></li></ul></li></ul>
+<h4 id="r2-9">Debug × 座位票（seat-ticket）</h4>
+<div class="table"><table><thead><tr><th>次</th><th>P95 (ms)</th><th>P99 (ms)</th><th>成功數</th><th>409 數</th><th>5xx 數</th><th>QuantitySold</th><th>送出時距 max−min (ms)</th><th>單次判定</th></tr></thead><tbody><tr><td>1</td><td>257.82</td><td>266.59</td><td>50</td><td>450</td><td>0</td><td>50</td><td>92.00</td><td class="good">通過</td></tr><tr><td>2</td><td>219.41</td><td>225.39</td><td>50</td><td>450</td><td>0</td><td>50</td><td>62.00</td><td class="good">通過</td></tr><tr><td>3</td><td>222.66</td><td>226.54</td><td>50</td><td>450</td><td>0</td><td>50</td><td>87.00</td><td class="good">通過</td></tr></tbody></table></div>
+<ul><li><p>P95 (ms)（3 次有值）：中位數 222.66／最小值 219.41／最大值 257.82</p></li><li><p>P99 (ms)（3 次有值）：中位數 226.54／最小值 225.39／最大值 266.59</p></li><li><p>判定：通過</p></li></ul>
+<ul><li><p>數量票 Release、Debug 都是第 1 次（api 重建後的第一次執行）未通過，第 2、3 次皆通過；座位票 6 次全部通過。</p></li><li><p>與第一階段（<code>docs/load-test/p95-optimization-report.md</code> 第 4 節）比較，Release P95 中位數：數量票 814.45 → 414.61ms，座位票 711.04 → 241.28ms。</p></li></ul>
+<p><strong>數量票未達標原因</strong>：判定要求 3 次都通過，第 1 次是 api 重建後的第一次執行（冷啟動），Release P95 918.34ms，第 2、3 次為 414.61、369.37ms。同版程式碼（B2）的冷、暖量測（量測組態，含 Serilog override，與正式驗收組態不同，僅供比較冷暖差距）：<code>measure-after-b2-count-ticket-release-run1-summary.json</code>（重啟後第一次）k6 P95 733.89ms、Total p95 637.7ms、ConnectionOpen p95 519.7ms；<code>measure-after-b2-warm-count-ticket-release-run1-summary.json</code>（暖身後）k6 P95 380.78ms、Total p95 372.9ms、ConnectionOpen p95 286.1ms（分段見 <code>measure-after-b2-phases-count-ticket.json</code>、<code>measure-after-b2-warm-phases-count-ticket.json</code>）。冷啟動多出的時間大半落在 ConnectionOpen（含建立實體連線、連線池等待），推測與 JIT、連線池從零建立 100 條連線有關，<strong>未驗證</strong>。座位票的第 1 次排在數量票之後，已非冷啟動。暖機後的數量票 P95 已低於 500ms；要讓冷啟動的第一波也達標，需減少突發時占用的連線數或預先建立連線（候選：Redis 預扣閘門，先在 Redis 擋掉售完後的請求、不進資料庫；另開 change，見 <code>docs/project-scope.md</code> §8）。</p>
+<p><strong>基準檔驗證（LT-REPORT-007）</strong>：<code>bash loadtest/check-baseline-reports.sh verify</code>（exit 0）</p>
+<pre><code>MASTER_SHA=8922118d76ed9b0ec94f5b9b668b5856ce0b720f
+BASELINE=8922118d76ed9b0ec94f5b9b668b5856ce0b720f
+START_HEAD=2f95ca11605be49db79faee666cf323474dbff36
+HEAD=2f95ca11605be49db79faee666cf323474dbff36
+OK: phase 1 reports unchanged since BASELINE (docs/load-test/report.md docs/load-test/p95-optimization-report.md)</code></pre>
+<p><code>START_HEAD</code> 是 record 當下的 HEAD；B1、B2 的程式碼在量測與驗收時尚未 commit（工作樹），因此 <code>START_HEAD</code> 不代表量測的程式碼版本。此檢查只證明第一階段報告未被修改，不受影響。</p>
+<h3 id="r2-10">6. 最終判定與限制</h3>
+<ul><li><p><strong>座位票：達成</strong> Release P95 &lt; 500ms（3 次皆通過，中位數 241.28ms），<strong>但達成依賴執行順序</strong>：正式流程固定先跑數量票，座位票從未在 api 重建後的第一次（冷啟動）驗收。量測組態下 B2 的座位票作為重建後第一次執行時，k6 P95 為 496.84～593.96ms，5 次中 4 次 ≥ 500ms（<code>measure-after-b2-warm-warmup-seat-ticket-release-run1-summary.json</code> 527.79ms、<code>measure-after-b2-probe-warmup-…</code> 593.96ms、<code>probe2</code> 580.81ms、<code>probe3</code> 573.92ms、<code>probe4</code> 496.84ms）。</p></li><li><p><strong>數量票：未達成</strong>（依 3 次皆須通過的判定）。暖機後 2 次為 414.61、369.37ms，冷啟動第 1 次 918.34ms，原因見第 5 節。</p></li><li><p>B1、B2 皆採用；12 次無超賣、無 5xx。</p></li><li><p>限制：</p>
+<ul><li><p>切換排隊模式只在突發流量下探測 1 次（第 4 節，222ms），寫入者飢餓本次未觀測到但無法排除；持續流量下加入排隊與共享鎖重疊的情況沒有壓測場景，<strong>已接受</strong>，記入 <code>docs/project-scope.md</code> §8。</p></li><li><p>正式驗收不含暖身。冷啟動影響的是 api 重建後的第一個 scenario（數量票、座位票皆然），影響大於 B1／B2 之間的差距；冷啟動原因未驗證。</p></li><li><p>環境為單機 Docker Desktop（WSL2），Release 仍以 <code>ASPNETCORE_ENVIRONMENT=Development</code> 執行。</p></li></ul></li></ul>
+</section>
+</main>
+</div>
+</body>
+</html>
