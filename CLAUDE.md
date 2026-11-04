@@ -275,7 +275,7 @@
 8. **歸檔與合併**：`/opsx:archive`（含主 spec 同步）→ merge 回 master
 
 - 任何步驟都不自動 commit / push，等使用者明確指示
-- 另開工具（如 Devin）交叉審查時：prompt 只給 change 名稱、commit 與審查目標，不描述改了什麼或為什麼改；重審可附前輪 blocking 的編號與參考位置供回歸核對。程式有改動時以高階模型審完整 diff，只改證據紀錄時可用較輕的模型，每輪的模型與 commit 記入 `tasks.md`。透過 herdr 送出後，先確認 `agent_status` 變成 `working` 才等結果，否則可能讀到上一輪的 verdict
+- 另開工具（如 Devin）交叉審查時：prompt 只給 change 名稱、commit 與審查目標，不描述改了什麼或為什麼改；重審可附前輪 blocking 的編號與參考位置供回歸核對。程式有改動時以高階模型審完整 diff，只改證據紀錄時可用較輕的模型，每輪的模型與 commit 記入 `tasks.md`。透過 herdr 送出後，先確認 `agent_status` 變成 `working` 才等結果，否則可能讀到上一輪的 verdict；第一次送審的 prompt 結尾須要求 Devin 審完後用 herdr 把完整報告送回主 session 的 pane（pane id 以 `herdr agent list` 實際查到的為準），否則曾發生審查結束但主 session 沒收到結果
 - 緊急 hotfix 或無對應 spec 的小型改動（見「無 spec 時的處理」）略過 1–3 與 8，仍須走 4（TDD）、5–7
 
 ### Task 執行前
