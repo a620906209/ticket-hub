@@ -29,6 +29,8 @@ public class HostShutdownSeqFlushTests
             await lifetime.DisposeAsync();
         }
 
+        await factory.LogSink.Disposed.WaitAsync(TimeSpan.FromSeconds(10));
+
         var body = string.Concat(fakeSeq.Bodies);
         body.Should().Contain("shutdown-probe").And.Contain("Password=***").And.NotContain(Secret);
     }
