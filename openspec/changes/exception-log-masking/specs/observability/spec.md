@@ -26,7 +26,7 @@
 - **THEN** 該筆日誌的例外文字 MUST NOT 包含 `s3cret-pw`
 
 ### Requirement: 例外遮蔽涵蓋指定的敏感格式
-系統 SHALL 遮蔽下列格式中的值，將值換成 `***` 並保留 key 與其餘文字：連線字串的 `Password`／`Pwd` 後接 `=` 或 `:`；`Bearer` token 與 JWT（`eyJ` 開頭的三段式字串）；`scheme://user:password@host` 中的密碼；`ApiKey`、`Secret`、`Token` 的 `key=value` 或 `key: value`。key 比對 SHALL 不分大小寫。
+系統 SHALL 遮蔽下列格式中的值，將值換成 `***` 並保留 key 與其餘文字；key 為「以」下列關鍵字結尾的欄位名（關鍵字後緊接 `=` 或 `:`，其間可有引號與空白；例如 `client_secret`、`access_token`、`NotASecret`）即視為命中，不要求關鍵字位於欄位名開頭；關鍵字後仍接其他字元的欄位名（例如 `DatabaseTokenHint`）不在保證範圍內：連線字串的 `Password`／`Passwd`／`Pwd` 後接 `=` 或 `:`；`Bearer` token 與 JWT（`eyJ` 開頭的三段式字串）；`scheme://user:password@host` 中的密碼；`ApiKey`、`Secret`、`Token` 的 `key=value` 或 `key: value`。key 比對 SHALL 不分大小寫。
 
 #### Scenario: OBS-EXMASK-005 連線字串密碼被遮蔽且 key 保留
 - **WHEN** 例外訊息含 `Pool=true;Pwd=s3cret-pw;Port=5432`
@@ -112,3 +112,19 @@
 #### Scenario: OBS-EXMASK-024 含逗號的 URL 密碼被邊界切開時不輸出任何片段
 - **WHEN** 例外文字長度超過 64 KB，且 `redis://user:abc,def@cache:6379` 被頭段上限（第 32 KB）切在 `def` 中
 - **THEN** 輸出不含 `abc` 緊接在 `redis://user:` 之後的內容，且含固定的截斷標記
+
+#### Scenario: OBS-EXMASK-025 Passwd 同樣遮蔽
+- **WHEN** 例外訊息含 `Server=db;Passwd=s3cret-pw;Port=5432`
+- **THEN** 輸出含 `Passwd=***`，且不含 `s3cret-pw`，`Server=db` 與 `Port=5432` 原樣保留
+
+#### Scenario: OBS-EXMASK-026 引號內含跳脫引號的值完整遮蔽
+- **WHEN** 例外訊息含 `{"password":"pre\"s3cret-pw"}` 或 `Password='pre\'s3cret-pw'`（引號內有以反斜線跳脫的同種引號）
+- **THEN** 輸出不含 `s3cret-pw`，值整段被替換為 `***` 並保留外層引號
+
+#### Scenario: OBS-EXMASK-028 引號未閉合的 secret 值遮蔽到行尾
+- **WHEN** 例外訊息含 `client_secret="pre\"s3cret-pw` 或 `token='s3cret-pw`（`secret`／`token`／`api-key` 的值以引號開頭，但同一行內沒有閉合引號）
+- **THEN** 輸出不含 `s3cret-pw`，從開引號到該行行尾的整段被替換為 `***`，後續行原樣保留
+
+#### Scenario: OBS-EXMASK-027 欄位名內含敏感關鍵字時視為命中
+- **WHEN** 例外訊息含 `NotASecret=visible`（欄位名以關鍵字結尾但不等於關鍵字）
+- **THEN** 輸出為 `NotASecret=***`；系統寧可多遮蔽也不外洩，此為刻意取捨

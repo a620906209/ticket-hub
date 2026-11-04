@@ -21,11 +21,17 @@
 - K8s 的 `NodePort` 與 compose 未綁定 `127.0.0.1` 的 port 發布，都會繞過「僅內部可達」的假設。目前 `docker-compose.yml` 的 `API_HOST_PORT` 就沒有綁定，不符合此條件。
 - VPS 綁定 `127.0.0.1` 不能取代實測，反向代理若轉送這兩個路徑，外部來源仍可達。
 
-### 2. 完成例外日誌遮蔽
+### 2. 完成例外日誌遮蔽（已完成）
 
-`GlobalExceptionHandler` 記錄完整例外且沒有遮蔽。`api-health-checks` 取得的是限期例外，期限為正式部署前。待辦見 `docs/exception-log-masking-todo.md`。
+`exception-log-masking` 已完成：Serilog 管線最外層的 `ExceptionMaskingSink` 遮蔽所有日誌來源（含 `GlobalExceptionHandler`、背景服務、框架來源與啟動階段的 bootstrap logger）帶出的例外文字，再轉給 Console、Seq 與測試用 sink。`api-health-checks` 的限期例外因此解除。
 
-此項不需要部署環境，可以先於部署 change 完成。
+已知限制（部署前須知）：
+
+- 只認指定格式：`password`／`passwd`／`pwd`、`api-key`／`secret`／`token` 後接 `=` 或 `:` 的值、`Bearer` token、JWT、`scheme://user:password@host`。沒有 key 的裸密碼不會被遮蔽；啟動失敗時 Program.cs 重擲的例外會由 .NET 執行階段以 `Unhandled exception.` 寫到 stderr，該文字不經 Serilog，不受遮蔽保護；大括號包住的連線字串值、雙寫引號跳脫、值中間夾引號的無引號值、簽章為空的 JWT 與緊接在 `_`／`-` 之後的 JWT、JSON 字串內再跳脫的 `\"password\":\"x\"`、無引號且含空白或逗號的 `secret`／`token`／`api-key` 值、含未編碼 `@` 的 URL 密碼也不會被完整遮蔽。
+- 只處理例外文字；日誌訊息範本與屬性值不在範圍內。
+- 已進入 Seq 的歷史日誌不會回溯清理。
+
+細節見 `openspec/changes/exception-log-masking/design.md` 決策 3。
 
 ### 3. 設定探針參數
 

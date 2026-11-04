@@ -30,7 +30,7 @@
 
 新增 `ExceptionMaskingSink : ILogEventSink`，把 `LogEvent` 複製一份（例外換成遮蔽後版本）再轉給內層 logger。內層 logger 包含現有所有 sink：config 宣告的 Console、Seq、測試用記憶體 sink。外層 logger 只保留最小等級與 `MinimumLevel.Override`，唯一的 sink 是 `ExceptionMaskingSink`。
 
-外層是等級的唯一判斷點（過濾後的設定從完整 `IConfiguration` 複製 `Serilog` 區段並排除 `WriteTo`，使環境變數覆寫也生效；外層保留 `Enrich`，內層不重複）：等級設定（`MinimumLevel.Default` 與 `Override`）來自 `appsettings.json` 的 `Serilog` 區段，但以過濾後的 `IConfiguration` 排除 `WriteTo`（否則 Console 會繞過遮蔽；`ReadFrom.Configuration` 沒有排除選項，須自行建立過濾後的設定）。內層 logger 讀取 `WriteTo` 建立 sink 後，將 `MinimumLevel` 設為 `Verbose`，只保留各 sink 自身的 `restrictedToMinimumLevel`（例如 Console 的 Information）。理由：`MinimumLevel.Override` 靠 `ForContext(SourceContext)` 才生效，外層 sink 以 `Write(LogEvent)` 轉發時內層不會套用 override，若內層保留 `Default`，會丟掉外層依 override 放行的低等級事件；`docker-compose.loadtest-measure.yml` 將 `OrderService` 設為 Debug 以讓分段耗時日誌進 Seq，就是會受影響的既有用法。
+外層是等級的唯一判斷點（過濾後的設定從完整 `IConfiguration` 複製 `Serilog` 區段並排除 `WriteTo`／`AuditTo`，使環境變數覆寫也生效；外層保留 `Enrich`，內層不重複）：等級設定（`MinimumLevel.Default` 與 `Override`）來自 `appsettings.json` 的 `Serilog` 區段，但以過濾後的 `IConfiguration` 排除 `WriteTo` 與 `AuditTo`（否則 Console 會繞過遮蔽，`AuditTo` 同理由歸內層；key 以精確比對而非前綴比對；`ReadFrom.Configuration` 沒有排除選項，須自行建立過濾後的設定）。內層 logger 讀取 `WriteTo` 建立 sink 後，將 `MinimumLevel` 設為 `Verbose`，只保留各 sink 自身的 `restrictedToMinimumLevel`（例如 Console 的 Information）。理由：`MinimumLevel.Override` 靠 `ForContext(SourceContext)` 才生效，外層 sink 以 `Write(LogEvent)` 轉發時內層不會套用 override，若內層保留 `Default`，會丟掉外層依 override 放行的低等級事件；`docker-compose.loadtest-measure.yml` 將 `OrderService` 設為 Debug 以讓分段耗時日誌進 Seq，就是會受影響的既有用法。
 
 替代方案與不採用原因：
 
@@ -57,7 +57,7 @@
 
 | 格式 | 說明 |
 | --- | --- |
-| `password`／`pwd` 後接 `=` 或 `:` | 值可為單引號、雙引號包住的字串，或（無引號時）到 `;` 或行尾為止，允許含空白 |
+| `password`／`passwd`／`pwd` 後接 `=` 或 `:` | 值可為單引號、雙引號包住的字串，或（無引號時）到 `;` 或行尾為止，允許含空白 |
 | `apikey`／`api-key`／`secret`／`token` 後接 `=` 或 `:` | 規則同上；key 不分大小寫 |
 | `Bearer` 後接 token | 到空白為止 |
 | JWT | `eyJ` 開頭的三段式字串 |
@@ -115,7 +115,7 @@ key 比對允許可選的前綴詞與引號（涵蓋 `access_token`、`client_se
 - **完整 `ToString()` 的前置成本（接受的限制）**：64 KB 上限只限制 regex 的輸入與輸出，不限制 `exception.ToString()` 本身。理由：(1) 凡是至少有一個內層 sink 會輸出的事件，該 sink 原本就會對同一例外呼叫完整 `ToString()`，遮蔽層最多多一次格式化；唯一新增成本的情境是「事件通過外層等級、但所有內層 sink 都因 `restrictedToMinimumLevel` 或未啟用而丟棄」（例如 `Override` 設 Debug、Console 限制 Information 且 Seq 未啟用），這類事件原本不會被格式化，現在會被格式化一次並遮蔽。此情境只出現在刻意把某來源 `Override` 降到所有 sink 的限制等級以下，且該等級的事件帶有例外時（目前僅 `docker-compose.loadtest-measure.yml` 的 `OrderService: Debug`，量測用途），**不界定該次 `ToString()` 的耗時與字串大小**（regex timeout 與整體處理時間斷言只涵蓋已取得字串後的 `Mask`），此為使用者核准（2026-11-04）的已知限制：僅在刻意把 `Override` 降到所有 sink 限制等級以下時出現，不阻擋實作；若日後該情境進入正式環境，再改為逐 sink 包裝遮蔽；(2) .NET 無法安全中斷同步執行中的 `ToString()`，在 sink 內為它設時限只能靠額外執行緒，會引入比它解決的問題更大的風險；(3) 自訂例外的 `ToString()` 若永不返回，沒有遮蔽層時同樣會卡住原有 sink。處理時間的界線由 regex 的 100 ms timeout 與下方的整體處理時間斷言承擔。
 - **超長文字（>64 KB）的取捨**：頭尾各 32 KB 以外的內容被省略，包含位於中間的內部例外型別與訊息；排錯以頭段的外層型別與尾段堆疊為主，已寫入 spec 的保證範圍。
 - **過度遮蔽**（決策 3）→ 接受，排錯需要原文時可由堆疊與型別定位。
-- **遮蔽不到的格式**（裸密碼、未列入的 key 名稱）→ 清單集中，日後補格式只需新增一筆規則與測試。
+- **遮蔽不到的格式**（裸密碼、未列入的 key 名稱）→ 清單集中，日後補格式只需新增一筆規則與測試。已知未涵蓋的變形：大括號包住的連線字串值（`Password={ab;cd}`）、雙寫引號跳脫（`Password="ab""cd"`）、值中間夾引號的無引號值、簽章為空的 JWT 與緊接在 `_`／`-` 之後的 JWT、JSON 字串內再跳脫的 `\"password\":\"x\"`、無引號且含空白或逗號的 `secret`／`token`／`api-key` 值（遇空白、`;`、`,`、`&`、`)` 即終止）、URL 密碼含未編碼的 `@`。引號內以反斜線跳脫的引號（`"pre\"x"`）已涵蓋，且單、雙引號皆然（Devin 交叉審查 B-001 後補強）。
 - **屬性解構不被遮蔽**：`Log.Error("{@Ex}", ex)` 這類把例外當屬性解構的寫法不經過例外遮蔽（Non-Goal），收尾文件的已知限制須寫明。
 - **每筆例外日誌多一次 regex 掃描** → 例外日誌是低頻路徑；沒有例外的日誌不進入遮蔽邏輯。
 - **`MaskedException.StackTrace` 與原例外不同** → 堆疊文字已包含在 `ToString()` 內，工具若依 `LogEvent.Exception.StackTrace` 屬性判斷會看到空值；目前沒有此用法（實作時 grep 確認）。
