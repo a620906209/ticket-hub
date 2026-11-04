@@ -63,7 +63,7 @@ Development 專屬的 seeder 執行區塊（`IsDevelopment()` 內 `await SeedAsy
 新增 `tests/ProjectC.WebApi.Tests/Startup/ServiceRegistrationSnapshotTests`：以 `WebApplicationFactory<Program>`（Testing 環境，沿用 `JwtOptionsFailFastTests` 的最小有效設定）在 `ConfigureServices` 中取得最終的 `IServiceCollection`，將每個描述元序列化為 `Lifetime | ServiceType | ImplementationType 或 "factory" 或 "instance"`，只保留型別字串含 `ProjectC` 或 `StackExchange.Redis` 的項目（後者是為了涵蓋 `IConnectionMultiplexer` 的 lifetime，審查中發現漏掉而補入）（涵蓋專案型別與以專案 Options 為泛型引數的 `IConfigureOptions<>`／`IValidateOptions<>` 等），排序後與提交進版控的基準檔逐行比對。
 
 - 以排序後的多重集合比對，不比對註冊順序：拆分必然改變項目間順序，而同一服務型別的多筆註冊只有 `IHostedService`、`IAuthorizationHandler`、`IValidator<>` 這類集合型註冊對順序敏感；本專案的集合型註冊彼此之間無順序相依（兩個 hosted service 獨立，且 Testing 環境不註冊）。
-- 基準檔必須由拆分前（HEAD）的 `Program.cs` 產生，拆分後測試必須通過且基準檔內容不得為了讓測試通過而修改。實作時基準檔是在拆分後，暫時還原 HEAD 版 `Program.cs` 重新產生（因為快照篩選範圍加入 `StackExchange.Redis`），尚未 commit；基準檔內容仍完全來自拆分前的程式碼。
+- 基準檔必須由拆分前（HEAD）的 `Program.cs` 產生，拆分後測試必須通過且基準檔內容不得為了讓測試通過而修改。實作時基準檔是在拆分後，暫時還原 HEAD 版 `Program.cs` 重新產生（因為快照篩選範圍加入 `StackExchange.Redis`），重新產生後已隨實作 commit；其內容經容器內以父 commit 的 `Program.cs` 跑快照測試驗證與拆分前一致。
 - 這是特徵化測試（locks in current behavior），不是新行為測試：它在拆分前就會通過，因此 TDD 的 RED 為 N/A。其「會失敗」的證據改採突變驗證：暫時把某個 lifetime 改掉，確認測試失敗（見 tasks.md）。
 - 描述元只抓得到 Testing 環境下的註冊，Testing 排除的兩個 hosted service 不在其中，見 Risks。
 

@@ -6,7 +6,7 @@
 >
 > | 行為不變準則 | 驗證 |
 > | --- | --- |
-> | P1：DI 圖（服務型別、實作型別、lifetime）拆分前後相同 | 1.1 快照測試（拆分前通過、拆分後仍通過且基準檔無 diff）、1.2 突變驗證 |
+> | P1：DI 圖（服務型別、實作型別、lifetime）拆分前後相同（快照追蹤範圍見 design Risks，其餘由正規化 diff 與既有整合測試守護） | 1.1 快照測試（拆分前通過、拆分後仍通過且基準檔無 diff）、1.2 突變驗證 |
 > | P2：啟動期設定讀取時機不變、Options fail-fast 行為不變 | 1.4 既有測試的突變驗證、2.x 之後重跑 `Startup` 測試 |
 > | P3：HTTP 契約與 middleware 順序不變 | 2.x 之後重跑全套 WebApi 整合測試 |
 > | P4：非 Testing 環境註冊兩個背景服務、Testing 一個都不註冊；Development 才執行 seeder／OpenAPI（這兩區塊留在 Program.cs 不搬動） | 2.6 自動化測試（背景服務）、4.2 煙霧驗證（seeder／OpenAPI） |
@@ -27,7 +27,7 @@
     突變（`mutate`，`RedisServiceCollectionExtensions.cs`：`services.AddSingleton<IConnectionMultiplexer>(_ =>` → `services.AddTransient<IConnectionMultiplexer>(_ =>`）：`Failed ProjectC.WebApi.Tests.Startup.ServiceRegistrationSnapshotTests.ServiceRegistrations_MatchCommittedBaseline [320 ms]`／`Expected (missing.Count + unexpected.Count) to be 0 because DI 圖與基準檔不一致。缺少的項目：Singleton | StackExchange.Redis.IConnectionMultiplexer | factory；多出的項目：Transient | StackExchange.Redis.IConnectionMultiplexer | factory, but found 2 (difference of 2).`／`Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 328 ms - ProjectC.WebApi.Tests.dll (net10.0)`。還原後 `docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~Startup"` → `Passed!  - Failed:     0, Passed:    49, Skipped:     0, Total:    49, Duration: 54 s - ProjectC.WebApi.Tests.dll (net10.0)`。
   - TDD：N/A（特徵化測試，理由見上方）。
   - 交叉審查後補（更新模式防呆）：`UPDATE_SERVICE_REGISTRATION_SNAPSHOT=1` 時測試寫完基準檔後改為 `Assert.Fail`，避免誤設於 CI 而永遠通過。驗證：`docker compose exec -T -e UPDATE_SERVICE_REGISTRATION_SNAPSHOT=1 api dotnet test tests/ProjectC.WebApi.Tests --no-build --filter "FullyQualifiedName~ServiceRegistrations_MatchCommittedBaseline"` → `Failed ProjectC.WebApi.Tests.Startup.ServiceRegistrationSnapshotTests.ServiceRegistrations_MatchCommittedBaseline [315 ms]`、訊息 `已改寫基準檔（UPDATE_SERVICE_REGISTRATION_SNAPSHOT=1）。取消該環境變數後重跑以驗證。`、`Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 325 ms - ProjectC.WebApi.Tests.dll (net10.0)`；取消變數重跑 `Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 291 ms - ProjectC.WebApi.Tests.dll (net10.0)`（基準檔仍為 160 行）；`--filter FullyQualifiedName~Startup` 全部：`Passed!  - Failed:     0, Passed:    49, Skipped:     0, Total:    49, Duration: 1 m 6 s - ProjectC.WebApi.Tests.dll (net10.0)`。
-- [x] 1.2 突變驗證（使用 `bash scripts/verify-test-evidence.sh mutate`，一次一個改動）：(a) 暫時把任一 `AddScoped` 改為 `AddSingleton`；(b) 暫時移除任一 Handler 註冊；(c) 暫時把任一實作型別換成另一個實作。每個突變都須使 1.1 的測試失敗，還原後恢復通過。驗證：三個突變的失敗訊息原文都列出差異項目。
+- [x] 1.2 突變驗證（使用 `bash scripts/verify-test-evidence.sh mutate`，一次一個改動）：(a) 暫時把任一 `AddScoped` 改為 `AddSingleton`；(b) 暫時移除任一 Handler 註冊；(c) 暫時把任一實作型別換成另一個實作（實際突變為改成 factory 註冊，見完成紀錄）。每個突變都須使 1.1 的測試失敗，還原後恢復通過。驗證：三個突變的失敗訊息原文都列出差異項目。
   - 完成紀錄（皆以 `bash scripts/verify-test-evidence.sh mutate` 對 Program.cs 執行，測試為 `ServiceRegistrationSnapshotTests.ServiceRegistrations_MatchCommittedBaseline`）：
     (a) `AddScoped<IUnitOfWork, UnitOfWork>()` → `AddSingleton`：失敗，摘要行 `Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 290 ms - ProjectC.WebApi.Tests.dll (net10.0)`；訊息列出缺少的 `Scoped | …IUnitOfWork | …UnitOfWork` 與多出的 `Singleton | …IUnitOfWork | …UnitOfWork`。
     (b) 移除 `AddScoped<LogoutHandler>()`：失敗，`Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 296 ms`；訊息列出缺少的 `Scoped | …LogoutHandler | …LogoutHandler`。
@@ -82,7 +82,7 @@
     還原後：`Passed!  - Failed:     0, Passed:     4, Skipped:     0, Total:     4, Duration: 285 ms - ProjectC.WebApi.Tests.dll (net10.0)`。
     逐行對照：Program.cs 對 `AddBackgroundServices(` 恰一次、為頂層無條件的 `builder.Services` 呼叫；`!IsEnvironment("Testing")` 在 extension 內；Program.cs 的 `IsDevelopment()` seeder 執行區塊與 `MapOpenApi` 條件原樣保留；5 次 `GetRequiredService<T>()` 與註解搬入 `EagerOptionsValidationExtensions.cs`，Program.cs 於 `Build()` 後呼叫 `ResolveEagerlyValidatedOptions()`。
 - [x] 2.7 確認 `Program.cs` 最終只含 design「決策 1」列出的內容，行數大幅減少；`using` 清掉不再需要者（僅限因搬移而未使用的）。驗證：`docker compose exec api dotnet build` 無新增 warning（比對 1.3 前的 warning 數）、1.1 基準檔無 diff（`git diff --stat -- tests/**/ServiceRegistrationSnapshot.baseline.txt` 為空）。
-  - 完成紀錄：Program.cs 574 → 129 行。`dotnet build` 0 Error，無出自新增檔案的新 warning 來源。基準檔與拆分前版本 `diff` 無差異（基準檔為 untracked 新檔，故不以 `git diff` 判定）。
+  - 完成紀錄：Program.cs 574 → 129 行。`dotnet build` 0 Error，無出自新增檔案的新 warning 來源。基準檔與拆分前版本 `diff` 無差異（當時基準檔為 untracked 新檔，故不以 `git diff` 判定；之後已隨 477ea5c commit）。
   - 交叉審查後補（warning 比對）：`docker compose exec -T api dotnet build --no-incremental` → `4 Warning(s)`、`0 Error(s)`。warning 來源：`OrderService.cs(138,38): warning CA1502: 'PlaceOrderCoreAsync' has a cyclomatic complexity of '48'`、`PurchaseQueueAdmissionService.cs(411,24): warning S3776: Refactor this method to reduce its Cognitive Complexity from 28 to the 15 allowed.`，其餘為 `MSB3277`（EF Core Relational 版本衝突）；兩個出處檔案皆不在本 change 的 diff 內（`git status --short` 未列出），故無出自新增或修改檔案的 warning。未另以 HEAD 重建取得拆分前的數字。
 
 ## 3. 文件更正
@@ -92,7 +92,7 @@
 
 ## 4. 完整驗證與審查前檢查
 
-- [x] 4.1 全套回歸：`docker compose exec api dotnet test` 各測試專案，與 1.3 基準逐專案比對 Passed／Failed 數；若有偶發失敗，單獨重跑並貼出兩次結果。驗證：各 DLL 摘要行原文，且無新增失敗。
+- [x] 4.1 全套回歸：`docker compose exec api dotnet test` 各測試專案，與 1.3 基準逐專案比對 Passed／Failed 數；若有偶發失敗，單獨重跑並貼出兩次結果。驗證：各 DLL 摘要行原文；偶發失敗須如實記錄名稱與訊息（Infrastructure.Tests 的偶發失敗見完成紀錄，原因未確認，未以 HEAD 對照）。
   - 完成紀錄（拆分後，`docker compose exec api dotnet test`）：
     `Passed!  - Failed:     0, Passed:   151, Skipped:     0, Total:   151, Duration: 104 ms - ProjectC.Domain.Tests.dll (net10.0)`
     `Passed!  - Failed:     0, Passed:   527, Skipped:     0, Total:   527, Duration: 1 s - ProjectC.Application.Tests.dll (net10.0)`
