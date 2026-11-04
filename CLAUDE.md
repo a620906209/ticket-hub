@@ -32,7 +32,7 @@
 
 ### 強制規則
 
-- **禁止在本機執行** dotnet / dotnet-ef / psql：本機執行不會報錯，而是會靜默連到錯誤的 DB（`appsettings.Development.json` 為 `localhost`）或把 `bin/obj` 寫進 bind mount 的原始碼目錄。Claude Code 由 `.claude/hooks/block-host-dotnet.js`（PreToolUse）強制攔截；其他工具（如 Devin）不受此 hook 約束，須自行遵守
+- **禁止在本機執行** dotnet / dotnet-ef / psql：本機執行不會報錯，而是會靜默連到錯誤的 DB（`appsettings.Development.json` 為本機專用、被 `.gitignore` 排除、從未進版控的檔案；連線字串為 `localhost`，容器內由 compose 環境變數覆寫）或把 `bin/obj` 寫進 bind mount 的原始碼目錄。Claude Code 由 `.claude/hooks/block-host-dotnet.js`（PreToolUse）強制攔截；其他工具（如 Devin）不受此 hook 約束，須自行遵守
 - 所有指令以容器為執行點：
   `docker compose exec api dotnet ef database update`
   而非 `dotnet ef database update`

@@ -16,7 +16,7 @@
 
 **Goals:**
 - `Program.cs` 縮減為「啟動流程 + 擴充方法呼叫 + 管線順序」，每個關注點一個可獨立閱讀的檔案。
-- 拆分前後 DI 圖（服務型別、實作型別、lifetime）逐項相同，由自動化測試證明，而非靠肉眼審查。
+- 拆分前後 DI 圖（服務型別、實作型別、lifetime）逐項相同，由自動化測試證明，而非靠肉眼審查；證明範圍限快照追蹤的描述元，其餘盲區見 Risks。
 
 **Non-Goals:**
 - 不調整任何 lifetime、不合併或刪除看似重複的 Options 註冊（例如 `Configure<T>` 與 `AddOptions<T>().Bind` 兩種寫法並存）、不改 middleware 順序。
@@ -27,7 +27,7 @@
 
 ### 決策 1：擴充方法全放 `WebApi/Extensions/`，依關注點切分
 
-`Application` 只 reference `Domain`，要提供 `AddApplication()` 就得替它加 DI Abstractions 套件並改動 `.csproj`／compose volume；`Program.cs` 本來就是 composition root。因此全部留在 WebApi，不動任何 `.csproj`。
+`Application` 只 reference `Domain`，要提供 `AddApplication()` 就得替它加 DI Abstractions 套件並改動 `.csproj`／compose volume；`Program.cs` 本來就是 composition root。因此全部留在 WebApi，不改產品專案的相依與結構；唯一的 `.csproj` 變更是測試專案複製 baseline 檔的 `CopyToOutputDirectory` 設定。
 
 替代方案：每層各自一個 `AddXxx`（專案層級拆分）。否決原因：需改 `Application.csproj` 相依，而本 change 目標是零相依變動。
 
@@ -60,10 +60,10 @@ Development 專屬的 seeder 執行區塊（`IsDevelopment()` 內 `await SeedAsy
 
 ### 決策 3：以 `ServiceDescriptor` 快照測試證明 DI 圖不變
 
-新增 `tests/ProjectC.WebApi.Tests/Startup/ServiceRegistrationSnapshotTests`：以 `WebApplicationFactory<Program>`（Testing 環境，沿用 `JwtOptionsFailFastTests` 的最小有效設定）在 `ConfigureServices` 中取得最終的 `IServiceCollection`，將每個描述元序列化為 `Lifetime | ServiceType | ImplementationType 或 "factory" 或 "instance"`，只保留型別字串含 `ProjectC` 的項目（涵蓋專案型別與以專案 Options 為泛型引數的 `IConfigureOptions<>`／`IValidateOptions<>` 等），排序後與提交進版控的基準檔逐行比對。
+新增 `tests/ProjectC.WebApi.Tests/Startup/ServiceRegistrationSnapshotTests`：以 `WebApplicationFactory<Program>`（Testing 環境，沿用 `JwtOptionsFailFastTests` 的最小有效設定）在 `ConfigureServices` 中取得最終的 `IServiceCollection`，將每個描述元序列化為 `Lifetime | ServiceType | ImplementationType 或 "factory" 或 "instance"`，只保留型別字串含 `ProjectC` 或 `StackExchange.Redis` 的項目（後者是為了涵蓋 `IConnectionMultiplexer` 的 lifetime，審查中發現漏掉而補入）（涵蓋專案型別與以專案 Options 為泛型引數的 `IConfigureOptions<>`／`IValidateOptions<>` 等），排序後與提交進版控的基準檔逐行比對。
 
 - 以排序後的多重集合比對，不比對註冊順序：拆分必然改變項目間順序，而同一服務型別的多筆註冊只有 `IHostedService`、`IAuthorizationHandler`、`IValidator<>` 這類集合型註冊對順序敏感；本專案的集合型註冊彼此之間無順序相依（兩個 hosted service 獨立，且 Testing 環境不註冊）。
-- 基準檔在**修改 `Program.cs` 之前**，於現有程式碼上產生並提交，之後拆分不得修改基準檔；拆分後測試必須通過且基準檔無 diff。
+- 基準檔必須由拆分前（HEAD）的 `Program.cs` 產生，拆分後測試必須通過且基準檔內容不得為了讓測試通過而修改。實作時基準檔是在拆分後，暫時還原 HEAD 版 `Program.cs` 重新產生（因為快照篩選範圍加入 `StackExchange.Redis`），尚未 commit；基準檔內容仍完全來自拆分前的程式碼。
 - 這是特徵化測試（locks in current behavior），不是新行為測試：它在拆分前就會通過，因此 TDD 的 RED 為 N/A。其「會失敗」的證據改採突變驗證：暫時把某個 lifetime 改掉，確認測試失敗（見 tasks.md）。
 - 描述元只抓得到 Testing 環境下的註冊，Testing 排除的兩個 hosted service 不在其中，見 Risks。
 
@@ -75,7 +75,7 @@ Development 專屬的 seeder 執行區塊（`IsDevelopment()` 內 `await SeedAsy
 
 ## Risks / Trade-offs
 
-- [快照盲區：只保留型別字串含 `ProjectC` 的描述元，看不到 `AddRateLimiter` 的 policy／`OnRejected`、`AddJwtBearer` 的選項、`AddAuthorizationBuilder` 的 policy、`HealthCheckServiceOptions`] → 這些搬移為逐行剪貼，由 `git diff -M` 審查加既有整合測試守護（限流行為 `RateLimitedWebApplicationFactory` 系列、JWT 驗證 `AuthTestHelper` 相關測試、授權 policy 的 403／401 測試、`HealthChecks/` 測試）。
+- [快照盲區：只保留型別字串含 `ProjectC` 或 `StackExchange.Redis` 的描述元，看不到 Options 的 section 名稱（`Configure<T>(GetSection)` 只顯示 instance）、factory／Validate delegate 的內容、`DbContextOptions`、`ValidateOnStart` 的 `IConfigureOptions<StartupValidatorOptions>`（由 `*FailFastTests` 守護）、`AddRateLimiter` 的 policy／`OnRejected`、`AddJwtBearer` 的選項、`AddAuthorizationBuilder` 的 policy、`HealthCheckServiceOptions`] → 這些搬移為逐行剪貼，由 `git diff -M` 審查加既有整合測試守護（限流行為 `RateLimitedWebApplicationFactory` 系列、JWT 驗證 `AuthTestHelper` 相關測試、授權 policy 的 403／401 測試、`HealthChecks/` 測試）。
 - [5 個 eager 解析的 Options 若在搬移時漏掉 `GetRequiredService<T>()`，啟動期 fail-fast 會悄悄消失] → 5 個 Options 都已有既有測試守護（`RateLimitingOptionsFailFastTests` 內 RateLimiting／Login／Captcha／CaptchaRateLimiting／SeatMap 各一個測試）；tasks 1.4 以突變驗證證明這些測試對「漏掉解析」會失敗，不新增測試。
 - [快照測試看不到 Testing 環境以外的行為：兩個 hosted service 的非 Testing 註冊] → tasks 2.6 以 `BackgroundServiceRegistrationTests` 直接測 `AddBackgroundServices(environment)`（Production／Development 註冊兩個、Testing 零個），並以突變驗證證明有效。
 - [Development 專屬的 seeder 執行區塊與 OpenAPI 留在 Program.cs、不被搬動] → 風險僅限於範圍外的誤改；tasks 2.6 以 `git diff` 確認這兩個區塊未動，4.2 煙霧驗證 seeder 效果與 `/openapi/v1.json`。

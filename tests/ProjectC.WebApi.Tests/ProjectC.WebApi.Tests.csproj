@@ -27,6 +27,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="Startup\ServiceRegistrationSnapshot.baseline.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\ProjectC.WebApi\ProjectC.WebApi.csproj" />
     <ProjectReference Include="..\..\src\ProjectC.Application\ProjectC.Application.csproj" />
     <ProjectReference Include="..\..\src\ProjectC.Infrastructure\ProjectC.Infrastructure.csproj" />
