@@ -1,4 +1,12 @@
-# 例外日誌遮蔽待辦（2026-11-02）
+# 例外日誌遮蔽待辦（2026-11-02；已由 `exception-log-masking` change 完成）
+
+## 完成狀態
+
+已由 `exception-log-masking` change 完成：`ExceptionMaskingSink` 在 Serilog 管線最外層遮蔽所有日誌來源的例外文字（含 `InnerException` 與堆疊），保留例外型別名稱與堆疊；bootstrap logger 一併納入。遮蔽範圍與格式清單見該 change 的 `design.md` 決策 3。
+
+已知限制：只認指定格式（`password`／`passwd`／`pwd`、`api-key`／`secret`／`token` 的 key=value、`Bearer`、JWT、URL 內嵌密碼），不處理沒有 key 的裸密碼、日誌屬性值與歷史日誌。
+
+以下為開 change 前的原始記錄。
 
 ## 缺口
 

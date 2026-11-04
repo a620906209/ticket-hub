@@ -82,9 +82,7 @@ using ProjectC.WebApi.OpenApi;
 // Bootstrap logger：在 appsettings.json 的 Serilog 設定節被讀取之前先能輸出到 Console，
 // 讓 host 建置階段本身（含下方讀取設定失敗的情況）也有日誌可查（Serilog.AspNetCore 既定慣例，
 // 見 observability design.md 決策 1 與 Risk：初始化失敗時 fallback 到 Console 並記錄錯誤後才拋出）。
-Log.Logger = new LoggerConfiguration()
-    .WriteTo.Console()
-    .CreateBootstrapLogger();
+Log.Logger = SerilogConfigurator.CreateBootstrapLogger();
 
 try
 {
