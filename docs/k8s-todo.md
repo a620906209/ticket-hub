@@ -38,7 +38,7 @@
 | ConfigMap | `Jwt__Issuer`、`Jwt__Audience`、`Jwt__AccessTokenExpirationMinutes`、`Auth__RefreshTokenExpirationDays`、`Auth__PasswordResetTokenExpirationMinutes`、`Seq__ServerUrl`、`ConnectionStrings__Redis`、`DevelopmentSeed__AdminEmail`、`DevelopmentSeed__OrganizerName` |
 
 - 原因：機敏資訊不得明文進版控；Secret 的實際值不得 commit，只提交範本（例如 `secret.example.yaml`）。
-- 注意：`appsettings.Development.json` 內有已 commit 的 dev secret 與 `localhost`（見記憶 `project_webapi_todo`），轉換時一併檢視。
+- 注意：`appsettings.Development.json` 為本機專用、被 `.gitignore` 排除、從未進版控的檔案；連線字串為 `localhost`，容器內由 compose 環境變數覆寫。
 
 ### 3. 決定 `ASPNETCORE_ENVIRONMENT`
 
