@@ -40,8 +40,8 @@
 | 1 | `LoadTicketTypesAsync` | 批次讀票種、依請求順序回報第一個缺漏 | `Result<Dictionary<Guid, TicketType>>` |
 | 2 | `GetSelectionShapeErrorOrNull`（static） | RequiresSeat 與請求形狀交叉驗證 | `Error?` |
 | 3 | `LoadValidationSeatsAsync` | 座位存在性批次讀取 | `Result<Dictionary<Guid, EventSeat>>` |
-| 4 | `GetCrossEventErrorOrNull`（static）＋ `LoadOrderEventAsync` | 票種／座位活動聯集檢查；唯一 `eventId` 由協調者從聯集取得，交易外 `orderEvent` 由 `LoadOrderEventAsync` 回傳 | `Error?`；`Task<Event?>` |
-| 5 | `GetPreTransactionGateErrorAsync` | 販售期間快速失敗 → 實名主要檢查 → 限購（順序固定） | `Task<Error?>` |
+| 4 | `GetDistinctEventIds`（static）＋ `GetCrossEventErrorOrNull`（static） | 票種／座位活動聯集檢查；唯一 `eventId` 由協調者從聯集取得，交易外 `orderEvent` 由協調者以 `_eventRepository.GetByIdAsync` 直接讀取（實作時未另抽方法） | `List<Guid>`；`Error?` |
+| 5 | `GetPreTransactionGateErrorOrNullAsync` | 販售期間快速失敗 → 實名主要檢查 → 限購（順序固定） | `Task<Error?>` |
 | 6 | `LoadSeatPlacementsAsync` ＋ 既有 `GetSeatPlacementErrorOrNull` | 座位樣板讀取、配置、座位圖成員／分區比對 | `Result<IReadOnlyList<SeatPlacement>>` |
 | 7 | 保留既有 `GetEarlyConflictOrNull` 呼叫 | 提早 409 | `Error?` |
 | 8 | `GetLockedEventErrorOrNullAsync`（含 I/O：`_memberRealNameRepository.GetAsync`） | 鎖內販售期間重驗（`now` 由協調者在 `GetForShareAsync` 與 `EventLocked` 之後取得並傳入，I5 載體留在協調者）、實名／座位配置補位、實名旗標不變量（丟 `InvalidOperationException`）；`lockedEvent is null` → NotFound（:314–317）留在協調者，緊接 `GetForShareAsync` 與 `EventLocked` 時間點，之後才呼叫本方法 | `Task<Error?>`（例外照丟）；共 6 個輸入（buyerId、orderEvent、lockedEvent、seatPlacements、now、ct；`now` 在 `lockedEvent is null` 檢查之後取得，與原碼 :314–321 一致）：前 5 個資料欄位依 CLAUDE.md 封裝為一個 private record，`CancellationToken` 保留為獨立參數（便於 5.2 hardener 核對 CT 傳遞），故方法實際為 2 個參數 |

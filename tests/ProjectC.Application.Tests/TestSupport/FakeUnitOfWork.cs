@@ -7,11 +7,19 @@ public sealed class FakeUnitOfWork : IUnitOfWork
     public int BeginTransactionCallCount { get; private set; }
     public FakeUnitOfWorkTransaction? LastTransaction { get; private set; }
 
-    public Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken)
+    // 預設不啟用：僅供 timings 分段測試讓 BeginTransactionMs 可區分於 0。
+    public TimeSpan? BeginTransactionDelay { get; set; }
+
+    public async Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken)
     {
         BeginTransactionCallCount++;
+        if (BeginTransactionDelay is { } delay)
+        {
+            await Task.Delay(delay, cancellationToken);
+        }
+
         LastTransaction = new FakeUnitOfWorkTransaction();
-        return Task.FromResult<IUnitOfWorkTransaction>(LastTransaction);
+        return LastTransaction;
     }
 
     public int OpenConnectionCallCount { get; private set; }

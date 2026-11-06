@@ -32,9 +32,14 @@ public sealed class FakeTicketTypeRepository : ITicketTypeRepository
     // 供「被擋下的請求不得鎖定任何庫存」的斷言使用（real-name-verification TP-RN-ORDER-001／007～009）。
     public int GetForUpdateCallCount { get; private set; }
 
+    public List<string>? LockCallLog { get; set; }
+    public CancellationToken? LastGetForUpdateToken { get; private set; }
+
     public Task<IReadOnlyList<TicketType>> GetForUpdateAsync(IReadOnlyList<Guid> ticketTypeIds, CancellationToken cancellationToken)
     {
         GetForUpdateCallCount++;
+        LockCallLog?.Add("TicketType");
+        LastGetForUpdateToken = cancellationToken;
         return Task.FromResult<IReadOnlyList<TicketType>>(Data.Where(t => ticketTypeIds.Contains(t.Id)).ToList());
     }
 }

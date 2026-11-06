@@ -9,6 +9,7 @@ public sealed class FakePurchaseQueueAdmissionMirror : IPurchaseQueueAdmissionMi
     public List<(Guid EventId, Guid EntryId, DateTime JoinedAtUtc)> SyncJoinCalls { get; } = new();
 
     public List<(Guid EventId, Guid EntryId)> SyncCompletionCalls { get; } = new();
+    public CancellationToken? LastSyncCompletionToken { get; private set; }
 
     public Task SyncJoinAsync(Guid eventId, Guid entryId, DateTime joinedAtUtc, CancellationToken cancellationToken)
     {
@@ -19,6 +20,7 @@ public sealed class FakePurchaseQueueAdmissionMirror : IPurchaseQueueAdmissionMi
     public Task SyncCompletionAsync(Guid eventId, Guid entryId, CancellationToken cancellationToken)
     {
         SyncCompletionCalls.Add((eventId, entryId));
+        LastSyncCompletionToken = cancellationToken;
         return Task.CompletedTask;
     }
 }
