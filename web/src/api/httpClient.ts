@@ -10,7 +10,7 @@ export class ApiError extends Error {
   readonly problem: ProblemDetails | null
 
   constructor(status: number, problem: ProblemDetails | null) {
-    super(problem?.detail ?? problem?.title ?? `API 請求失敗（狀態碼 ${status}）`)
+    super(problem?.detail ?? `API 請求失敗（狀態碼 ${status}）`)
     this.name = 'ApiError'
     this.status = status
     this.problem = problem

@@ -87,6 +87,38 @@ describe('httpClient request', () => {
 
     await expect(request('/orders/some-id/confirm', { method: 'POST' })).resolves.toBeUndefined()
   })
+
+  // [AER-009] title 是供程式判斷的機器代碼，不是給使用者看的文字；500 刻意無 detail，不能退回 title。
+  it('有 title 無 detail 時，message 為含狀態碼的通用文字而非 title', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(500, { status: 500, title: 'InternalServerError' }))
+
+    await expect(request('/orders')).rejects.toMatchObject({
+      status: 500,
+      message: 'API 請求失敗（狀態碼 500）',
+    })
+  })
+
+  // [AER-010]
+  it('有 detail 時，message 等於 detail', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(404, { status: 404, title: 'NotFound', detail: '找不到活動。' }),
+    )
+
+    await expect(request('/events/x')).rejects.toMatchObject({ message: '找不到活動。' })
+  })
+
+  // [AER-011]
+  it('非 JSON 失敗回應時，message 為通用文字且 problem 為 null', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('<html>Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } }),
+    )
+
+    await expect(request('/events')).rejects.toMatchObject({
+      status: 502,
+      message: 'API 請求失敗（狀態碼 502）',
+      problem: null,
+    })
+  })
 })
 
 describe('requestBlob', () => {

@@ -37,9 +37,13 @@
 
 捨棄的方案：改用 MVC 的 `ProblemDetailsFactory`。理由：我的理解是其預設會以 `Activity.Current?.Id ?? HttpContext.TraceIdentifier` 填 `traceId`，在有 Activity 時與 `observability` spec 要求的「等於 `HttpContext.TraceIdentifier`」不同；此為實作時須以實測確認的假設，若實測證明兩者相同仍維持本決策（更小的變更面）。
 
+實測結果（tasks 2.2）：`Activity.Current` 存在時，`ProblemDetailsFactory.CreateProblemDetails` 的 `traceId` 為 `Activity.Current.Id`（W3C 格式 `00-<trace-id>-<span-id>-00`），與 `HttpContext.TraceIdentifier` 不同，假設成立，維持本決策。
+
 ### 決策 3：前端移除 title 備援，不新增使用者訊息對照
 
 `ApiError` 訊息改為 `detail ?? 狀態碼文字`。500 刻意無 `Detail`（避免外洩內部資訊），改名後若仍退回 `title` 會把 `InternalServerError` 顯示給使用者。不在本 change 新增「依 title 代碼對照友善訊息」機制：目前各頁面已自行處理需要特殊文案的代碼，其餘情況顯示通用狀態碼文字與現況相當。
+
+使用者可見的變化（符合 AER-009）：框架對模型繫結失敗自動產生的 400 沒有 `detail`，訊息由 `One or more validation errors occurred.` 變為 `API 請求失敗（狀態碼 400）`；沒有 `detail` 的 429 也由 `TooManyRequests` 變為通用狀態碼文字。兩者都是刻意接受的結果，因為退回 `title` 會把機器代碼顯示給使用者。
 
 ### 決策 4：Capability 切分
 

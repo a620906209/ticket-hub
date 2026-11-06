@@ -55,6 +55,6 @@ public static class ResultExtensions
             Detail = error.Message,
         };
 
-        return new ObjectResult(problemDetails) { StatusCode = statusCode };
+        return new ProblemDetailsWithTraceIdResult(problemDetails);
     }
 }

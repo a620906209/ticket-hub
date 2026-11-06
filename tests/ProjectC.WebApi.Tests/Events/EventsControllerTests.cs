@@ -114,6 +114,25 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    // [AER-006][AER-008] 業務錯誤回應帶非空 traceId，且每個請求不同，使用者才能憑它對照 log。
+    [Fact]
+    public async Task GetTicketTypes_WithNonExistentEvent_ReturnsDistinctTraceIdPerRequest()
+    {
+        var client = _factory.CreateClient();
+
+        var traceIds = new List<string?>();
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var response = await client.GetAsync($"/api/events/{Guid.NewGuid()}/ticket-types");
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            body.RootElement.GetProperty("title").GetString().Should().Be("NotFound");
+            traceIds.Add(body.RootElement.GetProperty("traceId").GetString());
+        }
+
+        traceIds.Should().OnlyContain(traceId => !string.IsNullOrEmpty(traceId));
+        traceIds[0].Should().NotBe(traceIds[1]);
+    }
+
     // ---- 安全回歸測試：公開端點不得洩漏 Admin 專用的稽核/售票統計欄位（見 admin-event-audit-and-
     // sales-status design.md 決策 8）----
 

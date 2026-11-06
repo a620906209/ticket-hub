@@ -27,13 +27,13 @@
 
 對應不一致項目：`Title` 語意混用、業務錯誤沒有 `traceId`。
 
-- [ ] 決策：500、413 的 `Title` 改為機器代碼（例如 `InternalServerError`、`PayloadTooLarge`）；`Detail` 是否保留人類可讀句子
-- [ ] 決策：`traceId` 取得方式（`Activity.Current?.Id` 或 `HttpContext.TraceIdentifier`），與框架層錯誤一致
-- [ ] `ResultExtensions.CreateProblemResult` 補 `traceId` extension
-- [ ] `GlobalExceptionHandler` 的 `Title` 改為代碼
-- [ ] 檢查 `web/src/api/httpClient.ts` 與各處依賴 `Title` 字串的判斷，確認不會因改名而失效
-- [ ] 既有測試中斷言舊 `Title` 者同步更新
-- [ ] 更新 `api-conventions.md` 第 2 節
+- [x] 決策：500、413 的 `Title` 改為機器代碼（例如 `InternalServerError`、`PayloadTooLarge`）；`Detail` 是否保留人類可讀句子
+- [x] 決策：`traceId` 取得方式（`Activity.Current?.Id` 或 `HttpContext.TraceIdentifier`），與框架層錯誤一致
+- [x] `ResultExtensions.CreateProblemResult` 補 `traceId` extension
+- [x] `GlobalExceptionHandler` 的 `Title` 改為代碼
+- [x] 檢查 `web/src/api/httpClient.ts` 與各處依賴 `Title` 字串的判斷，確認不會因改名而失效
+- [x] 既有測試中斷言舊 `Title` 者同步更新
+- [x] 更新 `api-conventions.md` 第 2 節
 
 ## 2. `jwt-challenge-problem-details`（條件式：0-A 發現不是 ProblemDetails 才開）
 

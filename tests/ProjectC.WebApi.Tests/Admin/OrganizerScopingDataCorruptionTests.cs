@@ -28,7 +28,7 @@ public class OrganizerScopingDataCorruptionTests : IClassFixture<OrganizerScopin
     {
         var body = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(body);
-        document.RootElement.GetProperty("title").GetString().Should().Be("An unexpected error occurred.");
+        document.RootElement.GetProperty("title").GetString().Should().Be("InternalServerError");
         document.RootElement.GetProperty("status").GetInt32().Should().Be(500);
         document.RootElement.TryGetProperty("traceId", out _).Should().BeTrue();
         return body;

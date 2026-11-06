@@ -48,11 +48,26 @@ public class GlobalExceptionHandler : IExceptionHandler
         return new ProblemDetails
         {
             Status = statusCode,
-            Title = statusCode == StatusCodes.Status413PayloadTooLarge
-                ? "Request body too large."
-                : ReasonPhrases.GetReasonPhrase(statusCode),
+            Title = CreateBadRequestTitle(statusCode),
             Extensions = { ["traceId"] = httpContext.TraceIdentifier },
         };
+    }
+
+    // 常見狀態碼用明確對照，不依賴 reason phrase 在框架版本間是否改動；其餘退回 reason phrase 僅保留英數字元。
+    private static string CreateBadRequestTitle(int statusCode)
+    {
+        switch (statusCode)
+        {
+            case StatusCodes.Status413PayloadTooLarge:
+                return "PayloadTooLarge";
+            case StatusCodes.Status408RequestTimeout:
+                return "RequestTimeout";
+            case StatusCodes.Status400BadRequest:
+                return "BadRequest";
+        }
+
+        var code = new string(ReasonPhrases.GetReasonPhrase(statusCode).Where(char.IsAsciiLetterOrDigit).ToArray());
+        return code.Length == 0 ? "BadRequest" : code;
     }
 
     private ProblemDetails CreateUnexpectedErrorProblemDetails(HttpContext httpContext, Exception exception)
@@ -65,7 +80,7 @@ public class GlobalExceptionHandler : IExceptionHandler
         return new ProblemDetails
         {
             Status = StatusCodes.Status500InternalServerError,
-            Title = "An unexpected error occurred.",
+            Title = "InternalServerError",
             Extensions = { ["traceId"] = httpContext.TraceIdentifier },
         };
     }

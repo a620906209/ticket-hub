@@ -97,7 +97,7 @@ internal static class HealthEndpointTestSupport
         root.EnumerateObject().Select(property => property.Name)
             .Should().BeEquivalentTo("status", "title", "traceId");
         root.GetProperty("status").GetInt32().Should().Be(StatusCodes.Status500InternalServerError);
-        root.GetProperty("title").GetString().Should().Be("An unexpected error occurred.");
+        root.GetProperty("title").GetString().Should().Be("InternalServerError");
 
         var traceId = root.GetProperty("traceId").GetString();
         traceId.Should().MatchRegex(@"^[\w:.|-]+$");

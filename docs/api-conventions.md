@@ -23,7 +23,7 @@
 
 ### 業務錯誤（Handler 回傳 `Result`）
 
-由 `ResultExtensions.CreateProblemResult` 統一轉換：`Title = ErrorType.ToString()`、`Detail = error.Message`、`Status` 依下表。**`Title` 是前端判斷錯誤種類的穩定代碼**，不可隨意改名。
+由 `ResultExtensions.CreateProblemResult` 統一轉換：`Title = ErrorType.ToString()`、`Detail = error.Message`、`Status` 依下表，並帶 `traceId` extension（值為 `HttpContext.TraceIdentifier`，與 log 的 `TraceId` 相同）。**`Title` 是前端判斷錯誤種類的穩定代碼**，不可隨意改名。
 
 | ErrorType | HTTP | 備註 |
 |---|---|---|
@@ -43,15 +43,14 @@
 
 ### 框架層錯誤
 
-- `GlobalExceptionHandler`：未預期例外 → 500，`Title = "An unexpected error occurred."`；`BadHttpRequestException` → 其原本狀態碼（413 / 400 / 408），`Title` 為 413 時 `"Request body too large."`，其他為 reason phrase。皆帶 `traceId` extension，不含 `Detail`。
+- `GlobalExceptionHandler`：未預期例外 → 500，`Title = "InternalServerError"`；`BadHttpRequestException` → 其原本狀態碼，`Title` 為機器代碼：413 `PayloadTooLarge`、408 `RequestTimeout`、400 `BadRequest`，其他狀態碼為 reason phrase 僅保留英數字元（框架無 reason phrase，或移除非英數字元後為空字串時 `BadRequest`）。皆帶 `traceId` extension，不含 `Detail`。
 - 限流：429，`Title = "TooManyRequests"`，帶 `Retry-After` header（若可得）與 `traceId`。
 
 ### 不一致／待決定
 
-1. **`Title` 語意混用**：業務錯誤與 429 是機器代碼（`PascalCase`），500 與 413 是人類可讀句子。前端判斷時兩種風格並存。
-2. **`traceId` 只出現在框架層錯誤**，業務錯誤（`ResultExtensions`）沒有；對使用者回報問題時無法對照 log。
-3. **驗證錯誤沒有逐欄位結構**：`Validation` 只有單一 `Detail` 字串，沒有 `errors` 欄位對照。
-4. 未驗證：JWT middleware 產生的 401／403（沒有走 Handler 的情況）回應 body 是否也是 ProblemDetails，需另行測試確認。
+1. **驗證錯誤沒有逐欄位結構**：`Validation` 只有單一 `Detail` 字串，沒有 `errors` 欄位對照。
+2. 未驗證：JWT middleware 產生的 401／403（沒有走 Handler 的情況）回應 body 是否也是 ProblemDetails，需另行測試確認。
+3. **模型繫結自動產生的 400**（`[ApiController]`）的 `Title` 為框架預設句子（`One or more validation errors occurred.`），與其他錯誤的機器代碼風格不一致，待決定（預計併入 `validation-error-fields`）。
 
 ## 3. 資料命名
 
