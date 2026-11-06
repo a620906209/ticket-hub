@@ -546,6 +546,7 @@ public class PurchaseQueueAdmissionServiceTests : IClassFixture<CustomWebApplica
         placeResult.IsSuccess.Should().BeTrue();
 
         // (a) Postgres 交易確實已 commit：查詢該排隊紀錄的 Status 已為 Completed。
+        // 此斷言同時守護 OrderService 的 queueEntry.Complete() 必須在 CommitAsync 之前：移到之後則狀態不會被 SaveChanges 寫入，這裡會讀到 Admitted。
         (await ReadStatusAsync(admittedEntry.Id)).Should().Be(PurchaseQueueEntryStatus.Completed);
 
         // (b)/(c)：ZREM 是 commit 之後才執行、且確實成功——直接查詢 Redis，斷言該 entryId 已不在
