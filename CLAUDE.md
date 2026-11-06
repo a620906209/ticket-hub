@@ -362,7 +362,7 @@ This project has a knowledge graph at graphify-out/ with god nodes, community st
 
 Rules:
 - When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and put this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- 查詢方式：已知符號用 `graphify explain "<路徑>::<符號>"`（只給符號名遇同名節點會回報 Ambiguous）；只知道主題時先 `query` 定位，再用 `query "<問題>" --seed <完整節點 id>` 深入（`--seed` 不接受 `路徑::符號`）。查詢盡量用程式碼裡的英文符號名。理由：`Task`、`Fact`、`Guid` 等外部型別連到大量節點，一般 `query` 容易經由它們混入不相關結果，排除 archive 幾乎沒有改善（見 `docs/graphify-todo.md` 第 7 項）。
+- 查詢方式：已知符號用 `graphify explain "<路徑>::<符號>"`（只給符號名遇同名節點會回報 Ambiguous）；只知道主題時先 `query` 定位，再用 `query "<問題>" --seed <完整節點 id>` 深入（`--seed` 不接受 `路徑::符號`）。查詢盡量用程式碼裡的英文符號名。理由：`Task`、`Fact`、`Guid` 等外部型別連到大量節點，一般 `query` 容易經由它們混入不相關結果，排除 archive 幾乎沒有改善（2026-11-01 以同一個 UnitOfWork 問題實測：加 `--seed` 或改用 `explain` 明顯較準，單純排除 archive 或外部節點改善有限）。
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
