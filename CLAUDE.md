@@ -152,6 +152,8 @@
 
 ## 錯誤處理與例外
 
+> 跨模組共用的認證、錯誤格式（`ProblemDetails` 的 `Title` 代碼與狀態碼對照）、資料命名現況，見 `docs/api-conventions.md`；新增 `ErrorType`、Policy、Claim 或路由前綴時須同步更新。
+
 - **例外拋出時機**：僅在「無法在當層合理處理」時才拋出；可預期的業務失敗優先用 Result 型別 / 明確回傳值，而非以例外控制流程
 - **全域處理**：ASP.NET Core 一律透過全域 `IExceptionHandler` / exception middleware 統一轉換為標準錯誤回應（建議 `ProblemDetails`），Controller 內不散落 try-catch
 - **例外包裝**：捕捉低層例外後若要重拋，須保留原始堆疊（`throw;` 而非 `throw ex;`），必要時包成領域例外並帶上內部例外
