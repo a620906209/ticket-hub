@@ -1845,6 +1845,388 @@ public class OrderServiceTests
             "確認 IL 讀取有涵蓋到分段量測的程式碼，避免因讀不到而空洞通過");
     }
 
+    // ---- place-order-core-complexity：行為不變重構前的特徵化測試（在未修改 OrderService.cs 的狀態下即通過）----
+
+    private static (Event Event, EventSeat EventSeat, TicketType SeatTicketType, TicketType CountTicketType) SeedMixedEvent(Fixture fixture)
+    {
+        var (@event, _, eventSeat, seatTicketType) = fixture.SeedEventWithSeatAndTicketType();
+        var countTicketType = @event.CreateCountBasedTicketType("站票", 300m, 10);
+        fixture.TicketTypeRepository.Data.Add(countTicketType);
+        return (@event, eventSeat, seatTicketType, countTicketType);
+    }
+
+    private static Task<Result<Guid>> PlaceAsync(Fixture fixture, Guid buyerId, params PlaceOrderSelectionRequest[] selections)
+        => fixture.CreateOrderService().PlaceOrderAsync(buyerId, new PlaceOrderRequest(selections.ToList()), CancellationToken.None);
+
+    private static void AssertFailure(Result<Guid> result, ErrorType expectedType, string expectedMessage)
+    {
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(expectedType);
+        result.Error.Message.Should().Be(expectedMessage);
+    }
+
+    // I1：Event → PurchaseQueueEntry → EventSeat → TicketType。請求同時含座位與計數票種，順序斷言才不會空轉。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeAdmittedWithSeatAndCountingItems_LocksEventThenQueueEntryThenSeatThenTicketType()
+    {
+        var fixture = new Fixture();
+        var (@event, eventSeat, seatTicketType, countTicketType) = SeedMixedEvent(fixture);
+        @event.EnableQueueMode();
+        var buyerId = Guid.NewGuid();
+        AddAdmittedQueueEntry(fixture, @event, buyerId);
+        var lockCallLog = new List<string>();
+        fixture.EventRepository.LockCallLog = lockCallLog;
+        fixture.PurchaseQueueRepository.LockCallLog = lockCallLog;
+        fixture.EventSeatRepository.LockCallLog = lockCallLog;
+        fixture.TicketTypeRepository.LockCallLog = lockCallLog;
+
+        var result = await PlaceAsync(
+            fixture, buyerId,
+            new PlaceOrderSelectionRequest(eventSeat.Id, seatTicketType.Id),
+            new PlaceOrderSelectionRequest(null, countTicketType.Id, 2));
+
+        result.IsSuccess.Should().BeTrue();
+        lockCallLog.Should().Equal("Event", "PurchaseQueueEntry", "EventSeat", "TicketType");
+    }
+
+    // 階段 12：commit 後的鏡像同步與快取失效必須帶正確的活動與名額識別。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeAdmittedWithCountingItems_SyncsCompletionAndInvalidatesCacheWithEventAndEntryIds()
+    {
+        var fixture = new Fixture();
+        var (@event, eventSeat, seatTicketType, countTicketType) = SeedMixedEvent(fixture);
+        @event.EnableQueueMode();
+        var buyerId = Guid.NewGuid();
+        var entry = AddAdmittedQueueEntry(fixture, @event, buyerId);
+
+        var result = await PlaceAsync(
+            fixture, buyerId,
+            new PlaceOrderSelectionRequest(eventSeat.Id, seatTicketType.Id),
+            new PlaceOrderSelectionRequest(null, countTicketType.Id, 2));
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.AdmissionMirror.SyncCompletionCalls.Should().Equal((@event.Id, entry.Id));
+        fixture.QueryCache.RemoveCalls.Should().Equal(GetTicketTypesHandler.BuildCacheKey(@event.Id));
+    }
+
+    // 涵蓋範圍：只守護鎖定與鏡像同步的 6 個呼叫（GetByIdAsync、GetForShareAsync、三個 GetForUpdateAsync、SyncCompletionAsync）轉送 CancellationToken；其餘 I/O 呼叫的 token 轉送由 tasks.md 3.8 記載為未守護。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeAdmittedWithSeatAndCountingItems_ForwardsCancellationTokenToEveryLockAndMirrorCall()
+    {
+        var fixture = new Fixture();
+        var (@event, eventSeat, seatTicketType, countTicketType) = SeedMixedEvent(fixture);
+        @event.EnableQueueMode();
+        var buyerId = Guid.NewGuid();
+        AddAdmittedQueueEntry(fixture, @event, buyerId);
+        using var cts = new CancellationTokenSource();
+
+        var result = await fixture.CreateOrderService().PlaceOrderAsync(
+            buyerId,
+            new PlaceOrderRequest([
+                new PlaceOrderSelectionRequest(eventSeat.Id, seatTicketType.Id),
+                new PlaceOrderSelectionRequest(null, countTicketType.Id, 2)]),
+            cts.Token);
+
+        result.IsSuccess.Should().BeTrue();
+        fixture.EventRepository.LastGetByIdToken.Should().Be(cts.Token);
+        fixture.EventRepository.LastGetForShareToken.Should().Be(cts.Token);
+        fixture.PurchaseQueueRepository.LastGetForUpdateToken.Should().Be(cts.Token);
+        fixture.EventSeatRepository.LastGetForUpdateToken.Should().Be(cts.Token);
+        fixture.TicketTypeRepository.LastGetForUpdateToken.Should().Be(cts.Token);
+        fixture.AdmissionMirror.LastSyncCompletionToken.Should().Be(cts.Token);
+    }
+
+    // TP-ORDER-014：等候列鎖期間跨過 AdmissionExpiresAtUtc，須以鎖定後重新讀取的時間判斷，不得重用交易外或階段 8 的 now。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenAdmissionExpiresWhileWaitingForQueueEntryLock_ReturnsQueueAdmissionRequired()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        @event.EnableQueueMode();
+        var buyerId = Guid.NewGuid();
+        var entry = AddAdmittedQueueEntry(fixture, @event, buyerId);
+        fixture.PurchaseQueueRepository.GetForUpdateCallback = () => fixture.DateTimeProvider.UtcNow = entry.AdmissionExpiresAtUtc!.Value;
+
+        var result = await PlaceAsync(fixture, buyerId, new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.QueueAdmissionRequired);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+        entry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
+    }
+
+    // CreateOrderHandler 失敗時不得完成排隊名額（queueEntry.Complete() 只在成功路徑呼叫）。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeAdmittedAndHandlerRejectsWithConflict_DoesNotCompleteQueueEntry()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        @event.EnableQueueMode();
+        var buyerId = Guid.NewGuid();
+        var entry = AddAdmittedQueueEntry(fixture, @event, buyerId);
+        MarkSeatSold(eventSeat);
+
+        var result = await PlaceAsync(fixture, buyerId, new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Conflict);
+        entry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+        fixture.UnitOfWork.LastTransaction!.Committed.Should().BeFalse();
+    }
+
+    // I3：EventLocked 時間點在 lockedEvent 為 null 的檢查之前寫入，所以鎖內讀不到活動時 EventLockWaitMs 仍有值。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenLockedEventIsNull_ReturnsNotFoundAndRecordsEventLockedTimestamp()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        fixture.EventRepository.GetForShareOverride = _ => null;
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        AssertFailure(result, ErrorType.NotFound, $"Event '{@event.Id}' was not found.");
+        var entry = GetSinglePhaseTimingEntry(fixture);
+        entry.Properties["Outcome"].Should().Be("NotFound");
+        entry.Properties["BeginTransactionMs"].Should().BeOfType<double>();
+        entry.Properties["EventLockWaitMs"].Should().BeOfType<double>("EventLocked 須在 lockedEvent is null 檢查之前寫入");
+        entry.Properties["CommitMs"].Should().BeNull();
+    }
+
+    // I3：時間點先後順序與各分段的 null／非 null 條件。Fake 加延遲讓 BeginTransactionMs 與 EventLockWaitMs 可區分於 0。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenTransactionAndEventLockAreSlow_RecordsPositiveBeginTransactionAndEventLockWaitSegments()
+    {
+        var fixture = new Fixture();
+        fixture.Logger.IsDebugEnabled = true;
+        fixture.UnitOfWork.BeginTransactionDelay = TimeSpan.FromMilliseconds(30);
+        fixture.EventRepository.GetForShareDelay = TimeSpan.FromMilliseconds(30);
+        var (_, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        result.IsSuccess.Should().BeTrue();
+        var entry = GetSinglePhaseTimingEntry(fixture);
+        entry.Properties["BeginTransactionMs"].Should().BeOfType<double>().Which.Should().BeGreaterThan(0, "TransactionStarting 須早於 TransactionBegun");
+        entry.Properties["EventLockWaitMs"].Should().BeOfType<double>().Which.Should().BeGreaterThan(0, "TransactionBegun 須早於 EventLocked");
+        foreach (var field in new[] { "ConnectionOpenMs", "PreTransactionMs", "InLockMs", "CommitMs", "TotalMs" })
+            entry.Properties[field].Should().BeOfType<double>().Which.Should().BeGreaterThanOrEqualTo(0, field);
+    }
+
+    // I6：失敗訊息逐字斷言（這些片段原本在 tests/** 完全沒有斷言）。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenCountingTicketTypeSpecifiesEventSeatId_ReturnsVerbatimValidationMessage()
+    {
+        var fixture = new Fixture();
+        var (_, countTicketType) = fixture.SeedEventWithCountBasedTicketType();
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(Guid.NewGuid(), countTicketType.Id));
+
+        AssertFailure(result, ErrorType.Validation, $"Ticket type '{countTicketType.Id}' does not require a seat but an event seat was specified.");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatTicketTypeHasNoEventSeatId_ReturnsVerbatimValidationMessage()
+    {
+        var fixture = new Fixture();
+        var (_, _, _, seatTicketType) = fixture.SeedEventWithSeatAndTicketType();
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(null, seatTicketType.Id));
+
+        AssertFailure(result, ErrorType.Validation, $"Ticket type '{seatTicketType.Id}' requires a seat but none was specified.");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatDoesNotExistOutsideTransaction_ReturnsVerbatimNotFoundMessage()
+    {
+        var fixture = new Fixture();
+        var (_, _, _, seatTicketType) = fixture.SeedEventWithSeatAndTicketType();
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(Guid.NewGuid(), seatTicketType.Id));
+
+        AssertFailure(result, ErrorType.NotFound, "One or more selected seats were not found.");
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    // 鎖內數量比對（:375）可達：交易外讀取之後、鎖內 GetForUpdate 之前清空座位資料。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatsDisappearBetweenOutsideReadAndLock_ReturnsVerbatimNotFoundMessage()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        fixture.EventRepository.GetForShareOverride = _ =>
+        {
+            fixture.EventSeatRepository.Data.Clear();
+            return @event;
+        };
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        AssertFailure(result, ErrorType.NotFound, "One or more selected seats were not found.");
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1);
+        fixture.EventSeatRepository.GetForUpdateCallCount.Should().Be(1);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    // 鎖內數量比對（:397）可達：交易外讀取之後、鎖內 GetForUpdate 之前清空票種資料。
+    [Fact]
+    public async Task PlaceOrderAsync_WhenCountingTicketTypesDisappearBetweenOutsideReadAndLock_ReturnsVerbatimNotFoundMessage()
+    {
+        var fixture = new Fixture();
+        var (@event, countTicketType) = fixture.SeedEventWithCountBasedTicketType();
+        fixture.EventRepository.GetForShareOverride = _ =>
+        {
+            fixture.TicketTypeRepository.Data.Clear();
+            return @event;
+        };
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(null, countTicketType.Id, 1));
+
+        AssertFailure(result, ErrorType.NotFound, "One or more selected ticket types were not found.");
+        fixture.TicketTypeRepository.GetForUpdateCallCount.Should().Be(1);
+        fixture.OrderRepository.Data.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenQueueModeEnabledAndNotAdmitted_ReturnsVerbatimQueueAdmissionMessage()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType();
+        @event.EnableQueueMode();
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        AssertFailure(result, ErrorType.QueueAdmissionRequired, $"Event '{@event.Id}' requires purchase queue admission.");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenRealNameRequiredAndBuyerNotRegisteredOutsideTransaction_ReturnsVerbatimMessage()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(isRealNameRequired: true);
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        AssertFailure(result, ErrorType.RealNameRequired, $"Event '{@event.Id}' requires real-name registration.");
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenRealNameRequiredAndBuyerNotRegisteredUnderLock_ReturnsVerbatimMessage()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(isRealNameRequired: true);
+        fixture.EventRepository.GetByIdOverride = _ => null;
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        AssertFailure(result, ErrorType.RealNameRequired, $"Event '{@event.Id}' requires real-name registration.");
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(1);
+    }
+
+    // I6 優先順序：同一請求同時違反兩項檢查時，回報的必須是原本較早的那一項。
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenCountingTicketTypeHasNonexistentSeatId_ReturnsShapeValidationNotSeatNotFound()
+    {
+        var fixture = new Fixture();
+        var (_, countTicketType) = fixture.SeedEventWithCountBasedTicketType();
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(Guid.NewGuid(), countTicketType.Id));
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.Message.Should().Contain("does not require a seat");
+        fixture.EventSeatRepository.GetByIdsCallCount.Should().Be(0, "形狀檢查須先於驗證用座位載入");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenFirstSelectionViolatesShapeAndSecondTicketTypeMissing_ReturnsTicketTypeNotFound()
+    {
+        var fixture = new Fixture();
+        var (_, _, _, seatTicketType) = fixture.SeedEventWithSeatAndTicketType();
+        var missingTicketTypeId = Guid.NewGuid();
+
+        var result = await PlaceAsync(
+            fixture, Guid.NewGuid(),
+            new PlaceOrderSelectionRequest(null, seatTicketType.Id),
+            new PlaceOrderSelectionRequest(null, missingTicketTypeId, 1));
+
+        AssertFailure(result, ErrorType.NotFound, $"Ticket type '{missingTicketTypeId}' was not found.");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatMissingAndTicketTypesSpanEvents_ReturnsSeatNotFoundNotCrossEvent()
+    {
+        var fixture = new Fixture();
+        var (_, _, _, seatTicketType) = fixture.SeedEventWithSeatAndTicketType();
+        var (_, otherEventCountTicketType) = fixture.SeedEventWithCountBasedTicketType();
+
+        var result = await PlaceAsync(
+            fixture, Guid.NewGuid(),
+            new PlaceOrderSelectionRequest(Guid.NewGuid(), seatTicketType.Id),
+            new PlaceOrderSelectionRequest(null, otherEventCountTicketType.Id, 1));
+
+        AssertFailure(result, ErrorType.NotFound, "One or more selected seats were not found.");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenItemsSpanEvents_ReturnsCrossEventValidationWithoutReadingEvent()
+    {
+        var fixture = new Fixture();
+        var (_, _, seatFromEventA, _) = fixture.SeedEventWithSeatAndTicketType();
+        var (_, _, _, ticketTypeFromEventB) = fixture.SeedEventWithSeatAndTicketType();
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(seatFromEventA.Id, ticketTypeFromEventB.Id));
+
+        AssertFailure(result, ErrorType.Validation, "All selected items must belong to the same event.");
+        fixture.EventRepository.GetByIdCallCount.Should().Be(0, "跨活動檢查須先於活動讀取");
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenSeatFromAnotherSeatMapIsAlsoSold_ReturnsSeatMapNotFoundNotConflict()
+    {
+        var fixture = new Fixture();
+        var (_, foreignEventSeat, ticketType) = fixture.SeedEventWithSeatFromAnotherSeatMap("A", "A");
+        MarkSeatSold(foreignEventSeat);
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(foreignEventSeat.Id, ticketType.Id));
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.NotFound);
+        result.Error.Message.Should().Contain("was not found in the seat map");
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenMaxTicketsExceededAndSeatAlreadySold_ReturnsMaxTicketsErrorNotConflict()
+    {
+        var fixture = new Fixture();
+        var (_, ticketType, eventSeats) = fixture.SeedEventWithMultipleSeats(seatCount: 2, maxTicketsPerOrder: 1);
+        MarkSeatSold(eventSeats[0]);
+
+        var result = await PlaceAsync(
+            fixture, Guid.NewGuid(),
+            new PlaceOrderSelectionRequest(eventSeats[0].Id, ticketType.Id),
+            new PlaceOrderSelectionRequest(eventSeats[1].Id, ticketType.Id));
+
+        AssertFailure(result, ErrorType.Validation, "This event allows at most 1 ticket(s) per order.");
+        fixture.UnitOfWork.BeginTransactionCallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PlaceOrderAsync_WhenEventUnreadOutsideTransactionAndRealNameMissingAndZoneMismatches_ReturnsRealNameRequiredBeforeSeatPlacement()
+    {
+        var fixture = new Fixture();
+        var (@event, _, eventSeat, ticketType) = fixture.SeedEventWithSeatAndTicketType(seatZoneCode: "A", ticketTypeZoneCode: "B", isRealNameRequired: true);
+        fixture.EventRepository.GetByIdOverride = _ => null;
+
+        var result = await PlaceAsync(fixture, Guid.NewGuid(), new PlaceOrderSelectionRequest(eventSeat.Id, ticketType.Id));
+
+        AssertFailure(result, ErrorType.RealNameRequired, $"Event '{@event.Id}' requires real-name registration.");
+    }
+
     // ---- place-order-request-limits：系統上限 50（TP-LIMIT-*） ----
 
     // TP-LIMIT-005：既有資料的活動限購可能大於 50，系統上限仍以 50 為準。

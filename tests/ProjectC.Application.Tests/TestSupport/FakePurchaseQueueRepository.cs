@@ -19,9 +19,17 @@ public sealed class FakePurchaseQueueRepository : IPurchaseQueueRepository
     // 供「實名補位檢查必須先於排隊資格檢查」的斷言使用（real-name-verification TP-RN-ORDER-007）。
     public int GetForUpdateCallCount { get; private set; }
 
+    // 預設不啟用：LockCallLog 供鎖定順序斷言；GetForUpdateCallback 供在等列鎖期間推進時鐘（TP-ORDER-014）。
+    public List<string>? LockCallLog { get; set; }
+    public Action? GetForUpdateCallback { get; set; }
+    public CancellationToken? LastGetForUpdateToken { get; private set; }
+
     public Task<PurchaseQueueEntry?> GetForUpdateAsync(Guid eventId, Guid memberId, CancellationToken cancellationToken)
     {
         GetForUpdateCallCount++;
+        LockCallLog?.Add("PurchaseQueueEntry");
+        LastGetForUpdateToken = cancellationToken;
+        GetForUpdateCallback?.Invoke();
         return Task.FromResult(Data.FirstOrDefault(e => e.EventId == eventId && e.MemberId == memberId &&
             (e.Status == PurchaseQueueEntryStatus.Waiting || e.Status == PurchaseQueueEntryStatus.Admitted)));
     }

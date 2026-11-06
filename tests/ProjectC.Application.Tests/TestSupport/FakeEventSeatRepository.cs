@@ -34,9 +34,14 @@ public sealed class FakeEventSeatRepository : IEventSeatRepository
     // 供「被擋下的請求不得鎖定任何座位」的斷言使用（real-name-verification TP-RN-ORDER-001／007～009）。
     public int GetForUpdateCallCount { get; private set; }
 
+    public List<string>? LockCallLog { get; set; }
+    public CancellationToken? LastGetForUpdateToken { get; private set; }
+
     public Task<IReadOnlyList<EventSeat>> GetForUpdateAsync(IReadOnlyList<Guid> eventSeatIds, CancellationToken cancellationToken)
     {
         GetForUpdateCallCount++;
+        LockCallLog?.Add("EventSeat");
+        LastGetForUpdateToken = cancellationToken;
         return Task.FromResult<IReadOnlyList<EventSeat>>(Data.Where(es => eventSeatIds.Contains(es.Id)).ToList());
     }
 }

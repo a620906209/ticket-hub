@@ -149,139 +149,51 @@ public sealed class OrderService
         await using var connection = await _unitOfWork.OpenConnectionAsync(cancellationToken);
         timings.ConnectionOpened = Stopwatch.GetTimestamp();
 
-        // no-tracking 查詢，純粹用於存在性／RequiresSeat 交叉驗證，MUST NOT 對這裡取得的實例呼叫
-        // TicketType.Reserve()（design.md 決策 3——之後的 GetForUpdateAsync 才是鎖定後的版本）。
-        // 一次批次查詢取代逐筆查詢；Distinct 保留請求順序，缺漏時回報請求中第一個找不到的 Id，與逐筆查詢時相同
-        // （place-order-request-limits design.md 決策 4）。
-        var requestedTicketTypeIds = request.Selections.Select(s => s.TicketTypeId).Distinct().ToList();
-        var ticketTypesById = (await _ticketTypeRepository.GetByIdsAsync(requestedTicketTypeIds, cancellationToken))
-            .ToDictionary(t => t.Id);
-        foreach (var ticketTypeId in requestedTicketTypeIds)
+        var ticketTypesResult = await LoadTicketTypesAsync(request, cancellationToken);
+        if (!ticketTypesResult.IsSuccess)
         {
-            if (!ticketTypesById.ContainsKey(ticketTypeId))
-            {
-                return Result<Guid>.Failure(Error.NotFound($"Ticket type '{ticketTypeId}' was not found."));
-            }
+            return Result<Guid>.Failure(ticketTypesResult.Error!);
         }
 
-        // RequiresSeat 與請求形狀的交叉驗證：純計數票種指定了座位／綁座位票種未指定座位／
-        // 座位項目指定非 1 的 Quantity 皆 MUST 拒絕（design.md 決策 4，ticket-purchase spec 三個 Scenario）。
-        foreach (var selectionRequest in request.Selections)
+        var ticketTypesById = ticketTypesResult.Value!;
+
+        if (GetSelectionShapeErrorOrNull(request, ticketTypesById) is { } shapeError)
         {
-            var ticketType = ticketTypesById[selectionRequest.TicketTypeId];
-
-            if (!ticketType.RequiresSeat && selectionRequest.EventSeatId.HasValue)
-            {
-                return Result<Guid>.Failure(Error.Validation(
-                    $"Ticket type '{ticketType.Id}' does not require a seat but an event seat was specified."));
-            }
-
-            if (ticketType.RequiresSeat && !selectionRequest.EventSeatId.HasValue)
-            {
-                return Result<Guid>.Failure(Error.Validation(
-                    $"Ticket type '{ticketType.Id}' requires a seat but none was specified."));
-            }
-
-            if (ticketType.RequiresSeat && selectionRequest.Quantity != 1)
-            {
-                return Result<Guid>.Failure(Error.Validation(
-                    $"Seat item for ticket type '{ticketType.Id}' must have a quantity of exactly 1."));
-            }
+            return Result<Guid>.Failure(shapeError);
         }
 
-        // 座位存在性／所屬活動比對也 MUST 在取得任何資料庫鎖之前完成，理由跟下面的跨活動檢查相同。
-        // no-tracking 批次查詢，不可用 GetForUpdateAsync——那個方法會鎖定，且交易還沒開始也無法呼叫。
-        var seatSelectionEventSeatIds = request.Selections
-            .Where(s => s.EventSeatId.HasValue)
-            .Select(s => s.EventSeatId!.Value)
-            .Distinct()
-            .ToList();
-        var validationSeatsById = new Dictionary<Guid, EventSeat>();
-        if (seatSelectionEventSeatIds.Count > 0)
+        var validationSeatsResult = await LoadValidationSeatsAsync(request, cancellationToken);
+        if (!validationSeatsResult.IsSuccess)
         {
-            var validationSeats = await _eventSeatRepository.GetByIdsAsync(seatSelectionEventSeatIds, cancellationToken);
-            if (validationSeats.Count < seatSelectionEventSeatIds.Count)
-            {
-                return Result<Guid>.Failure(Error.NotFound("One or more selected seats were not found."));
-            }
-
-            validationSeatsById = validationSeats.ToDictionary(es => es.Id);
+            return Result<Guid>.Failure(validationSeatsResult.Error!);
         }
 
-        // 跨活動驗證 MUST 在取得任何資料庫鎖之前完成（ticket-ordering spec「建立訂單並原子性鎖定座位
-        // 或扣減票種庫存」Requirement：「在嘗試鎖定或扣減任何項目之前，系統 MUST 先驗證...所有項目
-        // 須全部屬於同一場活動」）——外部審查抓到兩輪問題：① 先前這裡只用「第一個票種的活動」查
-        // 限購張數，真正的跨活動檢查延後到 CreateOrderHandler.Handle 才做；② 改成比對 ticketTypesById
-        // 之後，仍只看票種的 EventId，沒把座位所屬活動納入比對集合——只有一個票種時（例如一個綁座位
-        // 票種配另一場活動的座位），這個比對會通過，直到座位被鎖定後才被 `ticketType.EventId !=
-        // eventSeat.EventId` 擋下。這裡改成「票種活動」跟「座位活動」的聯集：只要聯集大小是 1，數學上
-        // 保證每個座位跟其配對票種的活動必然相同（若有任何一組不一致，聯集大小必然 >= 2），
-        // 不需要額外逐一比對座位與其配對票種。
-        var distinctEventIds = ticketTypesById.Values.Select(t => t.EventId)
-            .Concat(validationSeatsById.Values.Select(es => es.EventId))
-            .Distinct()
-            .ToList();
-        if (distinctEventIds.Count > 1)
+        var validationSeatsById = validationSeatsResult.Value!;
+
+        var distinctEventIds = GetDistinctEventIds(ticketTypesById, validationSeatsById);
+        if (GetCrossEventErrorOrNull(distinctEventIds) is { } crossEventError)
         {
-            return Result<Guid>.Failure(Error.Validation("All selected items must belong to the same event."));
+            return Result<Guid>.Failure(crossEventError);
         }
+
+        var eventId = distinctEventIds[0];
 
         // 每筆訂單限購張數：依 Quantity 加總（座位項目已在上面驗證固定為 1，語意自然相容）。
         // 上面的跨活動檢查已經保證所有票種屬於同一場活動，這裡不再是「任選第一個」，是唯一的活動。
-        var orderEvent = await _eventRepository.GetByIdAsync(distinctEventIds[0], cancellationToken);
+        var orderEvent = await _eventRepository.GetByIdAsync(eventId, cancellationToken);
 
-        // 販售期間快速失敗：交易外以未加鎖的 orderEvent 判斷，只為了在開賣前／停售後不開交易、不排鎖；
-        // 交易內以 lockedEvent 與重新取得的 now 再檢查一次才是權威（event-sales-window design.md 決策 3）。
-        if (orderEvent is not null && EventSalesWindowErrors.GetErrorOrNull(orderEvent, _dateTimeProvider.UtcNow) is { } outsideSalesError)
+        if (await GetPreTransactionGateErrorOrNullAsync(buyerId, request, orderEvent, cancellationToken) is { } gateError)
         {
-            return Result<Guid>.Failure(outsideSalesError);
+            return Result<Guid>.Failure(gateError);
         }
 
-        // 實名閘門（主要檢查）放在交易外、限購之前（real-name-verification design.md 決策 3）。交易外判斷之所以安全，
-        // 依賴兩個不變量：I1 Event.IsRealNameRequired 建構後不可變；I2 會員實名只能從未登記變成已登記。
-        // 未來若新增活動編輯可改此旗標（破壞 I1），必須改以交易內 lockedEvent 為唯一權威，比照 IsQueueModeEnabled；
-        // 若新增會員刪除／實名清除（破壞 I2），會員實名的讀取必須移進交易並加鎖，或改在訂單保存實名快照。
-        if (orderEvent is { IsRealNameRequired: true } &&
-            await _memberRealNameRepository.GetAsync(buyerId, cancellationToken) is null)
+        var seatPlacementsResult = await LoadSeatPlacementsAsync(request, validationSeatsById, ticketTypesById, cancellationToken);
+        if (!seatPlacementsResult.IsSuccess)
         {
-            return Result<Guid>.Failure(Error.RealNameRequired($"Event '{orderEvent.Id}' requires real-name registration."));
+            return Result<Guid>.Failure(seatPlacementsResult.Error!);
         }
 
-        if (orderEvent is { MaxTicketsPerOrder: { } maxTicketsPerOrder })
-        {
-            // Quantity 是外部輸入；Sum(int) 用的是 checked int 累加，兩個接近 int.MaxValue 的 Quantity 會拋
-            // OverflowException、變成未預期的 500（外部審查抓到）。validator 現已限制總張數 <= 50
-            // （place-order-request-limits），long 累加保留為縱深防禦，避免日後 validator 調整時溢位問題重現。
-            var totalQuantity = request.Selections.Sum(s => (long)s.Quantity);
-            if (totalQuantity > maxTicketsPerOrder)
-            {
-                return Result<Guid>.Failure(Error.Validation($"This event allows at most {maxTicketsPerOrder} ticket(s) per order."));
-            }
-        }
-
-        // 座位樣板只依 SeatId 批次讀取（no-tracking），取代鎖內載入整張座位圖——那是座位票鎖內時間的主要成本
-        // （order-placement-p95-optimization design.md 決策 4）。在交易外以未加鎖的資料判斷之所以安全，依賴
-        // Seat.SeatMapId／Seat.ZoneCode／EventSeat.SeatId／EventSeat.EventId／Event.SeatMapId 建構後不可變
-        // （ProjectC.Domain.Tests SeatPlacementImmutabilityTests 守住）；若未來任一欄位可變更，這些比對必須移回鎖內。
-        var seatPlacements = new List<SeatPlacement>();
-        if (validationSeatsById.Count > 0)
-        {
-            var seatIds = validationSeatsById.Values.Select(es => es.SeatId).Distinct().ToList();
-            var seatTemplatesById = (await _seatMapRepository.GetSeatsByIdsAsync(seatIds, cancellationToken)).ToDictionary(s => s.Id);
-            if (validationSeatsById.Values.FirstOrDefault(es => !seatTemplatesById.ContainsKey(es.SeatId)) is { } seatWithoutTemplate)
-            {
-                return Result<Guid>.Failure(Error.NotFound($"Seat '{seatWithoutTemplate.SeatId}' was not found in the seat map."));
-            }
-
-            seatPlacements = request.Selections
-                .Where(s => s.EventSeatId.HasValue)
-                .Select(s =>
-                {
-                    var eventSeat = validationSeatsById[s.EventSeatId!.Value];
-                    return new SeatPlacement(eventSeat, seatTemplatesById[eventSeat.SeatId], ticketTypesById[s.TicketTypeId]);
-                })
-                .ToList();
-        }
+        var seatPlacements = seatPlacementsResult.Value!;
 
         // 交易外讀不到活動時不知道它的 SeatMapId，成員與分區比對改在鎖內以 lockedEvent 補上（見下方實名補位之後）。
         if (orderEvent is not null && GetSeatPlacementErrorOrNull(seatPlacements, orderEvent.SeatMapId) is { } seatPlacementError)
@@ -309,127 +221,51 @@ public sealed class OrderService
         // 用共享鎖就足夠（order-placement-p95-phase2 design.md 決策 1）：下單只讀不改 Event，共享鎖彼此相容，同一活動的下單
         // 不再逐筆通過；切換排隊模式的 FOR UPDATE 與共享鎖互斥，持有期間切換無法提交，切換先提交時這裡讀到新值。
         // 超賣由下面座位／票種各自的 FOR UPDATE 保護，從來不依賴 Event 鎖。
-        var lockedEvent = await _eventRepository.GetForShareAsync(distinctEventIds[0], cancellationToken);
+        var lockedEvent = await _eventRepository.GetForShareAsync(eventId, cancellationToken);
         timings.EventLocked = Stopwatch.GetTimestamp();
         if (lockedEvent is null)
         {
-            return Result<Guid>.Failure(Error.NotFound($"Event '{distinctEventIds[0]}' was not found."));
+            return Result<Guid>.Failure(Error.NotFound($"Event '{eventId}' was not found."));
         }
 
         // now 必須在 GetForShareAsync 返回之後取得：等鎖期間可能跨過開賣／停售時點，用等鎖前的時間會誤判。
-        // 失敗時直接返回，交易未 commit 即在 dispose 時回滾（IUnitOfWorkTransaction 契約）。
-        if (EventSalesWindowErrors.GetErrorOrNull(lockedEvent, _dateTimeProvider.UtcNow) is { } salesError)
+        var now = _dateTimeProvider.UtcNow;
+        var lockedEventCheck = new LockedEventCheck(buyerId, orderEvent, lockedEvent, seatPlacements, now);
+        if (await GetLockedEventErrorOrNullAsync(lockedEventCheck, cancellationToken) is { } lockedEventError)
         {
-            return Result<Guid>.Failure(salesError);
+            return Result<Guid>.Failure(lockedEventError);
         }
 
-        // 實名閘門補位：交易外讀不到活動時主要檢查被跳過，這裡以 lockedEvent 補上，必須在排隊資格與任何座位／庫存鎖定之前。
-        // 兩次都讀到但旗標不同代表 I1 被破壞，不靜默採信任一方（design.md 決策 3）。
-        if (orderEvent is null)
+        var queueEntryResult = await LockQueueEntryAsync(lockedEvent, buyerId, cancellationToken);
+        if (!queueEntryResult.IsSuccess)
         {
-            if (lockedEvent.IsRealNameRequired &&
-                await _memberRealNameRepository.GetAsync(buyerId, cancellationToken) is null)
-            {
-                return Result<Guid>.Failure(Error.RealNameRequired($"Event '{lockedEvent.Id}' requires real-name registration."));
-            }
-
-            // 座位圖成員與分區比對補位：必須在排隊資格與任何座位／庫存鎖定之前（design.md 決策 4）。
-            if (GetSeatPlacementErrorOrNull(seatPlacements, lockedEvent.SeatMapId) is { } lockedSeatPlacementError)
-            {
-                return Result<Guid>.Failure(lockedSeatPlacementError);
-            }
-        }
-        else if (orderEvent.IsRealNameRequired != lockedEvent.IsRealNameRequired)
-        {
-            throw new InvalidOperationException($"Event '{lockedEvent.Id}' IsRealNameRequired changed between reads (invariant I1 violated).");
+            return Result<Guid>.Failure(queueEntryResult.Error!);
         }
 
-        PurchaseQueueEntry? queueEntry = null;
-        if (lockedEvent.IsQueueModeEnabled)
+        var queueEntry = queueEntryResult.Value;
+
+        var eventSeatsResult = await LockSeatsAsync(request, cancellationToken);
+        if (!eventSeatsResult.IsSuccess)
         {
-            // 只依 Status 過濾並鎖定，不比較 AdmissionExpiresAtUtc；OrderService 自行以時間重新確認資格。
-            queueEntry = await _purchaseQueueRepository.GetForUpdateAsync(lockedEvent.Id, buyerId, cancellationToken);
-            var isAdmitted = queueEntry is { Status: PurchaseQueueEntryStatus.Admitted } &&
-                queueEntry.AdmissionExpiresAtUtc > _dateTimeProvider.UtcNow;
-            if (!isAdmitted)
-            {
-                // MUST NOT 呼叫 Expire()：狀態落地寫入統一交由背景服務／JoinPurchaseQueueHandler 自我修復
-                // 負責，OrderService 只讀取判斷（design.md 決策 4）。
-                return Result<Guid>.Failure(
-                    Error.QueueAdmissionRequired($"Event '{lockedEvent.Id}' requires purchase queue admission."));
-            }
+            return Result<Guid>.Failure(eventSeatsResult.Error!);
         }
 
-        // 鎖定順序（design.md 決策 3 固定規則）：先鎖座位，後鎖票種；純計數訂單沒有任何座位時，
-        // MUST NOT 呼叫 GetForUpdateAsync(空清單)（該方法對空清單拋 ArgumentException）。
-        // .Distinct() 比照下面 countingTicketTypeIds／ChangeOrderStatusAsync 既有的相同模式：
-        // GetForUpdateAsync 內部會對重複 id 去重後才查詢（EventSeatRepository.GetForUpdateAsync），
-        // 若這裡傳入未去重的清單，查回的筆數會比傳入的筆數少，讓下面的 Count 比對誤判為座位不存在
-        // （hardener 稽核抓到：目前 PlaceOrderRequestValidator 已擋掉重複 EventSeatId，這裡不會被觸發，
-        // 但這個保護在另一個檔案，這裡本身沒有防禦，跟檔案內其他四處同類型檢查的既有模式不一致）。
-        var eventSeatIds = request.Selections.Where(s => s.EventSeatId.HasValue).Select(s => s.EventSeatId!.Value).Distinct().ToList();
-        var eventSeatsById = new Dictionary<Guid, EventSeat>();
-        if (eventSeatIds.Count > 0)
+        var lockedTicketTypesResult = await LockCountingTicketTypesAsync(request, cancellationToken);
+        if (!lockedTicketTypesResult.IsSuccess)
         {
-            var eventSeats = await _eventSeatRepository.GetForUpdateAsync(eventSeatIds, cancellationToken);
-            if (eventSeats.Count < eventSeatIds.Count)
-            {
-                return Result<Guid>.Failure(Error.NotFound("One or more selected seats were not found."));
-            }
-
-            eventSeatsById = eventSeats.ToDictionary(es => es.Id);
+            return Result<Guid>.Failure(lockedTicketTypesResult.Error!);
         }
 
-        // 只有純計數（RequiresSeat = false）票種需要鎖定：座位模式票種的庫存概念是 EventSeat 狀態機，
-        // 不涉及 AvailableQuantity。TicketType 之間依 Id 排序鎖定（GetForUpdateAsync 內部保證），
-        // 避免一筆訂單同時買多個不同計數票種時，跟其他並發交易鎖定順序不一致造成死鎖。
-        var countingTicketTypeIds = request.Selections
-            .Where(s => !s.EventSeatId.HasValue)
-            .Select(s => s.TicketTypeId)
-            .Distinct()
-            .ToList();
-        var lockedTicketTypesById = new Dictionary<Guid, TicketType>();
-        if (countingTicketTypeIds.Count > 0)
+        var selectionSource = new SelectionSource(request, ticketTypesById, eventSeatsResult.Value!, lockedTicketTypesResult.Value!);
+        var selectionsResult = BuildSelections(selectionSource);
+        if (!selectionsResult.IsSuccess)
         {
-            var lockedTicketTypes = await _ticketTypeRepository.GetForUpdateAsync(countingTicketTypeIds, cancellationToken);
-            if (lockedTicketTypes.Count < countingTicketTypeIds.Count)
-            {
-                return Result<Guid>.Failure(Error.NotFound("One or more selected ticket types were not found."));
-            }
-
-            lockedTicketTypesById = lockedTicketTypes.ToDictionary(t => t.Id);
+            return Result<Guid>.Failure(selectionsResult.Error!);
         }
 
-        var seatSelections = new List<SeatSelection>();
-        var quantitySelections = new List<QuantitySelection>();
+        var selections = selectionsResult.Value!;
 
-        foreach (var selectionRequest in request.Selections)
-        {
-            var ticketType = ticketTypesById[selectionRequest.TicketTypeId];
-
-            if (!selectionRequest.EventSeatId.HasValue)
-            {
-                // 計數項目：Reserve() MUST 對 GetForUpdateAsync 回傳的鎖定實例呼叫，不可用上面
-                // no-tracking 查到的 ticketType（design.md 決策 3）。
-                quantitySelections.Add(new QuantitySelection(lockedTicketTypesById[ticketType.Id], selectionRequest.Quantity));
-                continue;
-            }
-
-            if (!eventSeatsById.TryGetValue(selectionRequest.EventSeatId.Value, out var eventSeat))
-            {
-                return Result<Guid>.Failure(Error.NotFound($"Seat '{selectionRequest.EventSeatId}' was not found."));
-            }
-
-            if (ticketType.EventId != eventSeat.EventId)
-            {
-                return Result<Guid>.Failure(Error.Validation("Ticket type does not belong to the same event as the selected seat."));
-            }
-
-            // 座位圖成員與分區已在交易前（或鎖內補位）比對過，鎖內不再重讀活動與座位圖（design.md 決策 4）。
-            seatSelections.Add(new SeatSelection(eventSeat, ticketType));
-        }
-
-        var result = _createOrderHandler.Handle(buyerId, seatSelections, quantitySelections);
+        var result = _createOrderHandler.Handle(buyerId, selections.SeatSelections, selections.QuantitySelections);
         if (!result.IsSuccess)
         {
             return Result<Guid>.Failure(result.Error!);
@@ -446,21 +282,349 @@ public sealed class OrderService
         // 之後的 Redis 呼叫與資料庫無關，先歸還連線，不讓 Redis 延遲占住連線池。
         await connection.DisposeAsync();
 
+        await SyncAfterCommitAsync(
+            new PostCommitSync(queueEntry, lockedEvent.Id, eventId, selections.QuantitySelections.Count > 0), cancellationToken);
+
+        return Result<Guid>.Success(result.Value!.Id);
+    }
+
+    private sealed record LockedEventCheck(
+        Guid BuyerId, Event? OrderEvent, Event LockedEvent, IReadOnlyList<SeatPlacement> SeatPlacements, DateTime Now);
+
+    private sealed record SelectionSource(
+        PlaceOrderRequest Request,
+        IReadOnlyDictionary<Guid, TicketType> TicketTypesById,
+        IReadOnlyDictionary<Guid, EventSeat> EventSeatsById,
+        IReadOnlyDictionary<Guid, TicketType> LockedTicketTypesById);
+
+    private sealed record BuiltSelections(List<SeatSelection> SeatSelections, List<QuantitySelection> QuantitySelections);
+
+    private sealed record PostCommitSync(PurchaseQueueEntry? QueueEntry, Guid LockedEventId, Guid EventId, bool HasQuantitySelections);
+
+    // 階段 1：no-tracking 查詢，純粹用於存在性／RequiresSeat 交叉驗證，MUST NOT 對這裡取得的實例呼叫
+    // TicketType.Reserve()（design.md 決策 3——之後的 GetForUpdateAsync 才是鎖定後的版本）。
+    // 一次批次查詢取代逐筆查詢；Distinct 保留請求順序，缺漏時回報請求中第一個找不到的 Id，與逐筆查詢時相同
+    // （place-order-request-limits design.md 決策 4）。
+    private async Task<Result<Dictionary<Guid, TicketType>>> LoadTicketTypesAsync(PlaceOrderRequest request, CancellationToken cancellationToken)
+    {
+        var requestedTicketTypeIds = request.Selections.Select(s => s.TicketTypeId).Distinct().ToList();
+        var ticketTypesById = (await _ticketTypeRepository.GetByIdsAsync(requestedTicketTypeIds, cancellationToken))
+            .ToDictionary(t => t.Id);
+        foreach (var ticketTypeId in requestedTicketTypeIds)
+        {
+            if (!ticketTypesById.ContainsKey(ticketTypeId))
+            {
+                return Result<Dictionary<Guid, TicketType>>.Failure(Error.NotFound($"Ticket type '{ticketTypeId}' was not found."));
+            }
+        }
+
+        return Result<Dictionary<Guid, TicketType>>.Success(ticketTypesById);
+    }
+
+    // 階段 2：RequiresSeat 與請求形狀的交叉驗證：純計數票種指定了座位／綁座位票種未指定座位／
+    // 座位項目指定非 1 的 Quantity 皆 MUST 拒絕（design.md 決策 4，ticket-purchase spec 三個 Scenario）。
+    private static Error? GetSelectionShapeErrorOrNull(PlaceOrderRequest request, IReadOnlyDictionary<Guid, TicketType> ticketTypesById)
+    {
+        foreach (var selectionRequest in request.Selections)
+        {
+            var ticketType = ticketTypesById[selectionRequest.TicketTypeId];
+
+            if (!ticketType.RequiresSeat && selectionRequest.EventSeatId.HasValue)
+            {
+                return Error.Validation(
+                    $"Ticket type '{ticketType.Id}' does not require a seat but an event seat was specified.");
+            }
+
+            if (ticketType.RequiresSeat && !selectionRequest.EventSeatId.HasValue)
+            {
+                return Error.Validation(
+                    $"Ticket type '{ticketType.Id}' requires a seat but none was specified.");
+            }
+
+            if (ticketType.RequiresSeat && selectionRequest.Quantity != 1)
+            {
+                return Error.Validation(
+                    $"Seat item for ticket type '{ticketType.Id}' must have a quantity of exactly 1.");
+            }
+        }
+
+        return null;
+    }
+
+    // 階段 3：座位存在性／所屬活動比對也 MUST 在取得任何資料庫鎖之前完成，理由跟下面的跨活動檢查相同。
+    // no-tracking 批次查詢，不可用 GetForUpdateAsync——那個方法會鎖定，且交易還沒開始也無法呼叫。
+    private async Task<Result<Dictionary<Guid, EventSeat>>> LoadValidationSeatsAsync(PlaceOrderRequest request, CancellationToken cancellationToken)
+    {
+        var seatSelectionEventSeatIds = request.Selections
+            .Where(s => s.EventSeatId.HasValue)
+            .Select(s => s.EventSeatId!.Value)
+            .Distinct()
+            .ToList();
+        var validationSeatsById = new Dictionary<Guid, EventSeat>();
+        if (seatSelectionEventSeatIds.Count > 0)
+        {
+            var validationSeats = await _eventSeatRepository.GetByIdsAsync(seatSelectionEventSeatIds, cancellationToken);
+            if (validationSeats.Count < seatSelectionEventSeatIds.Count)
+            {
+                return Result<Dictionary<Guid, EventSeat>>.Failure(Error.NotFound("One or more selected seats were not found."));
+            }
+
+            validationSeatsById = validationSeats.ToDictionary(es => es.Id);
+        }
+
+        return Result<Dictionary<Guid, EventSeat>>.Success(validationSeatsById);
+    }
+
+    // 階段 4：跨活動驗證 MUST 在取得任何資料庫鎖之前完成（ticket-ordering spec「建立訂單並原子性鎖定座位
+    // 或扣減票種庫存」Requirement：「在嘗試鎖定或扣減任何項目之前，系統 MUST 先驗證...所有項目
+    // 須全部屬於同一場活動」）——外部審查抓到兩輪問題：① 先前這裡只用「第一個票種的活動」查
+    // 限購張數，真正的跨活動檢查延後到 CreateOrderHandler.Handle 才做；② 改成比對 ticketTypesById
+    // 之後，仍只看票種的 EventId，沒把座位所屬活動納入比對集合——只有一個票種時（例如一個綁座位
+    // 票種配另一場活動的座位），這個比對會通過，直到座位被鎖定後才被 `ticketType.EventId !=
+    // eventSeat.EventId` 擋下。這裡改成「票種活動」跟「座位活動」的聯集：只要聯集大小是 1，數學上
+    // 保證每個座位跟其配對票種的活動必然相同（若有任何一組不一致，聯集大小必然 >= 2），
+    // 不需要額外逐一比對座位與其配對票種。
+    private static List<Guid> GetDistinctEventIds(
+        IReadOnlyDictionary<Guid, TicketType> ticketTypesById, IReadOnlyDictionary<Guid, EventSeat> validationSeatsById)
+        => ticketTypesById.Values.Select(t => t.EventId)
+            .Concat(validationSeatsById.Values.Select(es => es.EventId))
+            .Distinct()
+            .ToList();
+
+    private static Error? GetCrossEventErrorOrNull(IReadOnlyList<Guid> distinctEventIds)
+        => distinctEventIds.Count > 1 ? Error.Validation("All selected items must belong to the same event.") : null;
+
+    // 階段 5：交易外的閘門，順序固定為販售期間 → 實名 → 限購。
+    private async Task<Error?> GetPreTransactionGateErrorOrNullAsync(
+        Guid buyerId, PlaceOrderRequest request, Event? orderEvent, CancellationToken cancellationToken)
+    {
+        // 販售期間快速失敗：交易外以未加鎖的 orderEvent 判斷，只為了在開賣前／停售後不開交易、不排鎖；
+        // 交易內以 lockedEvent 與重新取得的 now 再檢查一次才是權威（event-sales-window design.md 決策 3）。
+        if (orderEvent is not null && EventSalesWindowErrors.GetErrorOrNull(orderEvent, _dateTimeProvider.UtcNow) is { } outsideSalesError)
+        {
+            return outsideSalesError;
+        }
+
+        // 實名閘門（主要檢查）放在交易外、限購之前（real-name-verification design.md 決策 3）。交易外判斷之所以安全，
+        // 依賴兩個不變量：I1 Event.IsRealNameRequired 建構後不可變；I2 會員實名只能從未登記變成已登記。
+        // 未來若新增活動編輯可改此旗標（破壞 I1），必須改以交易內 lockedEvent 為唯一權威，比照 IsQueueModeEnabled；
+        // 若新增會員刪除／實名清除（破壞 I2），會員實名的讀取必須移進交易並加鎖，或改在訂單保存實名快照。
+        if (orderEvent is { IsRealNameRequired: true } &&
+            await _memberRealNameRepository.GetAsync(buyerId, cancellationToken) is null)
+        {
+            return Error.RealNameRequired($"Event '{orderEvent.Id}' requires real-name registration.");
+        }
+
+        if (orderEvent is { MaxTicketsPerOrder: { } maxTicketsPerOrder })
+        {
+            // Quantity 是外部輸入；Sum(int) 用的是 checked int 累加，兩個接近 int.MaxValue 的 Quantity 會拋
+            // OverflowException、變成未預期的 500（外部審查抓到）。validator 現已限制總張數 <= 50
+            // （place-order-request-limits），long 累加保留為縱深防禦，避免日後 validator 調整時溢位問題重現。
+            var totalQuantity = request.Selections.Sum(s => (long)s.Quantity);
+            if (totalQuantity > maxTicketsPerOrder)
+            {
+                return Error.Validation($"This event allows at most {maxTicketsPerOrder} ticket(s) per order.");
+            }
+        }
+
+        return null;
+    }
+
+    // 階段 6：座位樣板只依 SeatId 批次讀取（no-tracking），取代鎖內載入整張座位圖——那是座位票鎖內時間的主要成本
+    // （order-placement-p95-optimization design.md 決策 4）。在交易外以未加鎖的資料判斷之所以安全，依賴
+    // Seat.SeatMapId／Seat.ZoneCode／EventSeat.SeatId／EventSeat.EventId／Event.SeatMapId 建構後不可變
+    // （ProjectC.Domain.Tests SeatPlacementImmutabilityTests 守住）；若未來任一欄位可變更，這些比對必須移回鎖內。
+    private async Task<Result<IReadOnlyList<SeatPlacement>>> LoadSeatPlacementsAsync(
+        PlaceOrderRequest request,
+        IReadOnlyDictionary<Guid, EventSeat> validationSeatsById,
+        IReadOnlyDictionary<Guid, TicketType> ticketTypesById,
+        CancellationToken cancellationToken)
+    {
+        var seatPlacements = new List<SeatPlacement>();
+        if (validationSeatsById.Count > 0)
+        {
+            var seatIds = validationSeatsById.Values.Select(es => es.SeatId).Distinct().ToList();
+            var seatTemplatesById = (await _seatMapRepository.GetSeatsByIdsAsync(seatIds, cancellationToken)).ToDictionary(s => s.Id);
+            if (validationSeatsById.Values.FirstOrDefault(es => !seatTemplatesById.ContainsKey(es.SeatId)) is { } seatWithoutTemplate)
+            {
+                return Result<IReadOnlyList<SeatPlacement>>.Failure(
+                    Error.NotFound($"Seat '{seatWithoutTemplate.SeatId}' was not found in the seat map."));
+            }
+
+            seatPlacements = request.Selections
+                .Where(s => s.EventSeatId.HasValue)
+                .Select(s =>
+                {
+                    var eventSeat = validationSeatsById[s.EventSeatId!.Value];
+                    return new SeatPlacement(eventSeat, seatTemplatesById[eventSeat.SeatId], ticketTypesById[s.TicketTypeId]);
+                })
+                .ToList();
+        }
+
+        return Result<IReadOnlyList<SeatPlacement>>.Success(seatPlacements);
+    }
+
+    // 階段 8：鎖內販售期間重驗、實名／座位配置補位、實名旗標不變量。
+    // 失敗時直接返回，交易未 commit 即在 dispose 時回滾（IUnitOfWorkTransaction 契約）。
+    private async Task<Error?> GetLockedEventErrorOrNullAsync(LockedEventCheck check, CancellationToken cancellationToken)
+    {
+        var (buyerId, orderEvent, lockedEvent, seatPlacements, now) = check;
+
+        if (EventSalesWindowErrors.GetErrorOrNull(lockedEvent, now) is { } salesError)
+        {
+            return salesError;
+        }
+
+        // 實名閘門補位：交易外讀不到活動時主要檢查被跳過，這裡以 lockedEvent 補上，必須在排隊資格與任何座位／庫存鎖定之前。
+        // 兩次都讀到但旗標不同代表 I1 被破壞，不靜默採信任一方（design.md 決策 3）。
+        if (orderEvent is null)
+        {
+            if (lockedEvent.IsRealNameRequired &&
+                await _memberRealNameRepository.GetAsync(buyerId, cancellationToken) is null)
+            {
+                return Error.RealNameRequired($"Event '{lockedEvent.Id}' requires real-name registration.");
+            }
+
+            // 座位圖成員與分區比對補位：必須在排隊資格與任何座位／庫存鎖定之前（design.md 決策 4）。
+            if (GetSeatPlacementErrorOrNull(seatPlacements, lockedEvent.SeatMapId) is { } lockedSeatPlacementError)
+            {
+                return lockedSeatPlacementError;
+            }
+        }
+        else if (orderEvent.IsRealNameRequired != lockedEvent.IsRealNameRequired)
+        {
+            throw new InvalidOperationException($"Event '{lockedEvent.Id}' IsRealNameRequired changed between reads (invariant I1 violated).");
+        }
+
+        return null;
+    }
+
+    // 階段 9：排隊資格。必須在 GetForUpdateAsync 返回之後自行讀 _dateTimeProvider.UtcNow，
+    // 不得重用階段 8 的 now：等候列鎖期間跨過 AdmissionExpiresAtUtc 的請求否則會被誤放行。
+    private async Task<Result<PurchaseQueueEntry?>> LockQueueEntryAsync(Event lockedEvent, Guid buyerId, CancellationToken cancellationToken)
+    {
+        if (!lockedEvent.IsQueueModeEnabled)
+        {
+            return Result<PurchaseQueueEntry?>.Success(null);
+        }
+
+        // 只依 Status 過濾並鎖定，不比較 AdmissionExpiresAtUtc；OrderService 自行以時間重新確認資格。
+        var queueEntry = await _purchaseQueueRepository.GetForUpdateAsync(lockedEvent.Id, buyerId, cancellationToken);
+        var isAdmitted = queueEntry is { Status: PurchaseQueueEntryStatus.Admitted } &&
+            queueEntry.AdmissionExpiresAtUtc > _dateTimeProvider.UtcNow;
+        if (!isAdmitted)
+        {
+            // MUST NOT 呼叫 Expire()：狀態落地寫入統一交由背景服務／JoinPurchaseQueueHandler 自我修復
+            // 負責，OrderService 只讀取判斷（design.md 決策 4）。
+            return Result<PurchaseQueueEntry?>.Failure(
+                Error.QueueAdmissionRequired($"Event '{lockedEvent.Id}' requires purchase queue admission."));
+        }
+
+        return Result<PurchaseQueueEntry?>.Success(queueEntry);
+    }
+
+    // 階段 10a：鎖定順序（design.md 決策 3 固定規則）：先鎖座位，後鎖票種；純計數訂單沒有任何座位時，
+    // MUST NOT 呼叫 GetForUpdateAsync(空清單)（該方法對空清單拋 ArgumentException）。
+    // .Distinct() 比照下面 countingTicketTypeIds／ChangeOrderStatusAsync 既有的相同模式：
+    // GetForUpdateAsync 內部會對重複 id 去重後才查詢（EventSeatRepository.GetForUpdateAsync），
+    // 若這裡傳入未去重的清單，查回的筆數會比傳入的筆數少，讓下面的 Count 比對誤判為座位不存在
+    // （hardener 稽核抓到：目前 PlaceOrderRequestValidator 已擋掉重複 EventSeatId，這裡不會被觸發，
+    // 但這個保護在另一個檔案，這裡本身沒有防禦，跟檔案內其他四處同類型檢查的既有模式不一致）。
+    private async Task<Result<Dictionary<Guid, EventSeat>>> LockSeatsAsync(PlaceOrderRequest request, CancellationToken cancellationToken)
+    {
+        var eventSeatIds = request.Selections.Where(s => s.EventSeatId.HasValue).Select(s => s.EventSeatId!.Value).Distinct().ToList();
+        var eventSeatsById = new Dictionary<Guid, EventSeat>();
+        if (eventSeatIds.Count > 0)
+        {
+            var eventSeats = await _eventSeatRepository.GetForUpdateAsync(eventSeatIds, cancellationToken);
+            if (eventSeats.Count < eventSeatIds.Count)
+            {
+                return Result<Dictionary<Guid, EventSeat>>.Failure(Error.NotFound("One or more selected seats were not found."));
+            }
+
+            eventSeatsById = eventSeats.ToDictionary(es => es.Id);
+        }
+
+        return Result<Dictionary<Guid, EventSeat>>.Success(eventSeatsById);
+    }
+
+    // 階段 10b：只有純計數（RequiresSeat = false）票種需要鎖定：座位模式票種的庫存概念是 EventSeat 狀態機，
+    // 不涉及 AvailableQuantity。TicketType 之間依 Id 排序鎖定（GetForUpdateAsync 內部保證），
+    // 避免一筆訂單同時買多個不同計數票種時，跟其他並發交易鎖定順序不一致造成死鎖。
+    private async Task<Result<Dictionary<Guid, TicketType>>> LockCountingTicketTypesAsync(PlaceOrderRequest request, CancellationToken cancellationToken)
+    {
+        var countingTicketTypeIds = request.Selections
+            .Where(s => !s.EventSeatId.HasValue)
+            .Select(s => s.TicketTypeId)
+            .Distinct()
+            .ToList();
+        var lockedTicketTypesById = new Dictionary<Guid, TicketType>();
+        if (countingTicketTypeIds.Count > 0)
+        {
+            var lockedTicketTypes = await _ticketTypeRepository.GetForUpdateAsync(countingTicketTypeIds, cancellationToken);
+            if (lockedTicketTypes.Count < countingTicketTypeIds.Count)
+            {
+                return Result<Dictionary<Guid, TicketType>>.Failure(Error.NotFound("One or more selected ticket types were not found."));
+            }
+
+            lockedTicketTypesById = lockedTicketTypes.ToDictionary(t => t.Id);
+        }
+
+        return Result<Dictionary<Guid, TicketType>>.Success(lockedTicketTypesById);
+    }
+
+    // 階段 11：把請求項目對應成鎖定後的座位／計數選項；只做記憶體內組裝，不再有 I/O。
+    private static Result<BuiltSelections> BuildSelections(SelectionSource source)
+    {
+        var seatSelections = new List<SeatSelection>();
+        var quantitySelections = new List<QuantitySelection>();
+
+        foreach (var selectionRequest in source.Request.Selections)
+        {
+            var ticketType = source.TicketTypesById[selectionRequest.TicketTypeId];
+
+            if (!selectionRequest.EventSeatId.HasValue)
+            {
+                // 計數項目：Reserve() MUST 對 GetForUpdateAsync 回傳的鎖定實例呼叫，不可用上面
+                // no-tracking 查到的 ticketType（design.md 決策 3）。
+                quantitySelections.Add(new QuantitySelection(source.LockedTicketTypesById[ticketType.Id], selectionRequest.Quantity));
+                continue;
+            }
+
+            if (!source.EventSeatsById.TryGetValue(selectionRequest.EventSeatId.Value, out var eventSeat))
+            {
+                return Result<BuiltSelections>.Failure(Error.NotFound($"Seat '{selectionRequest.EventSeatId}' was not found."));
+            }
+
+            // 階段 4 的活動聯集檢查已保證不會走到這裡，保留為縱深防禦（測試無法觸發）。
+            if (ticketType.EventId != eventSeat.EventId)
+            {
+                return Result<BuiltSelections>.Failure(Error.Validation("Ticket type does not belong to the same event as the selected seat."));
+            }
+
+            // 座位圖成員與分區已在交易前（或鎖內補位）比對過，鎖內不再重讀活動與座位圖（design.md 決策 4）。
+            seatSelections.Add(new SeatSelection(eventSeat, ticketType));
+        }
+
+        return Result<BuiltSelections>.Success(new BuiltSelections(seatSelections, quantitySelections));
+    }
+
+    // 階段 12：commit 之後。
+    private async Task SyncAfterCommitAsync(PostCommitSync sync, CancellationToken cancellationToken)
+    {
         // 訂單完成同步移除 Redis admitted 鏡像，交易 commit 後才執行、非同一交易，best-effort
         // （purchase-queue-redis-admission design.md Decision 8）。
-        if (queueEntry is not null)
+        if (sync.QueueEntry is not null)
         {
-            await _admissionMirror.SyncCompletionAsync(lockedEvent.Id, queueEntry.Id, cancellationToken);
+            await _admissionMirror.SyncCompletionAsync(sync.LockedEventId, sync.QueueEntry.Id, cancellationToken);
         }
 
         // 只有純計數票種項目才會呼叫 TicketType.Reserve、變更 AvailableQuantity；純座位制訂單
         // （quantitySelections 為空）不觸發票種列表快取失效（design.md 決策 4 訂正）。
-        if (quantitySelections.Count > 0)
+        if (sync.HasQuantitySelections)
         {
-            await _queryCache.RemoveAsync(GetTicketTypesHandler.BuildCacheKey(distinctEventIds[0]), cancellationToken);
+            await _queryCache.RemoveAsync(GetTicketTypesHandler.BuildCacheKey(sync.EventId), cancellationToken);
         }
-
-        return Result<Guid>.Success(result.Value!.Id);
     }
 
     public async Task<Result> ConfirmOrderAsync(Guid orderId, Guid requestingBuyerId, CancellationToken cancellationToken)

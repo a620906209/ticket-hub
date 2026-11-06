@@ -51,8 +51,22 @@ public sealed class FakeEventRepository : IEventRepository
     public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken)
         => Task.FromResult(GetForUpdateOverride is null ? Data.FirstOrDefault(e => e.Id == eventId) : GetForUpdateOverride(eventId));
 
-    public Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken)
-        => Task.FromResult(GetForShareOverride is null ? Data.FirstOrDefault(e => e.Id == eventId) : GetForShareOverride(eventId));
+    // 鎖定呼叫順序紀錄與延遲掛點：預設不啟用，只供 place-order-core-complexity 的特徵化測試使用。
+    public List<string>? LockCallLog { get; set; }
+    public TimeSpan? GetForShareDelay { get; set; }
+    public CancellationToken? LastGetForShareToken { get; private set; }
+
+    public async Task<Event?> GetForShareAsync(Guid eventId, CancellationToken cancellationToken)
+    {
+        LockCallLog?.Add("Event");
+        LastGetForShareToken = cancellationToken;
+        if (GetForShareDelay is { } delay)
+        {
+            await Task.Delay(delay, cancellationToken);
+        }
+
+        return GetForShareOverride is null ? Data.FirstOrDefault(e => e.Id == eventId) : GetForShareOverride(eventId);
+    }
 
     // Event 是 reference type，Data 已持有同一實例，呼叫端對取得的實體所做的修改本來就反映在 Data 中；
     // 這裡不需要另外做任何事（比照 in-memory fake 對「標記為已修改」語意的既定簡化）。
