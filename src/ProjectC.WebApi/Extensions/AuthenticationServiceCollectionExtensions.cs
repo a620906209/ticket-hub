@@ -48,6 +48,12 @@ public static class AuthenticationServiceCollectionExtensions
                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey)),
                     ClockSkew = TimeSpan.FromSeconds(30),
                 };
+
+                options.Events = new JwtBearerEvents
+                {
+                    OnChallenge = JwtBearerProblemDetailsResponses.WriteChallengeAsync,
+                    OnForbidden = JwtBearerProblemDetailsResponses.WriteForbiddenAsync,
+                };
             });
 
         // Singleton：RequireOrganizerContextHandler 無狀態、thread-safe，比照 ASP.NET Core 官方建議的

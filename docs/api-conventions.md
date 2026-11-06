@@ -44,13 +44,13 @@
 ### 框架層錯誤
 
 - `GlobalExceptionHandler`：未預期例外 → 500，`Title = "InternalServerError"`；`BadHttpRequestException` → 其原本狀態碼，`Title` 為機器代碼：413 `PayloadTooLarge`、408 `RequestTimeout`、400 `BadRequest`，其他狀態碼為 reason phrase 僅保留英數字元（框架無 reason phrase，或移除非英數字元後為空字串時 `BadRequest`）。皆帶 `traceId` extension，不含 `Detail`。
+- 認證挑戰／授權拒絕：JWT 認證 scheme 產生的 401（未帶、無效或過期 token）與 403（角色或 Policy 不足、控制器 `Forbid()`）為 `application/problem+json`，含 `status`、`Title`（`Unauthorized`／`Forbidden`）與 `traceId`（`HttpContext.TraceIdentifier`），不含 `Detail`；401 的狀態碼與 `WWW-Authenticate` header 與框架預設逐字相同。業務失敗轉換的 401／403 不屬此類，仍帶原 `Detail`。實作在 `JwtBearerProblemDetailsResponses`。
 - 限流：429，`Title = "TooManyRequests"`，帶 `Retry-After` header（若可得）與 `traceId`。
 
 ### 不一致／待決定
 
 1. **驗證錯誤沒有逐欄位結構**：`Validation` 只有單一 `Detail` 字串，沒有 `errors` 欄位對照。
-2. 未驗證：JWT middleware 產生的 401／403（沒有走 Handler 的情況）回應 body 是否也是 ProblemDetails，需另行測試確認。
-3. **模型繫結自動產生的 400**（`[ApiController]`）的 `Title` 為框架預設句子（`One or more validation errors occurred.`），與其他錯誤的機器代碼風格不一致，待決定（預計併入 `validation-error-fields`）。
+2. **模型繫結自動產生的 400**（`[ApiController]`）的 `Title` 為框架預設句子（`One or more validation errors occurred.`），與其他錯誤的機器代碼風格不一致，待決定（預計併入 `validation-error-fields`）。
 
 ## 3. 資料命名
 

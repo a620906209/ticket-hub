@@ -18,7 +18,7 @@
 
 ## 0. 查證（先做，結果決定 2、4、5、6 要不要開）
 
-- [ ] **0-A** 測 JWT middleware 產生的 401／403 回應 body 是否為 ProblemDetails（未登入、token 過期、角色不足各測一次）
+- [x] **0-A** 測 JWT middleware 產生的 401／403 回應 body 是否為 ProblemDetails（未登入、token 過期、角色不足各測一次）
 - [ ] **0-B** 盤點所有列表端點：有無分頁參數、回應包裝形式、預期資料量
 - [ ] **0-C** 盤點 DTO／Entity 的 DateTime 欄位，列出有／無 `Utc` 後綴者及對外暴露的 JSON 欄位名
 - [ ] 查證結果記錄於本文件下方「查證結果」一節
@@ -37,8 +37,8 @@
 
 ## 2. `jwt-challenge-problem-details`（條件式：0-A 發現不是 ProblemDetails 才開）
 
-- [ ] 以 `JwtBearerEvents.OnChallenge` / `OnForbidden` 輸出 ProblemDetails，`Title` 沿用 `Unauthorized` / `Forbidden`
-- [ ] 帶 `traceId`
+- [x] 以 `JwtBearerEvents.OnChallenge` / `OnForbidden` 輸出 ProblemDetails，`Title` 沿用 `Unauthorized` / `Forbidden`
+- [x] 帶 `traceId`
 - [ ] 若 0-A 確認已是 ProblemDetails，則本項改為「僅更新 `api-conventions.md` 移除未驗證註記」
 
 ## 3. `validation-error-fields`
@@ -76,13 +76,13 @@
 
 查證日期：2026-11-07。
 
-### 0-A JWT 401／403 回應 body：**不是 ProblemDetails**（401 已實測，403 為推論）
+### 0-A JWT 401／403 回應 body：**不是 ProblemDetails**（401、403 皆已由整合測試實測）
 
 - `src/` 內沒有 `JwtBearerEvents`／`OnChallenge`／`OnForbidden`／`UseStatusCodePages`；`Program.cs:49` 的 `AddProblemDetails()` 不會套用到認證挑戰。
 - 實測（容器 `api`，`GET /api/orders`）：
   - 無 token → `401`，`Content-Length: 0`，`WWW-Authenticate: Bearer`，無 body。
   - 無效 token → `401`，`Content-Length: 0`，`WWW-Authenticate: Bearer error="invalid_token"`，無 body。
-- 403（角色／Policy 不足）**未實測**（需建立測試帳號寫入開發 DB）；依預設 `JwtBearerHandler` 行為推論同樣是空 body。要確認可改用整合測試（Testcontainers）。
+- 403（角色／Policy 不足）已由整合測試（`JwtChallengeProblemDetailsTests`）實測：改動前為空 body，改動後為 ProblemDetails。
 - 既有測試（如 `EventManagementAuthorizationMatrixTests`）只斷言狀態碼，不斷言 body，所以此缺口沒有被守護。
 - 結論：第 2 項 `jwt-challenge-problem-details` **需要開**。
 
