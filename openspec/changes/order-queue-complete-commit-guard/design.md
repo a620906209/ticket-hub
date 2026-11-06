@@ -5,7 +5,7 @@
 - `PlaceOrderCoreAsync` 的順序：`LockQueueEntryAsync`（`GetForUpdateAsync`，實體受 EF 追蹤）→ `CreateOrderHandler.Handle` → `queueEntry?.Complete()` → `_orderRepository.Add` → `transaction.CommitAsync` → 釋放連線 → Redis 鏡像同步（`OrderService.cs:239-286`）。
 - `UnitOfWorkTransaction.CommitAsync`：`SaveChangesAsync` → `_transaction.CommitAsync`（`UnitOfWork.cs:154-163`），這是唯一的持久化點；commit 後再改追蹤實體不會被寫入。
 - 既有保護：單元測試以 `FakeUnitOfWorkTransaction` 驗證 `Complete()` 被呼叫，但 Fake 不保存快照；`PurchaseQueueAdmissionServiceTests.cs`:502 的端到端測試斷言 `Completed`（可能已守護，待突變判定）。
-- 後果推測（**未驗證**，本 change 的突變即為驗證）：`Complete()` 移到 commit 後 → DB 狀態停在 `Admitted`；之後鏡像同步 `SyncCompletionAsync` 仍會把 Redis admitted 鏡像移除，造成 Postgres 與 Redis 不一致，直到對帳修正。
+- 後果推測（原未驗證，已由 tasks.md 1.1 突變實測證實：DB 狀態停在 `Admitted`）：`Complete()` 移到 commit 後 → DB 狀態停在 `Admitted`；之後鏡像同步 `SyncCompletionAsync` 仍會把 Redis admitted 鏡像移除，造成 Postgres 與 Redis 不一致，直到對帳修正。
 
 ## Goals / Non-Goals
 
