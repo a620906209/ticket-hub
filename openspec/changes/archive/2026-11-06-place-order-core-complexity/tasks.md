@@ -34,11 +34,12 @@
     - I6 訊息逐字：★`…CountingTicketTypeSpecifiesEventSeatId…`、★`…SeatTicketTypeHasNoEventSeatId…`、★`…SeatDoesNotExistOutsideTransaction…`、★`…SeatsDisappearBetweenOutsideReadAndLock…`、★`…CountingTicketTypesDisappear…`、★`…QueueModeEnabledAndNotAdmitted…`、★`…RealNameRequired…OutsideTransaction／UnderLock`。
     - I6 優先順序：★形狀 vs 座位載入、★票種載入 vs 形狀、★座位載入 vs 跨活動、★跨活動 vs 活動讀取（`GetByIdCallCount == 0`）、★座位配置 vs 提早 409、★限購 vs 提早 409、★鎖內實名 vs 座位配置、既有 `…RealNameMissingAndMaxTicketsExceeded…`。
     - I6 既有順序守護（相鄰檢查）：限購 vs 座位分區比對：既有 `…WhenMaxTicketsPerOrderAndSeatZoneBothViolated_ReturnsMaxTicketsErrorBeforeOpeningTransaction`；販售期間快速失敗 vs 實名 vs 限購：既有 `…WhenSalesNotOpenAndRealNameAndLimitAlsoFail_ReturnsSalesNotOpen`。
+    - 3.8 補強（後加）：★`…SyncsCompletionAndInvalidatesCacheWithEventAndEntryIds`（鏡像同步參數順序 eventId／entryId 與快取 key）、★`…ForwardsCancellationTokenToEveryLockAndMirrorCall`（GetByIdAsync、GetForShareAsync、三個 GetForUpdateAsync、SyncCompletionAsync 的 CancellationToken 轉送）；I1 例外（實名旗標在鎖內外讀取間翻轉）既有 `…WhenRealNameFlagFlipsFromFalseToTrueBetweenReads_Throws…`、`…TrueToFalse…`。
     - 副作用：commit／`Complete()`：★`…HandlerRejectsWithConflict_DoesNotCompleteQueueEntry`；鏡像同步與票種快取失效：既有 `…WithSeatOnlySelection_DoesNotInvalidateTicketTypesCache` 與 Infrastructure `OrderService*Tests`。
     - 不可達判定：BuildSelections 內 `ticketType.EventId != eventSeat.EventId`（原 :423）不可達——階段 4 以票種與座位活動的聯集大小 1 保證每組相同；`TryGetValue` 失敗（原 :418）亦不可達——LockSeatsAsync 的數量比對已先擋下。階段 11 可觀察分支為「計數項目 Quantity／鎖定實例」，由 3.7 階段 11 mutation（Quantity 改 1）守護。
   - TDD：N/A（唯讀分析）。
 - [x] 1.2 對 1.1 列出的缺口新增特徵化測試（只新增，不改既有測試斷言），放在 `tests/ProjectC.Application.Tests/Orders/OrderServiceTests.cs` 既有風格內；若某缺口分支在現行程式碼下不可達（例如被交易外檢查完全擋下），記錄不可達理由，不硬寫測試。必須新增一個鎖定呼叫順序特徵化測試。既有 Fixture 用手寫 Fake（只有 `GetForUpdateCallCount`，無跨 repository 的呼叫紀錄），採用方式：Fake 皆為 sealed 且方法非 virtual，無法子類別化；改為最小幅度修改 `tests/**/TestSupport/Fake*.cs`（GetForShare、PurchaseQueueEntry、EventSeat、TicketType 四個 Fake 加共用順序紀錄掛點，例如可選的 `List<string>`，只加紀錄、不改既有行為）或寫實作同一介面的 decorator，二擇一並於完成紀錄說明（proposal Impact 已列入 `TestSupport/Fake*.cs`）。斷言 Event（`GetForShareAsync`）→ PurchaseQueueEntry → EventSeat → TicketType 的整體順序。**另一個無條件必做**：`FakePurchaseQueueRepository` 加可選、預設不啟用的 `GetForUpdate` callback（`FakeDateTimeProvider.UtcNow` 有 public setter，可在 callback 內推進時鐘），新增特徵化測試：在 callback 內把時鐘推進到超過 `AdmissionExpiresAtUtc`，斷言回傳 QueueAdmissionRequired 且 `OrderRepository.Data` 為空（守 TP-ORDER-014「以檢查當下最新狀態為準」；階段 9 須自行讀 now，不得重用階段 8 的 now）。測試情境必須是：排隊模式開啟且已 Admitted，且同一請求同時含座位項目與計數票種項目（鎖座位只在有座位時發生 :372、鎖票種只在有計數票種時發生 :392，缺一則順序斷言空轉，3.1 的對調 mutation 不會失敗）。另有三組**無條件必做**的特徵化測試（缺口現在即可確認）：(1) `GetForShareOverride` 回傳 null 的案例，斷言回 NotFound 且 `EventLocked` 已寫入（現有日誌測試只斷言 `BeOfType<double>` 或 null，且無 `lockedEvent == null` 案例）；(2) timings 分段測試（timings 用 static `Stopwatch.GetTimestamp()`，無注入點，只能斷言對應分段毫秒值 ≥ 0 且各分段存在／為 null 的條件；`FakeUnitOfWork.BeginTransactionAsync` 同步完成，兩次 timestamp 可能相等，故在 Fake 的 `BeginTransactionAsync` 與 `GetForShareAsync` 加極短 `Task.Delay` 讓分段可區分，僅限該測試啟用）；(3) 失敗訊息逐字斷言：下列片段目前在 tests/** 完全無斷言，須以表格驅動測試逐條斷言 `Error.Message`——"does not require a seat"、"requires a seat but none"、"One or more selected seats were not found"、"One or more selected ticket types"、"requires purchase queue admission"、"requires real-name registration"；其中 "does not belong to the same event"（:423–425）因 `EventSeat` 建構子為 internal 且交易外已保證單一活動，公開 API 不可達：由 1.1 判定可達性並記錄不可達理由，**不納入無條件清單、不用反射硬造**（:418 的 TryGetValue 同樣由 1.1 判定）。鎖內數量比對 :377（座位）與 :397（票種）**可達**（"One or more selected seats were not found." 與 "…ticket types were not found."）：在 `GetForShareOverride`（交易外讀取之後、鎖內 `GetForUpdateAsync` 之前執行）的副作用裡清空 `EventSeatRepository.Data`／`TicketTypeRepository.Data` 再回傳活動，即可觸發，須各寫一個特徵化測試，斷言 NotFound 與逐字訊息；1.1 對照表另列其餘失敗訊息是否已逐字斷言，缺者併入此測試。驗證：`docker compose exec api dotnet test tests/ProjectC.Application.Tests --filter "FullyQualifiedName~OrderServiceTests"` 通過；新測試在**未修改 OrderService.cs** 的狀態下通過。
-  - 完成紀錄：採 Fake 掛鉤做法（全部預設關閉、不影響既有測試）：FakeEventRepository `LockCallLog`／`GetForShareDelay`；FakeEventSeatRepository、FakeTicketTypeRepository `LockCallLog`；FakePurchaseQueueRepository `LockCallLog`／`GetForUpdateCallback`；FakeUnitOfWork `BeginTransactionDelay`。新增特徵化測試 20 個（名稱見 1.1 對照表★）。這些測試在重構前原碼（`git stash push -- src/ProjectC.Application/Orders/OrderService.cs` 移開重構）上全套通過，原文見 1.3 的「測試」區塊（Application.Tests 547 全數通過，含 20 個新增案例）。
+  - 完成紀錄：採 Fake 掛鉤做法（全部預設關閉、不影響既有測試）：FakeEventRepository `LockCallLog`／`GetForShareDelay`；FakeEventSeatRepository、FakeTicketTypeRepository `LockCallLog`；FakePurchaseQueueRepository `LockCallLog`／`GetForUpdateCallback`；FakeUnitOfWork `BeginTransactionDelay`。新增特徵化測試 20 個（名稱見 1.1 對照表★）；第 3.8 節另補 2 個（`…SyncsCompletionAndInvalidatesCacheWithEventAndEntryIds`、`…ForwardsCancellationTokenToEveryLockAndMirrorCall`），合計 22 個新增案例，Application.Tests 總數 547 → 549。這些測試在重構前原碼（`git stash push -- src/ProjectC.Application/Orders/OrderService.cs` 移開重構）上全套通過，原文見 1.3 的「測試」區塊（Application.Tests 547 全數通過，含 20 個新增案例）。
   - TDD：N/A（特徵化測試，理由見上方）。
 - [x] 1.3 重構前基準：`docker compose exec api dotnet test` 全套各測試專案摘要行；`docker compose exec -T api dotnet build --no-incremental` 的 warning 清單（預期含 `CA1502` 48 與 `S3776` 28 兩筆，數值以本 task 實測原文為準），作為第 5 節比對基準（`RealNameLoggingTests`、`HostShutdownSeqFlushTests`、時間相關測試有已知偶發失敗，失敗時照實記錄並單獨重跑）。
   - 完成紀錄：以下為重構前（stash 只移開 `OrderService.cs`，測試與 Fake 為新增後版本）的實際執行；build 輸出以 `grep -E 'warning |Warning\(s\)|Error\(s\)|^exit='` 過濾（每一筆 warning 原文行皆保留，僅略去其餘建置訊息），測試輸出以 `grep -E 'Passed!|Failed!|^exit='` 過濾（每個測試專案一行摘要原文）。
@@ -171,6 +172,8 @@
   - 完成紀錄：抽出 GetLockedEventErrorOrNullAsync（record LockedEventCheck）、LockQueueEntryAsync（自行於 GetForUpdateAsync 後讀 UtcNow）、LockSeatsAsync、LockCountingTicketTypesAsync、BuildSelections（records SelectionSource／BuiltSelections）。GetForShareAsync、EventLocked 寫入與 NotFound 留在協調者，`var now` 單行在其後。驗證結果：build 0 Error(s)；`Passed!  - Failed:     0, Passed:   129, Skipped:     0, Total:   129 - ProjectC.Application.Tests.dll`；Infrastructure `OrderService` 篩選 `Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31 - ProjectC.Infrastructure.Tests.dll`。
 - [x] 2.4 commit 後（階段 12）與協調者收尾：抽出鏡像同步與快取失效；確認 `await using` 宣告、`timings` 寫入、`CommitAsync`、`connection.DisposeAsync()` 仍在協調者且順序不變。驗證：build、上述兩組測試通過，且 diff 核對呼叫順序與原碼一致。
   - 完成紀錄：抽出 SyncAfterCommitAsync（record PostCommitSync）；協調者仍持有 await using connection／transaction、timings 寫入、CommitAsync、connection.DisposeAsync()（在 Redis 同步之前）。驗證結果：build 0 Error(s)；`Passed!  - Failed:     0, Passed:   129, Skipped:     0, Total:   129 - ProjectC.Application.Tests.dll`；Infrastructure `OrderService` 篩選 `Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31 - ProjectC.Infrastructure.Tests.dll`。
+> 註：2.1–2.4 的驗證結果為當時節錄的摘要行（未含 Duration 與 (net10.0)），當時未保存完整輸出，無法補貼原文；最終程式碼的完整原文以 2.5（build）與 5.1（全套測試）為準。
+
 - [x] 2.5 複雜度驗收（C1）：`docker compose exec -T api dotnet build --no-incremental` warning 清單不再含 `CA1502`，且與 1.3 基準相比只少了 `CA1502` 一筆（`S3776` 屬 WebApi 的 `ReconcileEventQueueAsync`，Application 不受 Sonar 分析，不作為驗收；若新方法引入新警告，於本 task 修掉後重跑，不得留待後續）；再依 design.md 決策 5 暫時量測並記錄 `PlaceOrderCoreAsync` 與每個新方法的實際值（全部 ≤ 25），還原設定。驗證：warning 清單與各方法數值原文；`git status --short -- .editorconfig CodeMetricsConfig.txt src/ProjectC.Application/ProjectC.Application.csproj` 為空。
   - 完成紀錄：重構後（最終程式碼）`dotnet build --no-incremental`，同一過濾條件；與 1.3 比較：Warning(s) 4 → 3，唯一差異是 `OrderService.cs(138,38): warning CA1502` 消失，其餘每筆 warning 原文行相同。
     ```
@@ -1688,6 +1691,66 @@
     0
     $ git ls-files --eol src/ProjectC.Application/Orders/OrderService.cs
     i/lf    w/crlf  attr/                 	src/ProjectC.Application/Orders/OrderService.cs
+    ```
+
+- [x] 3.9 補強 3.8 的缺口（Opus 第四輪建議 S6）：對 `GetByIdAsync` 的 token 轉送（OrderService.cs 的 `var orderEvent = …GetByIdAsync(eventId, cancellationToken)`）做 mutation，改傳 `CancellationToken.None`，token 測試須失敗。
+  - 完成紀錄：被抓到（`…ForwardsCancellationTokenToEveryLockAndMirrorCall` 失敗，Expected fixture.EventRepository.LastGetByIdToken …）。另依 Opus S2 在 `…WhenAdmissionExpiresWhileWaitingForQueueEntryLock_ReturnsQueueAdmissionRequired` 補上訊息逐字斷言；`…HandlerRejectsWithConflict…` 的 Conflict 訊息來自 CreateOrderHandler、非本 change 搬動的程式碼，維持只比對類型。
+    ```
+    $ bash scripts/verify-test-evidence.sh mutate --file src/ProjectC.Application/Orders/OrderService.cs --from "var orderEvent = await _eventRepository.GetByIdAsync(eventId, cancellationToken);" --to "var orderEvent = await _eventRepository.GetByIdAsync(eventId, CancellationToken.None);" -- docker compose exec -T api dotnet test tests/ProjectC.Application.Tests --filter FullyQualifiedName~OrderServiceTests
+    mutation: var orderEvent = await _eventRepository.GetByIdAsync(eventId, cancellationToken); -> var orderEvent = await _eventRepository.GetByIdAsync(eventId, CancellationToken.None);
+    $ docker compose exec -T api dotnet test tests/ProjectC.Application.Tests --filter FullyQualifiedName~OrderServiceTests
+      Determining projects to restore...
+      All projects are up-to-date for restore.
+      ProjectC.Domain -> /src/src/ProjectC.Domain/bin/Debug/net10.0/ProjectC.Domain.dll
+      ProjectC.Application -> /src/src/ProjectC.Application/bin/Debug/net10.0/ProjectC.Application.dll
+      ProjectC.Application.Tests -> /src/tests/ProjectC.Application.Tests/bin/Debug/net10.0/ProjectC.Application.Tests.dll
+    Test run for /src/tests/ProjectC.Application.Tests/bin/Debug/net10.0/ProjectC.Application.Tests.dll (.NETCoreApp,Version=v10.0)
+    A total of 1 test files matched the specified pattern.
+    [xUnit.net 00:00:00.90]     ProjectC.Application.Tests.Orders.OrderServiceTests.PlaceOrderAsync_WhenQueueModeAdmittedWithSeatAndCountingItems_ForwardsCancellationTokenToEveryLockAndMirrorCall [FAIL]
+      Failed ProjectC.Application.Tests.Orders.OrderServiceTests.PlaceOrderAsync_WhenQueueModeAdmittedWithSeatAndCountingItems_ForwardsCancellationTokenToEveryLockAndMirrorCall [36 ms]
+      Error Message:
+       Expected fixture.EventRepository.LastGetByIdToken to be System.Threading.CancellationToken
+    {
+        CanBeCanceled = True,
+        IsCancellationRequested = False,
+        WaitHandle = System.Threading.ManualResetEvent
+        {
+            Handle = 1160,
+            SafeWaitHandle = Microsoft.Win32.SafeHandles.SafeWaitHandle
+            {
+                IsClosed = False,
+                IsInvalid = False
+            }
+        }
+    }, but found System.Threading.CancellationToken
+    {
+        CanBeCanceled = False,
+        IsCancellationRequested = False,
+        WaitHandle = System.Threading.ManualResetEvent
+        {
+            Handle = 1164,
+            SafeWaitHandle = Microsoft.Win32.SafeHandles.SafeWaitHandle
+            {
+                IsClosed = False,
+                IsInvalid = False
+            }
+        }
+    }.
+      Stack Trace:
+         at FluentAssertions.Primitives.ObjectAssertions`2.Be(TSubject expected, String because, Object[] becauseArgs)
+       at ProjectC.Application.Tests.Orders.OrderServiceTests.PlaceOrderAsync_WhenQueueModeAdmittedWithSeatAndCountingItems_ForwardsCancellationTokenToEveryLockAndMirrorCall() in /src/tests/ProjectC.Application.Tests/Orders/OrderServiceTests.cs:line 1931
+    --- End of stack trace from previous location ---
+    
+    Failed!  - Failed:     1, Passed:   130, Skipped:     0, Total:   131, Duration: 928 ms - ProjectC.Application.Tests.dll (net10.0)
+    結果：測試如預期失敗
+    exit=0
+    ```
+  - 還原後驗證（原文）：
+    ```
+    $ touch src/ProjectC.Application/Orders/OrderService.cs
+    $ docker compose exec -T api dotnet test tests/ProjectC.Application.Tests
+    Passed!  - Failed:     0, Passed:   549, Skipped:     0, Total:   549, Duration: 1 s - ProjectC.Application.Tests.dll (net10.0)
+    $ git diff --stat -- src/ProjectC.Application/Orders/OrderService.cs
     ```
 
 ## 4. 文件

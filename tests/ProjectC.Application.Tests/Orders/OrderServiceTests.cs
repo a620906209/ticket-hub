@@ -1951,6 +1951,7 @@ public class OrderServiceTests
 
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.QueueAdmissionRequired);
+        result.Error.Message.Should().Be($"Event '{@event.Id}' requires purchase queue admission.");
         fixture.OrderRepository.Data.Should().BeEmpty();
         entry.Status.Should().Be(PurchaseQueueEntryStatus.Admitted);
     }
