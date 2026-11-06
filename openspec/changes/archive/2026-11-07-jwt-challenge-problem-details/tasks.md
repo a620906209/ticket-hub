@@ -119,4 +119,4 @@ Test Files  47 passed (47)
 - [x] 6.3 `strict-reviewer` 與全新的對抗式 general-purpose subagent 依序審查，修正後重跑，直到兩者皆無 blocking
 6.3 完成紀錄：strict-reviewer 第 1 輪 PASS（無 blocking；警告已處理：第 3 節佔位文字、6.2 跳過決定）；全新對抗式 subagent 第 1 輪無 blocking（次要建議：RequestAborted 的 OCE 記錄行為未實測、未覆蓋的 error_uri／scheme 含空白分支，皆為接受的非 blocking）。自上次雙方 PASS 後僅改 tasks.md 紀錄。
 6.3 第 2 輪（使用者要求的 Claude Opus 交叉審查：無 blocking，4 項次要建議；採納 `Contains(' ')` → `IndexOf(' ') > 0` 與 AER-015 測試改名，程式碼因此有改動，故雙方重審）：strict-reviewer PASS（無 blocking；Jwt* + AuthorizationMatrix 子集 50/50 通過）；全新對抗式 subagent 無 blocking（Jwt* 11/11 通過；建議：error_uri／scheme 含空白分支未覆蓋、OCE 記錄行為未實測，皆接受；歸檔後須確認主 spec 不再殘留「由後續 change 定義」）。
-- [ ] 6.4 歸檔前確認使用者已明確同意；歸檔後不自動 commit
+- [x] 6.4 歸檔前確認使用者已明確同意；歸檔後不自動 commit
