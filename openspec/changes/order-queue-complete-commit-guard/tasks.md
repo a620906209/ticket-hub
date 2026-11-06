@@ -1,0 +1,43 @@
+# Tasks
+
+> 所有指令在容器內執行（`docker compose exec ...`），不在本機執行 dotnet。
+>
+> 本 change `skip_specs: true`，無新增 Acceptance Criteria；受守護的既有規則為 `purchase-queue` PQ-COMPLETE-001／002。以下準則取代 AC：
+>
+> | 準則 | 驗證 |
+> | --- | --- |
+> | G1：`Complete()` 移到 `CommitAsync` 之後時，至少一個自動化測試因排隊紀錄 `Status` 斷言（Expected `Completed`／Actual `Admitted`）失敗；Redis 或環境造成的失敗不算 | 1.1（既有測試）或 2.2（新測試）的突變證據 |
+> | G2：`src/` 無殘留變動 | 3.1 |
+>
+> 證據一律貼實際輸出（每個失敗測試名稱與訊息、每個測試專案摘要行、`mutate`／`git status` 輸出），不得以摘要或「全數通過」代替。
+>
+> TDD：特徵化測試，RED 由 `mutate` 取得（暫移 `Complete()` 後測試因 `Status` 斷言失敗）、GREEN 為還原後重跑通過、重構 N/A（design.md 決策 3，不另立例外）。`restore` 還原驗證 N/A（無正式程式碼修改）。前端無變更。提交規則：不自動 commit／push。
+>
+> hardener：不適用（無正式程式碼變更）。
+
+## 1. 判定缺口是否已被既有測試守護
+
+- [ ] 1.1 先確認基準：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~AdvanceQueueOnceAsync_AfterOrderServiceCompletesAnEntry_NextRoundAdmitsTheNextWaitingEntryViaTheRealSyncPath|FullyQualifiedName~OrderCompletion_WhenMirrorSyncFails_KeepsSlotOccupiedUntilNextSuccessfulReconciliationReleasesIt"`（兩個既有測試）皆通過。再用 `bash scripts/verify-test-evidence.sh mutate`（單一改動：`OrderService.cs` 的 `queueEntry?.Complete();` 由 `CommitAsync` 前移到後；字面取代）對同一 filter 跑一次。`--from` 須從 `queueEntry?.Complete();` 一路包到第 280 行的 `await transaction.CommitAsync(cancellationToken);`（該字串在檔內出現兩次，單獨比對會失敗；檔案為 CRLF，參數用 `$'...\r\n...'`，不可用 LF），`--to` 把 `Complete()` 放在該 `CommitAsync` 之後、`connection.DisposeAsync()` 之前，確切字串寫入完成紀錄。**mutate 結束後必須**：`touch src/ProjectC.Application/Orders/OrderService.cs`（腳本以 `cp -p` 還原會連 mtime 一併還原，MSBuild 不會重編而沿用突變版 DLL），再重跑同一 filter 確認通過，貼 touch 與重跑原文。判定（filter 已含兩個既有測試）：任一個因 `Completed` 斷言（Expected Completed／Actual Admitted）失敗 → 記為「已守護」並跳到第 3 節（第 2 節 N/A）；通過 → 缺口成立，進第 2 節。
+  - 完成紀錄：（基準輸出、`mutate` 命令（含確切 `--from`／`--to`）與輸出原文、touch 與重跑通過的原文、判定；判定「已守護」須寫明失敗的是 `ReadStatusAsync(admittedEntry.Id)` 的 `Completed` 斷言，若失敗在其他斷言（Redis、環境等）不得判為已守護，此時先調查原因，不確定時視同缺口成立進入第 2 節）
+  - TDD：此突變即 RED／GREEN 證據（理由見上）。
+
+## 2. 新增整合測試（僅 1.1 判定缺口成立時；否則整節 N/A 並註明）
+
+- [ ] 2.1 在 `tests/ProjectC.Infrastructure.Tests`（位置依 design.md 決策 2）新增 `PlaceOrderAsync_WhenAdmittedQueueEntryOrderSucceeds_PersistsEntryAsCompletedInDatabase` 類名稱的測試（命名遵循 `MethodName_Scenario_ExpectedResult`）：用 `PostgresFixture`、`OrderServiceTestFactory.Create`；Seed 計數票種活動＋排隊模式開啟＋買家 `Admitted` 且未過期的紀錄；下單成功；以**新** `DbContext` 讀回紀錄，斷言 `Status == Completed`，並斷言下單結果成功（確認真的走到 `Complete()` 分支，不是因提早失敗而空轉）。
+  - 完成紀錄：（測試名稱與所在檔案、選擇理由；在未改 `src/` 狀態下的通過輸出原文；RED 見 2.2 突變）
+  - TDD：特徵化測試，RED／GREEN 由 2.2 突變取得；先決條件為 1.1 判定缺口成立。
+- [ ] 2.2 突變證明：對新測試跑 `bash scripts/verify-test-evidence.sh mutate`（同 1.1 的單一改動）；預期新測試失敗，貼失敗訊息原文（Expected／Actual）；結束後同 1.1 須 `touch` 並重跑新測試確認通過，貼原文。若不失敗，如實記錄並回到設計（design.md 風險）。
+  - 完成紀錄：（`mutate` 命令與輸出原文、touch 與重跑通過的原文）
+- [ ] 2.3 跑相關回歸：`docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --filter "FullyQualifiedName~OrderService"`，貼摘要行。
+  - 完成紀錄：（輸出原文）
+
+## 3. 收尾
+
+- [ ] 3.1 確認 `git status --short src/` 為空、`git status --short` 只含 `tests/`、`docs/`、`openspec/`（`openspec/changes/...` 為 untracked，不能只看 `git diff --stat`）；貼輸出原文。
+  - 完成紀錄：（輸出原文）
+- [ ] 3.2 更新 `docs/project-scope.md` §8 該技術債條目：寫入判定結果（已被既有測試守護／已由新測試守護）、測試名稱、突變證據位置，並移除「之後若處理須另開 change」之未來式。走「已守護」路徑時，另在 `PurchaseQueueAdmissionServiceTests` 該測試 (a) 斷言旁補一行「為什麼」註解（此測試同時守護 `Complete()` 必須在 `CommitAsync` 之前；僅註解，無行為變動），此為本 change 唯一允許的 WebApi.Tests 變動。
+  - TDD：N/A（純文件）。
+- [ ] 3.3 全套回歸：`docker compose exec api dotnet test`，各測試專案摘要行貼原文；已知偶發失敗（`RealNameLoggingTests`、`HostShutdownSeqFlushTests`、時間相關）失敗時照實記錄並單獨重跑。
+  - 完成紀錄：（各專案摘要行原文）
+- [ ] 3.4 程式碼變更（新測試或註解）完成後，依 CLAUDE.md 流程跑 strict-reviewer 與全新對抗式 subagent 審查迴圈，兩者皆無 blocking 才可歸檔。
+- [ ] 3.5 完成後告知：與 spec 一致性、spec 同步狀態（無需更新）、AC 測試涵蓋（G1、G2）、維護性提醒（重複邏輯、命名一致性）。
