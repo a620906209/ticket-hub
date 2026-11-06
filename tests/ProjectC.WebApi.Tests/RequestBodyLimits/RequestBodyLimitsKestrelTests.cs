@@ -140,7 +140,7 @@ public class RequestBodyLimitsKestrelTests : IClassFixture<KestrelWebApplication
         response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
         var problem = ParseProblemDetails(await response.Content.ReadAsStringAsync());
         problem.Status.Should().Be(413);
-        problem.Title.Should().Be("Request body too large.");
+        problem.Title.Should().Be("PayloadTooLarge");
         problem.TraceId.Should().NotBeNullOrWhiteSpace();
     }
 
@@ -326,7 +326,7 @@ public class RequestBodyLimitsKestrelTests : IClassFixture<KestrelWebApplication
         response.StatusCode.Should().Be(400);
         var problem = ParseProblemDetails(response.Body);
         problem.Status.Should().Be(400);
-        problem.Title.Should().Be("Bad Request");
+        problem.Title.Should().Be("BadRequest");
         problem.TraceId.Should().NotBeNullOrWhiteSpace();
         AssertLoggedSingleHandlerWarningWithoutSentinel(problem.TraceId, sentinel);
     }

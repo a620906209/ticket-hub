@@ -16,7 +16,7 @@ public class GlobalExceptionHandlerTests
 
     private readonly RecordingLogger<GlobalExceptionHandler> _logger = new();
 
-    // [RBL-011] 413 回應為 ProblemDetails，title 固定為 "Request body too large."，含 traceId。
+    // [RBL-011] 413 回應為 ProblemDetails，title 固定為 "PayloadTooLarge"，含 traceId。
     [Fact]
     public async Task TryHandleAsync_WhenBadHttpRequest413_WritesProblemDetailsWith413()
     {
@@ -31,16 +31,19 @@ public class GlobalExceptionHandlerTests
         httpContext.Response.StatusCode.Should().Be(StatusCodes.Status413PayloadTooLarge);
         using var problemDetails = ReadResponseJson(httpContext);
         problemDetails.RootElement.GetProperty("status").GetInt32().Should().Be(413);
-        problemDetails.RootElement.GetProperty("title").GetString().Should().Be("Request body too large.");
+        problemDetails.RootElement.GetProperty("title").GetString().Should().Be("PayloadTooLarge");
         problemDetails.RootElement.GetProperty("traceId").GetString().Should().Be(httpContext.TraceIdentifier);
     }
 
     // [RBL-012] 本文讀取錯誤是請求錯誤而非伺服器故障：回例外本身的 4xx，只記 Warning，
     // 且日誌不得帶本文或例外訊息（MVC 版訊息可能含請求細節）。
     [Theory]
-    [InlineData(StatusCodes.Status413PayloadTooLarge, "Request body too large.")]
-    [InlineData(StatusCodes.Status400BadRequest, "Bad Request")]
-    [InlineData(StatusCodes.Status408RequestTimeout, "Request Timeout")]
+    [InlineData(StatusCodes.Status413PayloadTooLarge, "PayloadTooLarge")]
+    [InlineData(StatusCodes.Status400BadRequest, "BadRequest")]
+    [InlineData(StatusCodes.Status408RequestTimeout, "RequestTimeout")]
+    [InlineData(StatusCodes.Status431RequestHeaderFieldsTooLarge, "RequestHeaderFieldsTooLarge")]
+    [InlineData(StatusCodes.Status418ImATeapot, "Imateapot")]
+    [InlineData(450, "BadRequest")]
     public async Task TryHandleAsync_WhenBadHttpRequest_LogsWarningNotError(int statusCode, string expectedTitle)
     {
         var httpContext = CreateHttpContext();
@@ -54,6 +57,7 @@ public class GlobalExceptionHandlerTests
         using var problemDetails = ReadResponseJson(httpContext);
         problemDetails.RootElement.GetProperty("status").GetInt32().Should().Be(statusCode);
         problemDetails.RootElement.GetProperty("title").GetString().Should().Be(expectedTitle);
+        problemDetails.RootElement.GetProperty("traceId").GetString().Should().Be(httpContext.TraceIdentifier);
 
         var entry = _logger.Entries.Should().ContainSingle().Subject;
         entry.Level.Should().Be(LogLevel.Warning);
@@ -75,7 +79,7 @@ public class GlobalExceptionHandlerTests
         httpContext.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         using var problemDetails = ReadResponseJson(httpContext);
         problemDetails.RootElement.GetProperty("status").GetInt32().Should().Be(500);
-        problemDetails.RootElement.GetProperty("title").GetString().Should().Be("An unexpected error occurred.");
+        problemDetails.RootElement.GetProperty("title").GetString().Should().Be("InternalServerError");
         var entry = _logger.Entries.Should().ContainSingle().Subject;
         entry.Level.Should().Be(LogLevel.Error);
         entry.Exception.Should().BeSameAs(exception);
