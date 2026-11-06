@@ -3,7 +3,9 @@
 ## Purpose
 
 定義 api 對部署平台提供的存活與就緒探測端點，包含判定條件、存取限制、回應內容、日誌等級與轉址行為，讓平台能據此決定重啟或暫停導流，且不暴露內部資訊。
+
 ## Requirements
+
 ### Requirement: 存活探測不依賴外部服務
 `GET /health/live` SHALL 在行程能處理請求時回傳 HTTP 200，且 MUST NOT 檢查資料庫、Redis、Seq 或任何其他外部服務。外部服務故障時，此端點的結果 MUST NOT 改變，避免平台因相依故障而重啟健康的行程。
 
@@ -94,7 +96,7 @@
 
 #### Scenario: HC-BODY-EXCEPTION 例外回應為標準錯誤格式且不含例外訊息
 - **WHEN** 探測處理發生未預期例外，呼叫端呼叫探測端點
-- **THEN** 系統回傳 HTTP 500，回應內容為 ProblemDetails JSON，只有 `status`、`title`、`traceId` 三個欄位，其 `status` 為 500、`title` 為 `An unexpected error occurred.`、`traceId` 不為空，且回應內容不含例外訊息、例外型別、堆疊、相依服務名稱或連線資訊
+- **THEN** 系統回傳 HTTP 500，回應內容為 ProblemDetails JSON，只有 `status`、`title`、`traceId` 三個欄位，其 `status` 為 500、`title` 為 `InternalServerError`、`traceId` 不為空，且回應內容不含例外訊息、例外型別、堆疊、相依服務名稱或連線資訊
 
 ### Requirement: 探測請求的日誌等級依結果區分
 探測端點回傳 HTTP 200 時，其請求摘要日誌 SHALL 為 Debug 等級，在預設最低等級 Information 下不輸出。回傳非 200 或處理時發生例外時，請求摘要日誌 SHALL 為 Error 等級，且探測處理 MUST NOT 將系統設定的資料庫密碼帶入日誌或例外。資料庫連線失敗時，其日誌 MUST NOT 含該密碼。其他端點的請求摘要日誌等級 MUST NOT 因此改變。

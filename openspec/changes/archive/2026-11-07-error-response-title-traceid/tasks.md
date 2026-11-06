@@ -138,4 +138,4 @@
   - (b) 通過（偏離：未用已登入頁面 fetch 建立訂單端點）：改以匿名端點 `/api/auth/login` 驗證全域 1 MiB 上限的 413 Title。瀏覽器 fetch 送 2 MB 本文時 CDP 逾時 45 秒（renderer 無回應），改用 curl 直打 api：`curl -X POST --data-binary @big.json http://localhost:8080/api/auth/login` → `{"title":"PayloadTooLarge","status":413,"traceId":"0HNPS5KH9LM2U:00000001"}` `HTTP 413`。建立訂單端點 16 KiB 上限的 Title 由 `RequestBodyLimitsKestrelTests` 整合測試涵蓋。使用者已確認接受此偏離（2026-11-07），不補驗。
   - (c) 通過：瀏覽器 fetch 回應 `traceId` 為 `0HNPS5KH9LM2S:00000001`；Seq 事件（`/api/auth/login`、StatusCode 400）屬性 `TraceId` = `0HNPS5KH9LM2S:00000001`、`RequestId` 同值。
 - [x] 6.3 `strict-reviewer` 與全新的對抗式 general-purpose subagent 依序審查，修正後重跑，直到兩者皆無 blocking
-- [ ] 6.4 歸檔前確認使用者已明確同意；歸檔後不自動 commit
+- [x] 6.4 歸檔前確認使用者已明確同意；歸檔後不自動 commit
