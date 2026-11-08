@@ -78,9 +78,9 @@ public sealed class LoginHandler
     {
         var plainTextRefreshToken = _tokenService.GenerateOpaqueToken();
         var refreshTokenHash = _tokenService.HashOpaqueToken(plainTextRefreshToken);
-        var expiresAt = _dateTimeProvider.UtcNow.AddDays(_authOptions.RefreshTokenExpirationDays);
+        var expiresAtUtc = _dateTimeProvider.UtcNow.AddDays(_authOptions.RefreshTokenExpirationDays);
 
-        var refreshToken = RefreshToken.Issue(memberId, refreshTokenHash, expiresAt, previousTokenId);
+        var refreshToken = RefreshToken.Issue(memberId, refreshTokenHash, expiresAtUtc, previousTokenId);
         _dbContext.RefreshTokens.Add(refreshToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 

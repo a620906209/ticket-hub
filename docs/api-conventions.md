@@ -67,10 +67,11 @@
 | JSON 欄位 | `AddControllers()` 預設 → camelCase；未自訂 `JsonNamingPolicy`、未註冊 `JsonStringEnumConverter`（enum 序列化方式需依個別 DTO 確認，已知狀態欄位多為 `ToString()` 後的字串） | `Program.cs` |
 | DB | EF Core 預設：表名 PascalCase 複數（`Events`、`EventSeats`、`Members`），未使用 snake_case 轉換 | `Configurations/*` |
 | 時間 | 一律 UTC，由 `IDateTimeProvider.UtcNow`（`DateTime`）取得，禁止直接用 `DateTime.UtcNow` | `IDateTimeProvider` |
-| 時間欄位後綴 | **不一致**：部分有 `Utc`（`HeldUntilUtc`、`AdmissionExpiresAtUtc`），部分沒有（`expiresAt`） | 各 Entity／DTO |
+| 時間欄位後綴 | `DateTime` 時間欄位一律以 `Utc` 結尾（`HeldUntilUtc`、`ExpiresAtUtc`）。範圍：Domain、Application、WebApi 組件中 public 型別的 public 實例屬性（不含方法參數）；唯一例外是 `IDateTimeProvider.UtcNow`（.NET 慣用名）。由 `UtcSuffixNamingRuleTests` 強制，新增例外須在該測試寫明理由 | `UtcSuffixNamingRuleTests` |
 | 列表分頁 | 未發現統一的分頁參數／回應格式，待決定 | — |
 
 ## 4. 修改本文件的時機
 
 - 新增 `ErrorType`、Policy、Claim 或路由前綴時。
-- 決定上方「不一致」項目時：先在對應 change 的 `design.md` 記錄決策，再回頭更新本文件。
+- 決定上方「待決定」項目（例如列表分頁）時：先在對應 change 的 `design.md` 記錄決策，再回頭更新本文件。
+- 變更時間欄位後綴規則或其例外清單時：同步更新 `UtcSuffixNamingRuleTests` 與本文件第 3 節。

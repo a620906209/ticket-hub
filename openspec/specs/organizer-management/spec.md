@@ -92,7 +92,7 @@ TBD - created by archiving change organizer-management. Update Purpose after arc
 
 #### Scenario: ORG-SWITCH-007 切換操作情境不觸發 Refresh Token 輪替
 - **WHEN** ORG-SWITCH-001 的切換請求成功
-- **THEN** 系統 MUST NOT 建立任何新的 `RefreshToken` 資料列（不像既有 Refresh Token 換發流程那樣輪替出新記錄），呼叫端原本持有的 Refresh Token 明文於切換前後完全相同；該筆（被更新 `OrganizerId` 的）`RefreshToken` 資料列的 `TokenHash`、`Status`（`Active`）、`ExpiresAt` 皆不變，之後仍可被正常用於呼叫既有 Refresh Token 換發端點
+- **THEN** 系統 MUST NOT 建立任何新的 `RefreshToken` 資料列（不像既有 Refresh Token 換發流程那樣輪替出新記錄），呼叫端原本持有的 Refresh Token 明文於切換前後完全相同；該筆（被更新 `OrganizerId` 的）`RefreshToken` 資料列的 `TokenHash`、`Status`（`Active`）、`ExpiresAtUtc` 皆不變，之後仍可被正常用於呼叫既有 Refresh Token 換發端點
 
 #### Scenario: ORG-SWITCH-002 切換到非自己所屬的 Organizer
 - **WHEN** 已登入 Member 對自己並非成員的 Organizer 呼叫切換端點

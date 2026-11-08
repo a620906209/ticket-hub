@@ -18,7 +18,7 @@ public class PasswordResetTokenConfiguration : IEntityTypeConfiguration<Password
         builder.Property(t => t.MemberId).IsRequired();
         builder.HasIndex(t => t.MemberId);
 
-        builder.Property(t => t.ExpiresAt).IsRequired();
+        builder.Property(t => t.ExpiresAtUtc).IsRequired();
         builder.Property(t => t.IsUsed).IsRequired();
     }
 }
