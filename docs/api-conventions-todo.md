@@ -55,16 +55,13 @@
 
 對應不一致項目：時間欄位後綴不一致。
 
-- [ ] 決策：規則（例如「新欄位一律 `Utc` 後綴」或「全部統一」）
-- [ ] 決策：舊欄位處置（列入例外清單，或排入第 5 項改名）
-- [ ] 規則寫入 `api-conventions.md` 第 3 節；若無程式碼變更可不開 change，走 CLAUDE.md「無 spec 小型改動」並於 commit 標注
+- [x] 決策：規則（例如「新欄位一律 `Utc` 後綴」或「全部統一」）
+- [x] 決策：舊欄位處置（列入例外清單，或排入第 5 項改名）
+- [x] 規則寫入 `api-conventions.md` 第 3 節；若無程式碼變更可不開 change，走 CLAUDE.md「無 spec 小型改動」並於 commit 標注
 
-## 5. `time-field-rename`（條件式：第 4 項決定全面統一才開）
+## 5. `time-field-rename`（取消，併入第 4 項）
 
-破壞性變更，須評估：
-
-- [ ] 影響範圍：JSON 欄位名、前端引用、DB 欄位（需 migration，須遵守先 migrate 再部署新版的既有教訓）
-- [ ] 若超過約 30 項 task 或 3 個 capability，再依 API 資源拆成多個 change
+第 4 項的盤點顯示只有兩個欄位缺後綴且未對外暴露於 JSON，已在 `time-field-naming-rule` 一併改名，不另開 change。
 
 ## 6. `list-pagination-convention`（條件式：0-B 發現有需要才開）
 

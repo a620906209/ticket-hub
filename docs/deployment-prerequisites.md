@@ -46,3 +46,11 @@
 - 規劃拆成兩個 change：① production 映像、production compose、首位 Admin 建立方式；② CD 與維運手冊（反向代理、備份）。
 
 主機位址與登入資訊不寫入版控。
+
+## 含破壞性欄位改名的 migration（2026-11-08，time-field-naming-rule）
+
+`RenameTokenExpiresAtToExpiresAtUtc` 把 `RefreshTokens.ExpiresAt`、`PasswordResetTokens.ExpiresAt` 改名為 `ExpiresAtUtc`。與先前加欄位的 migration 不同，新舊版程式碼不能共存：舊版讀 `ExpiresAt`，遷移後查詢失敗；新版讀 `ExpiresAtUtc`，遷移前查詢失敗。
+
+- 順序：停止舊版 api（或不接受流量）→ 容器內 `dotnet ef database update` → 啟動新版 api。
+- 回滾：停止新版 → `dotnet ef database update 20261014081305_AddOrderCreatedAt` → 啟動舊版。
+- 影響：停機期間登入、換發 Token、忘記密碼不可用；下單、查詢等不碰這兩張表的流程不受影響。`RenameColumn` 只動 PostgreSQL catalog，不重寫資料表，既有 Token 保留、使用者不必重新登入。

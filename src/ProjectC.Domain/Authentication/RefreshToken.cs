@@ -6,7 +6,7 @@ public class RefreshToken
     public Guid MemberId { get; private set; }
     public string TokenHash { get; private set; } = null!;
     public RefreshTokenStatus Status { get; private set; }
-    public DateTime ExpiresAt { get; private set; }
+    public DateTime ExpiresAtUtc { get; private set; }
     public Guid? PreviousTokenId { get; private set; }
     public Guid? OrganizerId { get; private set; }
 
@@ -14,7 +14,7 @@ public class RefreshToken
     {
     }
 
-    public static RefreshToken Issue(Guid memberId, string tokenHash, DateTime expiresAt, Guid? previousTokenId = null, Guid? organizerId = null)
+    public static RefreshToken Issue(Guid memberId, string tokenHash, DateTime expiresAtUtc, Guid? previousTokenId = null, Guid? organizerId = null)
     {
         return new RefreshToken
         {
@@ -22,7 +22,7 @@ public class RefreshToken
             MemberId = memberId,
             TokenHash = tokenHash,
             Status = RefreshTokenStatus.Active,
-            ExpiresAt = expiresAt,
+            ExpiresAtUtc = expiresAtUtc,
             PreviousTokenId = previousTokenId,
             OrganizerId = organizerId,
         };
@@ -34,7 +34,7 @@ public class RefreshToken
         OrganizerId = organizerId;
     }
 
-    public bool IsActive(DateTime nowUtc) => Status == RefreshTokenStatus.Active && ExpiresAt > nowUtc;
+    public bool IsActive(DateTime nowUtc) => Status == RefreshTokenStatus.Active && ExpiresAtUtc > nowUtc;
 
     public void MarkAsUsed()
     {

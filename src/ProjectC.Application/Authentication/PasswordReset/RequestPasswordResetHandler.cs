@@ -38,9 +38,9 @@ public sealed class RequestPasswordResetHandler
 
         var plainTextToken = _tokenService.GenerateOpaqueToken();
         var tokenHash = _tokenService.HashOpaqueToken(plainTextToken);
-        var expiresAt = _dateTimeProvider.UtcNow.AddMinutes(_authOptions.PasswordResetTokenExpirationMinutes);
+        var expiresAtUtc = _dateTimeProvider.UtcNow.AddMinutes(_authOptions.PasswordResetTokenExpirationMinutes);
 
-        var resetToken = PasswordResetToken.Issue(member.Id, tokenHash, expiresAt);
+        var resetToken = PasswordResetToken.Issue(member.Id, tokenHash, expiresAtUtc);
         _dbContext.PasswordResetTokens.Add(resetToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 

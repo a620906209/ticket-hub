@@ -64,8 +64,8 @@ public sealed class RefreshTokenHandler
 
         var plainTextRefreshToken = _tokenService.GenerateOpaqueToken();
         var newTokenHash = _tokenService.HashOpaqueToken(plainTextRefreshToken);
-        var expiresAt = _dateTimeProvider.UtcNow.AddDays(_authOptions.RefreshTokenExpirationDays);
-        var newToken = RefreshToken.Issue(member.Id, newTokenHash, expiresAt, existingToken.Id, organizerIdForNewToken);
+        var expiresAtUtc = _dateTimeProvider.UtcNow.AddDays(_authOptions.RefreshTokenExpirationDays);
+        var newToken = RefreshToken.Issue(member.Id, newTokenHash, expiresAtUtc, existingToken.Id, organizerIdForNewToken);
         _dbContext.RefreshTokens.Add(newToken);
 
         try

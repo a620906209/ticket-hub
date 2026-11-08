@@ -5,26 +5,26 @@ public class PasswordResetToken
     public Guid Id { get; private set; }
     public Guid MemberId { get; private set; }
     public string TokenHash { get; private set; } = null!;
-    public DateTime ExpiresAt { get; private set; }
+    public DateTime ExpiresAtUtc { get; private set; }
     public bool IsUsed { get; private set; }
 
     private PasswordResetToken()
     {
     }
 
-    public static PasswordResetToken Issue(Guid memberId, string tokenHash, DateTime expiresAt)
+    public static PasswordResetToken Issue(Guid memberId, string tokenHash, DateTime expiresAtUtc)
     {
         return new PasswordResetToken
         {
             Id = Guid.NewGuid(),
             MemberId = memberId,
             TokenHash = tokenHash,
-            ExpiresAt = expiresAt,
+            ExpiresAtUtc = expiresAtUtc,
             IsUsed = false,
         };
     }
 
-    public bool IsValid(DateTime nowUtc) => !IsUsed && ExpiresAt > nowUtc;
+    public bool IsValid(DateTime nowUtc) => !IsUsed && ExpiresAtUtc > nowUtc;
 
     public void MarkAsUsed()
     {

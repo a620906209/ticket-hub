@@ -19,7 +19,7 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.Property(t => t.MemberId).IsRequired();
         builder.HasIndex(t => t.MemberId);
 
-        builder.Property(t => t.ExpiresAt).IsRequired();
+        builder.Property(t => t.ExpiresAtUtc).IsRequired();
         builder.Property(t => t.Status).IsRequired();
         builder.Property(t => t.PreviousTokenId);
         builder.Property(t => t.OrganizerId);
