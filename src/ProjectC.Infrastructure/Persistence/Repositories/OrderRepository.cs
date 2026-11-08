@@ -15,12 +15,6 @@ public class OrderRepository : IOrderRepository
     public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         => _dbContext.Orders.Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
 
-    public async Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-        => await _dbContext.Orders
-            .Include(o => o.Items)
-            .Where(o => _dbContext.Events.Any(e => e.Id == o.EventId && e.OrganizerId == organizerId))
-            .ToListAsync(cancellationToken);
-
     public async Task<RedemptionContext?> GetRedemptionContextByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
         => await (
             from order in _dbContext.Orders
@@ -30,12 +24,30 @@ public class OrderRepository : IOrderRepository
             select new RedemptionContext(@event.OrganizerId, @event.IsRealNameRequired, order.BuyerId))
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)
-        => await _dbContext.Orders
+    public Task<OrderPage> GetPageByBuyerIdAsync(Guid buyerId, int skip, int take, CancellationToken cancellationToken)
+        => GetPageAsync(_dbContext.Orders.Where(o => o.BuyerId == buyerId), skip, take, cancellationToken);
+
+    public Task<OrderPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken)
+        => GetPageAsync(
+            _dbContext.Orders.Where(o => _dbContext.Events.Any(e => e.Id == o.EventId && e.OrganizerId == organizerId)),
+            skip,
+            take,
+            cancellationToken);
+
+    // count 與 page 共用同一個範圍 query，TotalCount 才不會洩漏範圍外的訂單數。Id 升冪為次要鍵，讓逐頁讀取每筆恰好一次。
+    private static async Task<OrderPage> GetPageAsync(IQueryable<Order> scopedOrders, int skip, int take, CancellationToken cancellationToken)
+    {
+        var totalCount = await scopedOrders.CountAsync(cancellationToken);
+        var items = await scopedOrders
             .AsNoTracking()
             .Include(o => o.Items)
-            .Where(o => o.BuyerId == buyerId)
+            .OrderByDescending(o => o.CreatedAtUtc)
+            .ThenBy(o => o.Id)
+            .Skip(skip)
+            .Take(take)
             .ToListAsync(cancellationToken);
+        return new OrderPage(items, totalCount);
+    }
 
     public Task<Order?> GetByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)
         => _dbContext.Orders

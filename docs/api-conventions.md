@@ -68,10 +68,11 @@
 | DB | EF Core 預設：表名 PascalCase 複數（`Events`、`EventSeats`、`Members`），未使用 snake_case 轉換 | `Configurations/*` |
 | 時間 | 一律 UTC，由 `IDateTimeProvider.UtcNow`（`DateTime`）取得，禁止直接用 `DateTime.UtcNow` | `IDateTimeProvider` |
 | 時間欄位後綴 | `DateTime` 時間欄位一律以 `Utc` 結尾（`HeldUntilUtc`、`ExpiresAtUtc`）。範圍：Domain、Application、WebApi 組件中 public 型別的 public 實例屬性（不含方法參數）；唯一例外是 `IDateTimeProvider.UtcNow`（.NET 慣用名）。由 `UtcSuffixNamingRuleTests` 強制，新增例外須在該測試寫明理由 | `UtcSuffixNamingRuleTests` |
-| 列表分頁 | 未發現統一的分頁參數／回應格式，待決定 | — |
+| 列表分頁 | offset 分頁（`list-pagination` 能力）：查詢參數 `page`（從 1 起，預設 1、上限 10000）、`pageSize`（預設 20、上限 100）；回應 `{ items, page, pageSize, totalCount }`；`page`／`pageSize` 越界或非整數回 400 `Validation`（逐欄位 `errors`，鍵為小寫 `page`／`pageSize`），不靜默截斷；`page` 超過最後一頁回 200 與空 `items`（`totalCount` 為實際總數）；排序必須確定（`CreatedAtUtc` 新到舊、`Id` 升冪）。共用型別為 `PageRequest`／`PageRequestValidator`／`PagedResultDto<T>`（`Application/Common/Paging`）。**已套用**：`GET /api/orders`、`GET /api/admin/orders`。**後續 change**：`GET /api/admin/events`（`admin-event-list-pagination`）、`GET /api/events`（公開、整份快取，需獨立設計快取鍵）。**判定不做分頁**：`GET /api/admin/venues`（少量固定資料）、`GET /api/organizers/mine`（受限於單一會員的 Organizer 數）、`GET /api/admin/organizers`（全平台主辦方清單，會隨申請增加，目前規模可接受並列為觀察項目，規模成長時另案分頁） | `order-list-pagination` |
 
 ## 4. 修改本文件的時機
 
 - 新增 `ErrorType`、Policy、Claim 或路由前綴時。
-- 決定上方「待決定」項目（例如列表分頁）時：先在對應 change 的 `design.md` 記錄決策，再回頭更新本文件。
+- 決定上方「待決定」項目時：先在對應 change 的 `design.md` 記錄決策，再回頭更新本文件。
+- 新增或改造列表端點的分頁（含 `admin-event-list-pagination`、`GET /api/events`）時：更新第 3 節「列表分頁」列的「已套用」「後續 change」清單。
 - 變更時間欄位後綴規則或其例外清單時：同步更新 `UtcSuffixNamingRuleTests` 與本文件第 3 節。

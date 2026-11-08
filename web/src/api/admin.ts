@@ -3,6 +3,7 @@ import type {
   AdminEventSummary,
   OrderDetail,
   OrderSummary,
+  PagedResult,
   SalesReport,
   SeatMapDetail,
   TicketHolder,
@@ -58,8 +59,8 @@ export function createTicketType(
   })
 }
 
-export function getAdminOrders(): Promise<OrderSummary[]> {
-  return authorizedRequest('/admin/orders')
+export function getAdminOrders(page = 1): Promise<PagedResult<OrderSummary>> {
+  return authorizedRequest(`/admin/orders?page=${page}`)
 }
 
 export function getAdminOrderById(orderId: string): Promise<OrderDetail> {

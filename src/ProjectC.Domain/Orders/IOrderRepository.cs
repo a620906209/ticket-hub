@@ -5,18 +5,19 @@ public interface IOrderRepository
     /// <summary>實作 MUST 一併載入 <see cref="Order.Items"/>；<c>ConfirmOrderHandler</c>/<c>CancelOrderHandler</c> 假設這個集合已完整。</summary>
     Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
-    /// <summary>只回傳所屬活動屬於指定 Organizer 的訂單，供後台訂單列表使用。過濾 MUST 在資料庫端執行（join <c>Events</c>），
-    /// 不得把其他 Organizer 的訂單載入記憶體再過濾；實作 MUST 一併載入 <see cref="Order.Items"/>
-    /// （見 order-report-redemption-organizer-scoping design.md Decision 1）。</summary>
-    Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken);
-
     /// <summary>以單一查詢（<c>OrderItems JOIN Orders JOIN Events</c>）只投影回該訂單明細所屬活動的 <c>OrganizerId</c>、
     /// <c>IsRealNameRequired</c> 與訂單的 <c>BuyerId</c>，查無時回傳 <see langword="null"/>。供核銷在持鎖交易內核對歸屬，
     /// 刻意不載入 <see cref="Order"/> 實體以縮短鎖持有時間（見 order-report-redemption-organizer-scoping design.md Decision 1、
     /// real-name-verification design.md 決策 4）。</summary>
     Task<RedemptionContext?> GetRedemptionContextByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken);
+    /// <summary>依 <c>CreatedAtUtc</c> 新到舊、<c>Id</c> 升冪取指定買家訂單的一頁，並回傳該買家訂單總筆數。排序、切頁與計數 MUST 在資料庫端完成；
+    /// 實作 MUST 一併載入當頁每筆訂單的 <see cref="Order.Items"/>（見 order-list-pagination design.md 決策 5）。</summary>
+    Task<OrderPage> GetPageByBuyerIdAsync(Guid buyerId, int skip, int take, CancellationToken cancellationToken);
+
+    /// <summary>同 <see cref="GetPageByBuyerIdAsync"/>，範圍為所屬活動屬於指定 Organizer 的訂單；過濾 MUST 在資料庫端（<c>Events</c> 子查詢），
+    /// <c>TotalCount</c> 與 <c>Items</c> 使用同一個過濾條件。</summary>
+    Task<OrderPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken);
 
     Task<Order?> GetByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken);
 

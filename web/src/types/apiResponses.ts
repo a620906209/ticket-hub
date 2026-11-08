@@ -55,6 +55,13 @@ export interface AuthTokens {
   refreshToken: string
 }
 
+export interface PagedResult<T> {
+  items: T[]
+  page: number
+  pageSize: number
+  totalCount: number
+}
+
 export interface OrderSummary {
   id: string
   eventId: string

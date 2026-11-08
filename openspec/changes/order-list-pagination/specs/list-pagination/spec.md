@@ -44,6 +44,10 @@
 - **WHEN** 呼叫端帶 `page=abc`
 - **THEN** 系統回應 400 `Validation` 錯誤，`errors` 含 `page` 欄位
 
+#### Scenario: LP-VALID-008 參數帶空值
+- **WHEN** 呼叫端帶 `page=` 或 `pageSize=`（參數名稱存在但值為空字串）
+- **THEN** 系統回應 400 `Validation` 錯誤，`errors` 含對應的 `page` 或 `pageSize` 欄位（與非整數同樣處理，不使用預設值）
+
 #### Scenario: LP-VALID-005 兩個參數同時越界
 - **WHEN** 呼叫端帶 `page=0` 與 `pageSize=101`
 - **THEN** 系統回應 400，`errors` 同時含 `page` 與 `pageSize` 欄位

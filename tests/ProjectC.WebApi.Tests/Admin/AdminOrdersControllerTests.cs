@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Orders.GetOrderById;
 using ProjectC.Application.Orders.GetOrders;
 using ProjectC.WebApi.Tests.TestSupport;
@@ -101,8 +102,8 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
         var response = await organizerClient.GetAsync("/api/admin/orders");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var orders = await response.Content.ReadFromJsonAsync<List<OrderSummaryDto>>();
-        orders.Should().Contain(o => o.Id == seeded.OrderId);
+        var page = await response.Content.ReadFromJsonAsync<PagedResultDto<OrderSummaryDto>>();
+        page!.Items.Should().Contain(o => o.Id == seeded.OrderId);
     }
 
     // ---- 訂單列表（租戶過濾） ----
@@ -118,8 +119,11 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
 
         var response = await organizerAClient.GetAsync("/api/admin/orders");
 
-        var orders = await response.Content.ReadFromJsonAsync<List<OrderSummaryDto>>();
-        orders!.Select(o => o.Id).Should().BeEquivalentTo([orderA.OrderId]);
+        var page = await response.Content.ReadFromJsonAsync<PagedResultDto<OrderSummaryDto>>();
+        var orders = page!.Items;
+        orders.Select(o => o.Id).Should().BeEquivalentTo([orderA.OrderId]);
+        // totalCount 與 items 同一個 Organizer 範圍，不得透過總筆數洩漏其他 Organizer 的訂單數。
+        page.TotalCount.Should().Be(1);
         // SeedPendingOrderAsync 的買家以 AuthTestHelper 預設顯示名稱註冊。
         orders.Should().ContainSingle(o => o.Id == orderA.OrderId && o.Status == "Pending" && o.BuyerDisplayName == "Test User");
         orders.Should().NotContain(o => o.Id == orderB.OrderId);
@@ -141,7 +145,7 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
         using var document = JsonDocument.Parse(body);
-        var displayNameByOrderId = document.RootElement.EnumerateArray()
+        var displayNameByOrderId = document.RootElement.GetProperty("items").EnumerateArray()
             .ToDictionary(order => order.GetProperty("id").GetGuid(), order => order.GetProperty("buyerDisplayName").GetString());
         displayNameByOrderId.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [aliceOrderId] = "Alice", [bobOrderId] = "Bob" });
         body.Should().NotContainEquivalentOf("email").And.NotContain(aliceEmail).And.NotContain(bobEmail);
@@ -162,7 +166,7 @@ public class AdminOrdersControllerTests : IClassFixture<CustomWebApplicationFact
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var order = document.RootElement.EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == orderId);
+        var order = document.RootElement.GetProperty("items").EnumerateArray().Single(o => o.GetProperty("id").GetGuid() == orderId);
         order.GetProperty("eventTitle").GetString().Should().Be("春季音樂會");
         order.GetProperty("ticketCount").GetInt32().Should().Be(3);
         order.GetProperty("totalAmount").GetDecimal().Should().Be(1300m);

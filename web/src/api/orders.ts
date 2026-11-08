@@ -1,5 +1,5 @@
 import { authorizedRequest, requestBlob } from './httpClient'
-import type { MyOrderDetail, MyOrderSummary } from '../types/apiResponses'
+import type { MyOrderDetail, MyOrderSummary, PagedResult } from '../types/apiResponses'
 
 export interface PlaceOrderSelection {
   eventSeatId: string | null
@@ -22,8 +22,8 @@ export function cancelOrder(orderId: string): Promise<void> {
   return authorizedRequest(`/orders/${orderId}/cancel`, { method: 'POST' })
 }
 
-export function getMyOrders(): Promise<MyOrderSummary[]> {
-  return authorizedRequest('/orders')
+export function getMyOrders(page = 1): Promise<PagedResult<MyOrderSummary>> {
+  return authorizedRequest(`/orders?page=${page}`)
 }
 
 export function getMyOrderDetail(orderId: string): Promise<MyOrderDetail> {

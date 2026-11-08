@@ -65,14 +65,14 @@ public class OrderRepositoryOrganizerScopingTests
 
     // 對應 AC: ORD-LIST-001
     [Fact]
-    public async Task GetByOrganizerIdAsync_WhenOrdersExistUnderTwoOrganizers_ReturnsOnlyCallerOrganizerOrdersWithItems()
+    public async Task GetPageByOrganizerIdAsync_WhenOrdersExistUnderTwoOrganizers_ReturnsOnlyCallerOrganizerOrdersWithItems()
     {
         await using var seedDbContext = _fixture.CreateDbContext();
         var organizerA = await SeedOrganizerWithOrdersAsync(seedDbContext, orderCount: 2);
         var organizerB = await SeedOrganizerWithOrdersAsync(seedDbContext, orderCount: 2);
 
         await using var readDbContext = _fixture.CreateDbContext();
-        var orders = await new OrderRepository(readDbContext).GetByOrganizerIdAsync(organizerA.OrganizerId, CancellationToken.None);
+        var orders = (await new OrderRepository(readDbContext).GetPageByOrganizerIdAsync(organizerA.OrganizerId, skip: 0, take: 100, CancellationToken.None)).Items;
 
         orders.Select(o => o.Id).Should().BeEquivalentTo(organizerA.OrderIds);
         orders.Select(o => o.Id).Should().NotIntersectWith(organizerB.OrderIds);
@@ -81,7 +81,7 @@ public class OrderRepositoryOrganizerScopingTests
 
     // 對應 AC: ORD-LIST-001（資料庫端過濾：其他 Organizer 的訂單與明細不得被具現化進記憶體）
     [Fact]
-    public async Task GetByOrganizerIdAsync_DoesNotMaterializeOtherOrganizerOrders()
+    public async Task GetPageByOrganizerIdAsync_DoesNotMaterializeOtherOrganizerOrders()
     {
         // seed 與查詢用不同 DbContext，避免 seed 時已追蹤的實體讓 EF 略過具現化而漏記。
         await using var seedDbContext = _fixture.CreateDbContext();
@@ -90,7 +90,7 @@ public class OrderRepositoryOrganizerScopingTests
 
         var recorder = new MaterializedEntityRecorder();
         await using var readDbContext = CreateDbContextWithRecorder(recorder);
-        var orders = await new OrderRepository(readDbContext).GetByOrganizerIdAsync(organizerA.OrganizerId, CancellationToken.None);
+        var orders = (await new OrderRepository(readDbContext).GetPageByOrganizerIdAsync(organizerA.OrganizerId, skip: 0, take: 100, CancellationToken.None)).Items;
 
         recorder.Orders.Select(o => o.Id).Should().OnlyContain(id => organizerA.OrderIds.Contains(id));
         recorder.Orders.Select(o => o.Id).Should().NotIntersectWith(organizerB.OrderIds);

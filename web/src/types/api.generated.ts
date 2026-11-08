@@ -256,7 +256,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    page?: number | string;
+                    pageSize?: number | string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -1249,7 +1252,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    page?: number | string;
+                    pageSize?: number | string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -1642,8 +1648,8 @@ export interface components {
             newPassword: string;
         };
         SeatRequest: {
-            zoneCode: string;
-            seatNumber: string;
+            zoneCode: null | string;
+            seatNumber: null | string;
         };
         SetEventQueueModeRequest: {
             enabled: null | boolean;

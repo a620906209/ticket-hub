@@ -399,7 +399,7 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var titleByOrderId = document.RootElement.EnumerateArray()
+        var titleByOrderId = document.RootElement.GetProperty("items").EnumerateArray()
             .ToDictionary(order => order.GetProperty("id").GetGuid(), order => order.GetProperty("eventTitle").GetString());
         titleByOrderId.Should().BeEquivalentTo(new Dictionary<Guid, string?> { [firstOrderId] = "First Concert", [secondOrderId] = "Second Concert" });
     }
@@ -759,7 +759,8 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
     private static async Task AssertBuyerHasNoOrdersAsync(HttpClient buyerClient)
     {
         var orders = await buyerClient.GetFromJsonAsync<JsonElement>("/api/orders");
-        orders.GetArrayLength().Should().Be(0, "被系統上限擋下的請求不得建立訂單");
+        orders.GetProperty("totalCount").GetInt32().Should().Be(0, "被系統上限擋下的請求不得建立訂單");
+        orders.GetProperty("items").GetArrayLength().Should().Be(0, "被系統上限擋下的請求不得建立訂單");
     }
 
     /// <summary>只帶 eventSeatId／ticketTypeId 的原始 JSON，模擬未提供購買數量的座位項目（強型別物件一定會序列化出 Quantity）。</summary>

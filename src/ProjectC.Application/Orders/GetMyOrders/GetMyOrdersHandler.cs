@@ -1,4 +1,8 @@
+using FluentValidation;
+using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
+using ProjectC.Application.Common.Paging;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Domain.Events;
 using ProjectC.Domain.Orders;
 
@@ -9,20 +13,31 @@ public sealed class GetMyOrdersHandler
     private readonly IOrderRepository _orderRepository;
     private readonly IEventRepository _eventRepository;
     private readonly IDateTimeProvider _dateTimeProvider;
+    private readonly IValidator<PageRequest> _validator;
 
-    public GetMyOrdersHandler(IOrderRepository orderRepository, IEventRepository eventRepository, IDateTimeProvider dateTimeProvider)
+    public GetMyOrdersHandler(IOrderRepository orderRepository, IEventRepository eventRepository, IDateTimeProvider dateTimeProvider, IValidator<PageRequest> validator)
     {
         _orderRepository = orderRepository;
         _eventRepository = eventRepository;
         _dateTimeProvider = dateTimeProvider;
+        _validator = validator;
     }
 
-    public async Task<IReadOnlyList<MyOrderSummaryDto>> HandleAsync(Guid buyerId, CancellationToken cancellationToken)
+    public async Task<Result<PagedResultDto<MyOrderSummaryDto>>> HandleAsync(Guid buyerId, PageRequest pageRequest, CancellationToken cancellationToken)
     {
-        var orders = await _orderRepository.GetByBuyerIdAsync(buyerId, cancellationToken);
+        var validation = await _validator.ValidateAsync(pageRequest, cancellationToken);
+        if (!validation.IsValid)
+        {
+            return Result<PagedResultDto<MyOrderSummaryDto>>.Failure(validation.ToValidationError());
+        }
+
+        var skip = (pageRequest.Page - 1) * pageRequest.PageSize;
+        var orderPage = await _orderRepository.GetPageByBuyerIdAsync(buyerId, skip, pageRequest.PageSize, cancellationToken);
+        var orders = orderPage.Items;
         if (orders.Count == 0)
         {
-            return [];
+            return Result<PagedResultDto<MyOrderSummaryDto>>.Success(
+                new PagedResultDto<MyOrderSummaryDto>([], pageRequest.Page, pageRequest.PageSize, orderPage.TotalCount));
         }
 
         var eventIds = orders.Select(order => order.EventId).Distinct().ToList();
@@ -40,7 +55,7 @@ public sealed class GetMyOrdersHandler
 
         var now = _dateTimeProvider.UtcNow;
 
-        return orders
+        var items = orders
             .Select(order => new MyOrderSummaryDto(
                 order.Id,
                 order.EventId,
@@ -48,5 +63,6 @@ public sealed class GetMyOrdersHandler
                 order.GetStatus(now).ToString(),
                 order.HeldUntilUtc))
             .ToList();
+        return Result<PagedResultDto<MyOrderSummaryDto>>.Success(new PagedResultDto<MyOrderSummaryDto>(items, pageRequest.Page, pageRequest.PageSize, orderPage.TotalCount));
     }
 }

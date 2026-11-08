@@ -1,4 +1,6 @@
 using FluentAssertions;
+using ProjectC.Application.Common;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Orders.GetOrders;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
@@ -11,6 +13,8 @@ public class GetOrdersHandlerTests
 {
     private static readonly DateTime Now = new(2026, 1, 1, 10, 0, 0, DateTimeKind.Utc);
     private static readonly Guid OrganizerId = Guid.NewGuid();
+
+    private static readonly PageRequest FirstPage = new(PageRequest.DefaultPage, PageRequest.DefaultPageSize);
 
     private readonly FakeOrderRepository _orderRepository = new();
     private readonly FakeMemberDisplayNameReader _memberDisplayNameReader = new();
@@ -47,7 +51,7 @@ public class GetOrdersHandlerTests
             [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, 500m)]);
 
     private GetOrdersHandler CreateHandler(IMemberDisplayNameReader? memberDisplayNameReader = null)
-        => new(_orderRepository, memberDisplayNameReader ?? _memberDisplayNameReader, _eventRepository, new FakeDateTimeProvider { UtcNow = Now });
+        => new(_orderRepository, memberDisplayNameReader ?? _memberDisplayNameReader, _eventRepository, new FakeDateTimeProvider { UtcNow = Now }, new PageRequestValidator());
 
     // [ORD-LIST-001]
     [Fact]
@@ -57,7 +61,7 @@ public class GetOrdersHandlerTests
         var expiredOrder = SeedOrder(OrganizerId, Now.AddMinutes(-1), buyerDisplayName: "Bob");
         var otherOrganizerOrder = SeedOrder(Guid.NewGuid(), Now.AddMinutes(10));
 
-        var result = await CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
+        var result = (await CreateHandler().HandleAsync(OrganizerId, FirstPage, CancellationToken.None)).Value!.Items;
 
         result.Should().HaveCount(2);
         result.Should().NotContain(o => o.Id == otherOrganizerOrder.Id);
@@ -69,7 +73,7 @@ public class GetOrdersHandlerTests
     [Fact]
     public async Task HandleAsync_WhenNoOrders_ReturnsEmptyList()
     {
-        var result = await CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
+        var result = (await CreateHandler().HandleAsync(OrganizerId, FirstPage, CancellationToken.None)).Value!.Items;
 
         result.Should().BeEmpty();
         // 比照 GetMyOrdersHandler：0 筆訂單時不發出買家名稱查詢（repository 的「空清單不查詢」只是額外防線）。
@@ -87,7 +91,7 @@ public class GetOrdersHandlerTests
         var aliceSecondOrder = SeedOrder(OrganizerId, Now.AddMinutes(10), aliceId, "Alice");
         var bobOrder = SeedOrder(OrganizerId, Now.AddMinutes(10), bobId, "Bob");
 
-        var result = await CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
+        var result = (await CreateHandler().HandleAsync(OrganizerId, FirstPage, CancellationToken.None)).Value!.Items;
 
         result.Single(o => o.Id == aliceFirstOrder.Id).BuyerDisplayName.Should().Be("Alice");
         result.Single(o => o.Id == aliceSecondOrder.Id).BuyerDisplayName.Should().Be("Alice");
@@ -104,7 +108,7 @@ public class GetOrdersHandlerTests
         var orphanOrder = SeedOrder(OrganizerId, Now.AddMinutes(10));
         _memberDisplayNameReader.DisplayNamesByMemberId.Remove(orphanOrder.BuyerId);
 
-        var act = () => CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
+        var act = () => CreateHandler().HandleAsync(OrganizerId, FirstPage, CancellationToken.None);
 
         var exception = await act.Should().ThrowAsync<InvalidOperationException>();
         exception.Which.Message.Should().Contain(orphanOrder.Id.ToString()).And.Contain(orphanOrder.BuyerId.ToString());
@@ -118,7 +122,7 @@ public class GetOrdersHandlerTests
         var secondOrder = SeedOrder(OrganizerId, Now.AddMinutes(10));
         var reader = new SubstitutingMemberDisplayNameReader(_memberDisplayNameReader, secondOrder.BuyerId, Guid.NewGuid());
 
-        var act = () => CreateHandler(reader).HandleAsync(OrganizerId, CancellationToken.None);
+        var act = () => CreateHandler(reader).HandleAsync(OrganizerId, FirstPage, CancellationToken.None);
 
         var exception = await act.Should().ThrowAsync<InvalidOperationException>();
         exception.Which.Message.Should().Contain(secondOrder.BuyerId.ToString());
@@ -131,9 +135,9 @@ public class GetOrdersHandlerTests
         using var cancellationTokenSource = new CancellationTokenSource();
         var token = cancellationTokenSource.Token;
 
-        await CreateHandler().HandleAsync(OrganizerId, token);
+        await CreateHandler().HandleAsync(OrganizerId, FirstPage, token);
 
-        _orderRepository.LastGetByOrganizerIdToken.Should().Be(token);
+        _orderRepository.LastGetPageByOrganizerIdToken.Should().Be(token);
         _memberDisplayNameReader.LastGetDisplayNamesByIdsToken.Should().Be(token);
         _eventRepository.LastGetByIdsToken.Should().Be(token);
     }
@@ -155,7 +159,7 @@ public class GetOrdersHandlerTests
             Guid.NewGuid(), summerFestival.Id, Guid.NewGuid(), createdAtUtc.AddMinutes(-1), createdAtUtc.AddMinutes(9),
             [new OrderItem(Guid.NewGuid(), Guid.NewGuid(), null, 3, 800m)]));
 
-        var result = await CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
+        var result = (await CreateHandler().HandleAsync(OrganizerId, FirstPage, CancellationToken.None)).Value!.Items;
 
         var twoSeatSummary = result.Single(o => o.Id == twoSeatOrder.Id);
         twoSeatSummary.EventTitle.Should().Be("春季音樂會");
@@ -172,43 +176,72 @@ public class GetOrdersHandlerTests
         _eventRepository.LastGetByIdsIds.Should().BeEquivalentTo([springConcert.Id, summerFestival.Id]);
     }
 
-    // [ORD-LIST-006] Fake 以 T2、T1、T3 的順序回傳（非建立時間順序），結果必須是 T3、T2、T1。
+    // [ORD-PAGE-001 / LP-RESP-001] 第二頁：envelope 欄位、總筆數為範圍內全部、買家與活動只針對當頁查詢。
     [Fact]
-    public async Task HandleAsync_SortsByCreatedAtDescending()
+    public async Task HandleAsync_WithSecondPage_ReturnsThatPageWithEnvelopeAndQueriesOnlyPageIds()
     {
-        var @event = SeedEvent(OrganizerId);
-        // 最早建立的訂單給最晚的 HeldUntilUtc：若誤以 HeldUntilUtc 排序，它會排到第一而失敗——
-        // 決策 5 選 CreatedAtUtc 正是為了持有時間日後可變時仍依建立時間排序。
-        var t1Order = CreateOrder(@event.Id, Now.AddMinutes(-30), heldUntilUtc: Now.AddMinutes(60));
-        var t2Order = CreateOrder(@event.Id, Now.AddMinutes(-20));
-        var t3Order = CreateOrder(@event.Id, Now.AddMinutes(-10));
-        AddOrder(t2Order);
-        AddOrder(t1Order);
-        AddOrder(t3Order);
+        var other = SeedOrder(Guid.NewGuid(), Now.AddMinutes(10));
+        var orders = Enumerable.Range(0, 5)
+            .Select(i => SeedOrder(OrganizerId, Now.AddMinutes(10 + i)))
+            .ToList();
+        // 新到舊（CreatedAtUtc = heldUntil - 10 分）：orders[4]、[3] | [2]、[1] | [0]
+        var page = (await CreateHandler().HandleAsync(OrganizerId, new PageRequest(2, 2), CancellationToken.None)).Value!;
 
-        var result = await CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
-
-        result.Select(o => o.Id).Should().Equal(t3Order.Id, t2Order.Id, t1Order.Id);
-        // Requirement 要求以「不重複」的活動 Id 批次查詢：三筆訂單同一活動，只送出一個 Id。
-        _eventRepository.LastGetByIdsIds.Should().Equal(@event.Id);
+        page.Page.Should().Be(2);
+        page.PageSize.Should().Be(2);
+        page.TotalCount.Should().Be(5);
+        page.Items.Select(o => o.Id).Should().Equal(orders[2].Id, orders[1].Id);
+        page.Items.Should().NotContain(o => o.Id == other.Id);
+        _memberDisplayNameReader.LastGetDisplayNamesByIdsIds.Should().BeEquivalentTo([orders[2].BuyerId, orders[1].BuyerId]);
+        _eventRepository.LastGetByIdsIds.Should().BeEquivalentTo([orders[2].EventId, orders[1].EventId]);
+        _orderRepository.LastSkip.Should().Be(2);
+        _orderRepository.LastTake.Should().Be(2);
     }
 
-    // [ORD-LIST-008] 建立時間相同時，不論 repository 回傳順序為何，都依 Id 升冪排列。
+    // [LP-RESP-003] 超過最後一頁：成功、空 items、實際總筆數，不發出名稱查詢。
     [Fact]
-    public async Task HandleAsync_WhenCreatedAtTies_SortsByIdAscendingRegardlessOfRepositoryOrder()
+    public async Task HandleAsync_WhenPageBeyondLastPage_ReturnsEmptyItemsWithActualTotal()
     {
-        var @event = SeedEvent(OrganizerId);
-        var smallerIdOrder = CreateOrder(@event.Id, Now.AddMinutes(-5), Guid.Parse("00000000-0000-0000-0000-000000000001"));
-        var largerIdOrder = CreateOrder(@event.Id, Now.AddMinutes(-5), Guid.Parse("00000000-0000-0000-0000-000000000002"));
-        AddOrder(largerIdOrder);
-        AddOrder(smallerIdOrder);
+        SeedOrder(OrganizerId, Now.AddMinutes(10));
 
-        var firstResult = await CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
-        _orderRepository.Data.Reverse();
-        var secondResult = await CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await CreateHandler().HandleAsync(OrganizerId, new PageRequest(4, 20), CancellationToken.None);
 
-        firstResult.Select(o => o.Id).Should().Equal(smallerIdOrder.Id, largerIdOrder.Id);
-        secondResult.Select(o => o.Id).Should().Equal(smallerIdOrder.Id, largerIdOrder.Id);
+        result.IsSuccess.Should().BeTrue();
+        result.Value!.Items.Should().BeEmpty();
+        result.Value.TotalCount.Should().Be(1);
+        _memberDisplayNameReader.GetDisplayNamesByIdsCallCount.Should().Be(0);
+        _eventRepository.GetByIdsCallCount.Should().Be(0);
+    }
+
+    // [LP-VALID-001/003/005/006] 越界回 Validation，Repository 未被呼叫。
+    [Theory]
+    [InlineData(1, 101, new[] { "PageSize" })]
+    [InlineData(0, 20, new[] { "Page" })]
+    [InlineData(10001, 20, new[] { "Page" })]
+    [InlineData(0, 101, new[] { "Page", "PageSize" })]
+    public async Task HandleAsync_WhenPageRequestOutOfRange_ReturnsValidationErrorWithoutQueryingRepository(int page, int pageSize, string[] expectedFields)
+    {
+        var result = await CreateHandler().HandleAsync(OrganizerId, new PageRequest(page, pageSize), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors!.Keys.Should().BeEquivalentTo(expectedFields);
+        _orderRepository.GetPageCallCount.Should().Be(0);
+    }
+
+    // [ORD-PAGE-004] 資料不一致只在包含該筆的頁面失敗，另一頁正常。
+    [Fact]
+    public async Task HandleAsync_WhenOrphanBuyerOnOtherPage_RequestedPageStillSucceeds()
+    {
+        var healthy = SeedOrder(OrganizerId, Now.AddMinutes(30));
+        var orphan = SeedOrder(OrganizerId, Now.AddMinutes(10));
+        _memberDisplayNameReader.DisplayNamesByMemberId.Remove(orphan.BuyerId);
+
+        var firstPage = await CreateHandler().HandleAsync(OrganizerId, new PageRequest(1, 1), CancellationToken.None);
+        var failingPage = () => CreateHandler().HandleAsync(OrganizerId, new PageRequest(2, 1), CancellationToken.None);
+
+        firstPage.Value!.Items.Select(o => o.Id).Should().Equal(healthy.Id);
+        await failingPage.Should().ThrowAsync<InvalidOperationException>();
     }
 
     // [ORD-LIST-007] 所有買家都存在、只有活動查不到：例外必須是活動缺失（帶 OrderId／EventId），不是買家缺失。
@@ -219,7 +252,7 @@ public class GetOrdersHandlerTests
         var orphanOrder = SeedOrder(OrganizerId, Now.AddMinutes(10));
         _eventRepository.Data.RemoveAll(e => e.Id == orphanOrder.EventId);
 
-        var act = () => CreateHandler().HandleAsync(OrganizerId, CancellationToken.None);
+        var act = () => CreateHandler().HandleAsync(OrganizerId, FirstPage, CancellationToken.None);
 
         var exception = await act.Should().ThrowAsync<InvalidOperationException>();
         exception.Which.Message.Should().Contain(orphanOrder.Id.ToString())
@@ -232,7 +265,7 @@ public class GetOrdersHandlerTests
     {
         SeedOrder(OrganizerId, Now.AddMinutes(10));
 
-        var act = () => CreateHandler(new CancellingMemberDisplayNameReader()).HandleAsync(OrganizerId, CancellationToken.None);
+        var act = () => CreateHandler(new CancellingMemberDisplayNameReader()).HandleAsync(OrganizerId, FirstPage, CancellationToken.None);
 
         await act.Should().ThrowExactlyAsync<OperationCanceledException>();
     }

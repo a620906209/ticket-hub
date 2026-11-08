@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Orders.GetOrderById;
 using ProjectC.Application.Orders.GetOrders;
 using ProjectC.WebApi.Common;
@@ -21,7 +22,10 @@ public class AdminOrdersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetOrders(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetOrders(
+        CancellationToken cancellationToken,
+        [FromQuery] int page = PageRequest.DefaultPage,
+        [FromQuery] int pageSize = PageRequest.DefaultPageSize)
     {
         if (!User.TryGetOrganizerId(out var organizerId))
         {
@@ -29,8 +33,9 @@ public class AdminOrdersController : ControllerBase
             return Forbid();
         }
 
-        var orders = await _getOrdersHandler.HandleAsync(organizerId, cancellationToken);
-        return Ok(orders);
+        var result = await _getOrdersHandler.HandleAsync(
+            organizerId, new PageRequest(page, pageSize), cancellationToken);
+        return result.ToActionResult(Ok);
     }
 
     [HttpGet("{id:guid}")]
