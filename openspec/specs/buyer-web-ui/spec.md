@@ -220,11 +220,11 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 - **THEN** 系統顯示每筆訂單最多購買 50 張的錯誤訊息，不加入任何座位，不呼叫下單 API；區域隨選張數輸入本身的上限同樣為剩餘額度，未設限購時不超過 50
 
 ### Requirement: 「我的訂單」列表與明細頁串接查詢 API，顯示訂單、票券狀態與 QR Code
-系統 SHALL 提供「我的訂單」列表頁與訂單明細頁，呼叫 `buyer-order-query` 能力查詢自己的訂單列表與明細。列表頁 SHALL 顯示每筆訂單的活動名稱與狀態；明細頁 SHALL 顯示活動名稱與訂單狀態。訂單狀態與票券狀態 SHALL 以中文標籤顯示（訂單：Pending「待付款」、Paid「已付款」、Cancelled「已取消」、Expired「已逾時」；票券：Issued「已出票」、Redeemed「已核銷」），MUST NOT 直接顯示英文列舉值；狀態 SHALL 以標籤元件呈現並依狀態區分顏色（訂單 Pending 為警示色、Paid 為成功色、Cancelled／Expired 為中性色；票券 Issued 為成功色、Redeemed 為中性色；未知值為中性色），標籤內 MUST 顯示文字，顏色不得為唯一辨識方式；收到上述以外的未知狀態值時 SHALL 原樣顯示該值，不得顯示空白或造成頁面錯誤。持有到期時間（`HeldUntilUtc`）僅在訂單狀態為 Pending 時 SHALL 顯示為「保留至 {時間}」提示，訂單狀態為 Paid、Cancelled 或 Expired（終態或已逾時）時 MUST NOT 顯示此欄位——`HeldUntilUtc` 是建立訂單當下設定的原始值，不因訂單轉為終態而清空或重新賦值（比照既有 `buyer-order-query` 能力對此欄位的定義），對終態訂單顯示原值會誤導買家以為訂單仍在保留中。明細頁每筆項目 SHALL 顯示票種名稱與座位標示（「{分區}-{座位號碼}」），純計數項目的座位標示顯示「—」，票種名稱為 null 的舊訂單項目顯示「—」。明細頁 SHALL 顯示每筆項目對應的票券清單與各自狀態（`Issued`／`Redeemed`），每張票券 SHALL 以文字顯示完整 Ticket ID，供現場相機不可用時由工作人員於核銷頁手動輸入（見 `admin-web-ui`「掃描期間與相機不可用時皆可切換到手動輸入 Ticket ID 完成核銷」）。狀態為 `Issued` 或 `Redeemed` 的票券，明細頁 SHALL 提供「查看 QR Code」操作，點選後顯示該票券的 QR Code 圖檔；圖檔 MUST 透過既有 API 攔截器（帶 Authorization Header）取得後以 Blob／Object URL 顯示，MUST NOT 直接將 `<img src>` 指向需要驗證的端點網址。訂單內項目尚未出票（例如訂單仍為 Pending）時，該項目 SHALL 顯示「尚未出票」，不顯示 QR Code 操作。明細頁網址中的訂單 Id 非 GUID 格式時，前端不另做格式檢查，由後端路由約束 `{id:guid}` 回應 404，依「找不到這筆訂單」處理。`Ticket.Voided` 狀態依既有 `ticket-issuance` 能力規格現況無任何觸發路徑，本次前端 MUST NOT 為 `Voided` 實作任何顯示邏輯（不在本次 UI 行為範圍內）；目前若 API 回傳 `Voided`，僅依本 Requirement 的通用規則以未知狀態原樣顯示（中性色、無「查看 QR Code」），不構成 `Voided` 專屬的顯示邏輯；待未來新增 `Voided` 觸發路徑的提案時，須一併規劃對應的前端顯示行為。
+系統 SHALL 提供「我的訂單」列表頁與訂單明細頁，呼叫 `buyer-order-query` 能力查詢自己的訂單列表與明細。列表頁 SHALL 顯示每筆訂單的活動名稱與狀態；明細頁 SHALL 顯示活動名稱與訂單狀態。訂單狀態與票券狀態 SHALL 以中文標籤顯示（訂單：Pending「待付款」、Paid「已付款」、Cancelled「已取消」、Expired「已逾時」；票券：Issued「已出票」、Redeemed「已核銷」），MUST NOT 直接顯示英文列舉值；狀態 SHALL 以標籤元件呈現並依狀態區分顏色（訂單 Pending 為警示色、Paid 為成功色、Cancelled／Expired 為中性色；票券 Issued 為成功色、Redeemed 為中性色；未知值為中性色），標籤內 MUST 顯示文字，顏色不得為唯一辨識方式；收到上述以外的未知狀態值時 SHALL 原樣顯示該值，不得顯示空白或造成頁面錯誤。持有到期時間（`HeldUntilUtc`）僅在訂單狀態為 Pending 時 SHALL 顯示為「保留至 {時間}」提示，訂單狀態為 Paid、Cancelled 或 Expired（終態或已逾時）時 MUST NOT 顯示此欄位——`HeldUntilUtc` 是建立訂單當下設定的原始值，不因訂單轉為終態而清空或重新賦值（比照既有 `buyer-order-query` 能力對此欄位的定義），對終態訂單顯示原值會誤導買家以為訂單仍在保留中。明細頁每筆項目 SHALL 顯示票種名稱與座位標示（「{分區}-{座位號碼}」），純計數項目的座位標示顯示「—」，票種名稱為 null 的舊訂單項目顯示「—」。明細頁 SHALL 顯示每筆項目對應的票券清單與各自狀態（`Issued`／`Redeemed`），每張票券 SHALL 以文字顯示完整 Ticket ID，供現場相機不可用時由工作人員於核銷頁手動輸入（見 `admin-web-ui`「掃描期間與相機不可用時皆可切換到手動輸入 Ticket ID 完成核銷」）。狀態為 `Issued` 或 `Redeemed` 的票券，明細頁 SHALL 提供「查看 QR Code」操作，點選後顯示該票券的 QR Code 圖檔；圖檔 MUST 透過既有 API 攔截器（帶 Authorization Header）取得後以 Blob／Object URL 顯示，MUST NOT 直接將 `<img src>` 指向需要驗證的端點網址。訂單內項目尚未出票（例如訂單仍為 Pending）時，該項目 SHALL 顯示「尚未出票」，不顯示 QR Code 操作。明細頁網址中的訂單 Id 非 GUID 格式時，前端不另做格式檢查，由後端路由約束 `{id:guid}` 回應 404，依「找不到這筆訂單」處理。列表頁 SHALL 以分頁元件顯示訂單，每頁筆數固定為預設值（不提供每頁筆數選擇器），分頁元件顯示 `totalCount` 與頁碼；換頁時以新的 `page` 重新呼叫列表 API 並以回應的 `items` 取代列表內容，前端 MUST NOT 重新排序；頁碼只保存在頁面元件內，MUST NOT 寫入網址；訂單總筆數不超過一頁時 MUST NOT 顯示分頁元件。`Ticket.Voided` 狀態依既有 `ticket-issuance` 能力規格現況無任何觸發路徑，本次前端 MUST NOT 為 `Voided` 實作任何顯示邏輯（不在本次 UI 行為範圍內）；目前若 API 回傳 `Voided`，僅依本 Requirement 的通用規則以未知狀態原樣顯示（中性色、無「查看 QR Code」），不構成 `Voided` 專屬的顯示邏輯；待未來新增 `Voided` 觸發路徑的提案時，須一併規劃對應的前端顯示行為。
 
 #### Scenario: BW-MYORDER-LIST-001 開啟我的訂單列表頁
 - **WHEN** 已登入買家開啟「我的訂單」頁面
-- **THEN** 系統呼叫訂單列表 API，顯示自己所有訂單的活動名稱與中文狀態標籤；狀態為 Pending 的訂單額外顯示「保留至 {時間}」，其他狀態不顯示持有到期時間；尚無任何訂單時顯示空清單提示，不視為錯誤
+- **THEN** 系統呼叫訂單列表 API 取得第 1 頁，顯示該頁訂單的活動名稱與中文狀態標籤；狀態為 Pending 的訂單額外顯示「保留至 {時間}」，其他狀態不顯示持有到期時間；尚無任何訂單時顯示空清單提示且不顯示分頁元件，不視為錯誤
 
 #### Scenario: BW-MYORDER-DETAIL-001 開啟訂單明細頁查看已出票訂單
 - **WHEN** 已登入買家從列表點入一筆已確認付款、已出票的訂單明細
@@ -261,6 +261,26 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 #### Scenario: BW-MYORDER-DISPLAY-002 收到未知的訂單狀態值
 - **WHEN** 訂單列表 API 回傳的某筆訂單狀態為前端對照表未定義的值
 - **THEN** 該筆訂單的狀態欄位原樣顯示該值，頁面其餘內容正常顯示
+
+#### Scenario: BW-MYORDER-PAGE-001 訂單超過一頁時顯示分頁元件並可換頁
+- **WHEN** 已登入買家有超過一頁的訂單，開啟「我的訂單」頁面後點選第 2 頁
+- **THEN** 分頁元件顯示訂單總筆數與頁碼，系統以 `page` 為 2 重新呼叫訂單列表 API，並以第 2 頁的訂單取代列表內容；載入期間列表顯示載入中狀態
+
+#### Scenario: BW-MYORDER-PAGE-002 訂單未超過一頁時不顯示分頁元件
+- **WHEN** 已登入買家的訂單筆數不超過一頁
+- **THEN** 頁面只顯示訂單列表，不顯示分頁元件
+
+#### Scenario: BW-MYORDER-PAGE-003 重新整理停留在目前頁
+- **WHEN** 已登入買家停在第 2 頁並點選「重新整理」
+- **THEN** 系統重新請求第 2 頁；若回傳空 `items` 但 `totalCount` 大於 0，系統只重試一次改請求最後一頁，並同步分頁元件顯示該頁
+
+#### Scenario: BW-MYORDER-PAGE-004 換頁請求失敗時退回前一頁
+- **WHEN** 已登入買家停在第 1 頁並點選第 2 頁，但第 2 頁的請求回應錯誤
+- **THEN** 分頁元件回到第 1 頁，列表保留第 1 頁的訂單並顯示錯誤提示，不顯示與頁碼不符的內容
+
+#### Scenario: BW-MYORDER-PAGE-005 快速連續換頁時丟棄過期回應
+- **WHEN** 已登入買家快速依序點選第 2 頁與第 3 頁，第 3 頁的回應先到、第 2 頁的回應後到
+- **THEN** 列表顯示第 3 頁的訂單，第 2 頁的回應被丟棄
 
 ### Requirement: Access Token 過期時前端自動換發，換發失敗導回登入頁
 系統 SHALL 在呼叫 API 收到權杖過期（401）回應時，自動使用 Refresh Token 換發一次新的 Access Token 並重試原請求；若換發本身也失敗，系統 SHALL 清除登入狀態並導向登入頁。
