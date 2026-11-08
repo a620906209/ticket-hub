@@ -10,14 +10,16 @@ function pagedResult<T>(items: T[], overrides: Partial<PagedResult<T>> = {}): Pa
   return { items, page: 1, pageSize: 20, totalCount: items.length, ...overrides }
 }
 
-type Deferred<T> = { promise: Promise<T>; resolve: (value: T) => void }
+type Deferred<T> = { promise: Promise<T>; resolve: (value: T) => void; reject: (reason: unknown) => void }
 
 function createDeferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((onResolve) => {
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((onResolve, onReject) => {
     resolve = onResolve
+    reject = onReject
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 
@@ -320,6 +322,26 @@ describe('AdminOrderListPage 分頁（order-list-pagination）', () => {
 
     expect(rowTexts(wrapper)).toContain('Event 3-1')
     expect(rowTexts(wrapper)).not.toContain('Event 2-1')
+    expect(activePage(wrapper)).toBe('3')
+  })
+
+  it('[AWU-ORDER-PAGE-005] 過期請求的失敗回應被丟棄：第 2 頁較晚失敗時，不顯示錯誤、不改動第 3 頁的頁碼與列表', async () => {
+    getList().mockResolvedValueOnce(pageOf(1))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const second = createDeferred<ReturnType<typeof pageOf>>()
+    const third = createDeferred<ReturnType<typeof pageOf>>()
+    getList().mockReturnValueOnce(second.promise).mockReturnValueOnce(third.promise)
+    await clickPage(wrapper, 2)
+    await clickPage(wrapper, 3)
+    third.resolve(pageOf(3, 45, 1))
+    await flushPromises()
+    second.reject(new ApiError(500, { detail: '過期的失敗' }))
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('過期的失敗')
+    expect(rowTexts(wrapper)).toContain('Event 3-1')
     expect(activePage(wrapper)).toBe('3')
   })
 })

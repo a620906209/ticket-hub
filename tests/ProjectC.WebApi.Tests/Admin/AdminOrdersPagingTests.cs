@@ -54,6 +54,24 @@ public class AdminOrdersPagingTests : IClassFixture<CustomWebApplicationFactory>
         pageOnly.PageSize.Should().Be(20);
     }
 
+    // [LP-VALID-002][LP-VALID-007] 邊界值合法：pageSize=100 與 page=10000&pageSize=100 皆回 200，後者資料不足時 items 為空。
+    [Fact]
+    public async Task GetOrders_WithUpperBoundPagingParameters_Returns200()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        await OrganizerScopedTestData.SeedPendingOrderAsync(_factory, organizerClient);
+
+        var maxPageSize = await organizerClient.GetFromJsonAsync<PagedResultDto<OrderSummaryDto>>("/api/admin/orders?pageSize=100");
+        var maxPage = await organizerClient.GetFromJsonAsync<PagedResultDto<OrderSummaryDto>>("/api/admin/orders?page=10000&pageSize=100");
+
+        maxPageSize!.PageSize.Should().Be(100);
+        maxPageSize.Items.Should().HaveCount(1);
+        maxPage!.Page.Should().Be(10000);
+        maxPage.PageSize.Should().Be(100);
+        maxPage.Items.Should().BeEmpty();
+        maxPage.TotalCount.Should().Be(1);
+    }
+
     // [LP-VALID-001～008] 越界、非整數、int 溢位一律 400 Validation，errors 鍵為小寫 page／pageSize（不是 500）。
     [Theory]
     [MemberData(nameof(InvalidPagingQueries))]
