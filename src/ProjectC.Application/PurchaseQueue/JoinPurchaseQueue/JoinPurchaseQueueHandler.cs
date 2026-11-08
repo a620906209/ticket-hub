@@ -1,4 +1,5 @@
 using FluentValidation;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Events;
@@ -46,7 +47,7 @@ public sealed class JoinPurchaseQueueHandler
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return Result<Guid>.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+            return Result<Guid>.Failure(validation.ToValidationError());
         }
 
         // 驗證碼檢查 MUST 在既有排隊資格檢查（活動存在性、Queue Mode 是否開啟）之前執行

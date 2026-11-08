@@ -493,4 +493,17 @@ public class CreateEventHandlerTests
             .Which.ErrorMessage.Should().NotContain("UTC");
         await AssertValidationWithoutAddingEventAsync(request);
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var (venueId, seatMapId) = SeedVenueAndSeatMap(seatCount: 1);
+        var request = new CreateEventRequest("  ", DateTime.UtcNow.AddDays(30), venueId, seatMapId);
+
+        var result = await _handler.HandleAsync(AdminMemberId, OrganizerId, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

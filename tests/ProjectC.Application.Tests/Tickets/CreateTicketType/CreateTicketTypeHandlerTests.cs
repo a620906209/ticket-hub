@@ -169,4 +169,16 @@ public class CreateTicketTypeHandlerTests
         result.IsSuccess.Should().BeFalse();
         _queryCache.RemoveCalls.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var eventId = SeedEventWithZone("A");
+
+        var result = await _handler.HandleAsync(eventId, OrganizerId, new CreateTicketTypeRequest("A", 0m), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

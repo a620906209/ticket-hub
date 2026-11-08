@@ -175,6 +175,44 @@ public class OrdersControllerTests : IClassFixture<CustomWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    // [AER-023] 跨活動檢查是 Service 內的業務判斷，不是請求 Validator 的欄位驗證，因此不含 errors。
+    [Fact]
+    public async Task PlaceOrder_WithItemsFromDifferentEvents_Returns400WithoutErrors()
+    {
+        var (_, eventSeatId, _) = await SeedEventWithSeatAndTicketTypeAsync(zoneCode: "A");
+        var (_, _, otherEventTicketTypeId) = await SeedEventWithSeatAndTicketTypeAsync(zoneCode: "A");
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await buyerClient.PostAsJsonAsync(
+            "/api/orders",
+            new PlaceOrderRequest([new PlaceOrderSelectionRequest(eventSeatId, otherEventTicketTypeId)]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("title").GetString().Should().Be("Validation");
+        json.RootElement.GetProperty("detail").GetString().Should().Be("All selected items must belong to the same event.");
+        json.RootElement.GetProperty("traceId").GetString().Should().NotBeNullOrEmpty();
+        json.RootElement.TryGetProperty("errors", out _).Should().BeFalse();
+    }
+
+    // [AER-024]
+    [Fact]
+    public async Task PlaceOrder_WithInvalidSelectionQuantity_ReturnsNestedFieldKey()
+    {
+        var (_, _, ticketTypeId) = await SeedEventWithSeatAndTicketTypeAsync();
+        var buyerClient = await CreateAuthenticatedMemberClientAsync();
+
+        var response = await buyerClient.PostAsJsonAsync(
+            "/api/orders",
+            new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, ticketTypeId, Quantity: 0)]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var keys = json.RootElement.GetProperty("errors").EnumerateObject().Select(property => property.Name).ToArray();
+        keys.Should().BeEquivalentTo(["selections[0].quantity"]);
+        json.RootElement.GetProperty("errors").GetProperty("selections[0].quantity").GetArrayLength().Should().BeGreaterThan(0);
+    }
+
     [Fact]
     public async Task PlaceOrder_WithSeatZoneNotMatchingTicketTypeZoneWithinSameEvent_Returns400()
     {

@@ -1,4 +1,5 @@
 using FluentValidation;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Events.GetEvents;
@@ -30,7 +31,7 @@ public sealed class SetEventQueueModeHandler
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return Result.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+            return Result.Failure(validation.ToValidationError());
         }
 
         await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);

@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Authentication;
@@ -38,7 +39,7 @@ public sealed class SwitchOrganizerContextHandler
         if (!validation.IsValid)
         {
             return Result<SwitchOrganizerContextResultDto>.Failure(
-                Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+                validation.ToValidationError());
         }
 
         // 依 TokenHash 精確定位「發起這次切換」的那一筆 Refresh Token 記錄（見 design.md 決策 1）；

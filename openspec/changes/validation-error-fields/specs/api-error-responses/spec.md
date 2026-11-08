@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: 輸入驗證失敗的回應含逐欄位錯誤
-端點因請求 Validator（FluentValidation）的欄位驗證失敗而回應 400 `Validation` 時，`ProblemDetails` MUST 含 `errors` 欄位，結構為「欄位名稱 → 該欄位的錯誤訊息字串陣列」；同一欄位有多則訊息時 MUST 全數列入該欄位的陣列。`status`、`title`、`detail`、`traceId` 的既有行為 MUST 不變，其中 `detail` MUST 仍為驗證器回報的所有訊息，依回報順序以單一空白串接的字串。不是由請求 Validator 產生、而是 Handler／Service 內的業務判斷所回傳的 `Validation` 錯誤（例如下單時跨項目的同一活動檢查）MUST NOT 含 `errors`。框架模型繫結階段（含非 nullable 參考型別的隱含必填檢查）就被拒絕的請求不會進入 Validator，由「模型繫結失敗的 400 採一致的驗證錯誤格式」規範。
+端點因請求 Validator（FluentValidation）的欄位驗證失敗而回應 400 `Validation` 時，`ProblemDetails` MUST 含 `errors` 欄位，結構為「欄位名稱 → 該欄位的錯誤訊息字串陣列」；同一欄位有多則訊息時 MUST 全數列入該欄位的陣列。`status`、`title`、`detail`、`traceId` 的既有行為 MUST 不變，其中 `detail` MUST 仍為驗證器回報的所有訊息，依回報順序以單一空白串接的字串。不是由請求 Validator 產生、而是 Handler／Service 內的業務判斷所回傳的 `Validation` 錯誤（例如下單時跨項目的同一活動檢查）MUST NOT 含 `errors`。框架模型繫結階段（含非 nullable 參考型別缺漏或為 null 的隱含必填檢查）就被拒絕的請求不會進入 Validator，由「模型繫結失敗的 400 採一致的驗證錯誤格式」規範；欄位存在但為空字串時模型繫結通過，由 Validator 處理，適用本 Requirement。
 
 #### Scenario: AER-019 單一欄位驗證失敗
 - **WHEN** 建立活動的請求只有 `title` 超過 200 字元（本文含 `title` 且為非空字串，Validator 的長度規則失敗）
@@ -25,6 +25,10 @@
 - **WHEN** 建立活動請求的 `salesStartAtUtc`、`salesEndAtUtc`、`salesStartAtUtc` 依序各產生一則驗證訊息（m1、m2、m3，欄位交錯）
 - **THEN** `detail` 為 `m1 m2 m3`（回報順序），`errors.salesStartAtUtc` 為 [m1, m3]，`errors.salesEndAtUtc` 為 [m2]
 
+#### Scenario: AER-035 空字串欄位由 Validator 處理
+- **WHEN** 建立活動的請求 `title` 為空字串（其餘欄位合法）
+- **THEN** 回應狀態碼為 400，`title` 為 `Validation`，`errors` 的鍵集合恰為 [`title`] 且陣列至少一則訊息，含 `detail` 與非空 `traceId`
+
 #### Scenario: AER-023 非欄位驗證的 Validation 錯誤不含 errors
 - **WHEN** 下單請求因 Handler／Service 內「所選項目不屬於同一個活動」的業務判斷被拒絕（400 `Validation`）
 - **THEN** 回應含 `detail` 與 `traceId`，不含 `errors`
@@ -41,7 +45,7 @@
 - **THEN** `errors` 含 `startAtUtc` 鍵，字元大小寫其餘部分不變
 
 ### Requirement: 模型繫結失敗的 400 採一致的驗證錯誤格式
-由框架模型繫結失敗（請求本文 JSON 格式錯誤、欄位型別不符、請求本文為空、必填欄位缺漏或為 null／空字串所觸發的隱含必填檢查）自動產生的 400，回應 MUST 為 `application/problem+json`，`status` 為 400、`title` 為 `Validation`，含 `errors` 與 `traceId`，其值 MUST 等於 `HttpContext.TraceIdentifier`（不是 `Activity` 的 id）。`errors` 的鍵 MUST 比照「errors 欄位名稱採 camelCase 並保留巢狀路徑」，且 MUST NOT 帶框架內部的 JSON 路徑前綴 `$.`；整個請求本文層級（沒有對應欄位）的錯誤，鍵 MUST 為空字串；`errors` MUST NOT 含請求本文的 Controller 參數名稱（例如 `request`）形式的鍵，且 MUST NOT 含空陣列的鍵；`errors` 的鍵數 MUST 大於 0——若濾除參數名鍵後 `errors` 沒有任何鍵（例如本文為字面值 `null` 時只剩參數名鍵），其訊息 MUST 改列於空字串鍵，與請求本文層級錯誤一致。回應 MUST NOT 含 `detail`。本 Requirement 涵蓋請求本文繫結失敗；其他來源的繫結失敗（query、route）同樣經過同一格式，但不另設 Scenario。
+由框架模型繫結失敗（請求本文 JSON 格式錯誤、欄位型別不符、請求本文為空、必填欄位缺漏或為 null 所觸發的隱含必填檢查）自動產生的 400，回應 MUST 為 `application/problem+json`，`status` 為 400、`title` 為 `Validation`，含 `errors` 與 `traceId`，其值 MUST 等於 `HttpContext.TraceIdentifier`（不是 `Activity` 的 id）。`errors` 的鍵 MUST 比照「errors 欄位名稱採 camelCase 並保留巢狀路徑」，且 MUST NOT 帶框架內部的 JSON 路徑前綴 `$.`；整個請求本文層級（沒有對應欄位）的錯誤，鍵 MUST 為空字串；`errors` MUST NOT 含請求本文的 Controller 參數名稱（例如 `request`）形式的鍵，且 MUST NOT 含空陣列的鍵；`errors` 的鍵數 MUST 大於 0——若濾除參數名鍵後 `errors` 沒有任何鍵，其訊息 MUST 改列於空字串鍵，與請求本文層級錯誤一致。此後備規則無對應的 HTTP Scenario（實測的請求觸發不到），由工廠單元測試覆蓋。回應 MUST NOT 含 `detail`。本 Requirement 涵蓋請求本文繫結失敗；其他來源的繫結失敗（query、route）同樣經過同一格式，但不另設 Scenario。
 
 #### Scenario: AER-026 欄位型別不符
 - **WHEN** 建立活動的請求中 `maxTicketsPerOrder` 傳入字串 `"abc"`
@@ -56,7 +60,7 @@
 - **THEN** 回應狀態碼為 400，Content-Type 為 `application/problem+json`，`title` 為 `Validation`，`errors` 的鍵集合恰為 [空字串]，`traceId` 等於 `HttpContext.TraceIdentifier`，不含 `detail`
 
 #### Scenario: AER-033 必填欄位缺漏的隱含必填檢查
-- **WHEN** 建立活動的請求缺少 `title`，或 `title` 為 null 或空字串
+- **WHEN** 建立活動的請求缺少 `title`，或 `title` 為 null
 - **THEN** 回應狀態碼為 400，`title` 為 `Validation`，`errors` 含 `title` 鍵，不含 `detail`，`traceId` 等於 `HttpContext.TraceIdentifier`
 
 #### Scenario: AER-034 請求本文為字面值 null

@@ -58,7 +58,7 @@ FluentValidation 的 `PropertyName`（例如 `Selections[0].Quantity`）原樣�
 
 在 `AddControllers()` 後以 `ConfigureApiBehaviorOptions` 設定 `InvalidModelStateResponseFactory`，從 `ModelState` 取出錯誤，鍵經決策 2 的函式轉換，建 `ValidationProblemDetails`（`Status = 400`、`Title = "Validation"`、不設 `Detail`），回傳 `ProblemDetailsWithTraceIdResult`，`traceId` 明確取 `HttpContext.TraceIdentifier`（不經 `ProblemDetailsFactory`，其 traceId 為 `Activity.Current?.Id`，兩者不同，見 archive `error-response-title-traceid` design）。
 
-細節：(1) 只濾除「請求本文參數」的名稱（如 `request`，以原始鍵、區分大小寫比對）；query／route 參數繫結失敗時鍵本身就是參數名稱，不濾除。本文參數以 `ActionDescriptor` 參數的 `BindingInfo.BindingSource == Body` 判定，不寫死字串。若濾除後 `errors` 無任何鍵（例如本文為字面值 `null` 只剩參數名鍵），其訊息改列於空字串鍵，確保鍵數必大於 0 且不含參數名鍵（AER-034）。`ConfigureApiBehaviorOptions` 須接在 `AddControllers()` 之後，否則框架的預設設定會覆蓋——本文反序列化失敗或為空時框架會另加 `"request": ["The request field is required."]`，該鍵名會隨參數改名而變，不屬於 JSON 路徑；(2) 沒有錯誤訊息的項目不輸出（避免空陣列鍵）；(3) `ErrorMessage` 為空但有例外的項目，訊息補 `The input was not valid.`（框架原本行為）；(4) 非 nullable 參考型別的隱含必填（例如 `title` 為空字串或缺漏）發生在模型繫結階段，走本路徑、無 `detail`，Handler 路徑的 Validator 規則（如長度上限）才會產生 `detail`。設定放在 `Extensions/` 下的獨立擴充方法，`Program.cs` 只多一行呼叫，維持 `webapi-composition-root-cleanup` 後 Program.cs 的結構。
+細節：(1) 只濾除「請求本文參數」的名稱（如 `request`，以原始鍵、區分大小寫比對）；query／route 參數繫結失敗時鍵本身就是參數名稱，不濾除。本文參數以 `ActionDescriptor` 參數的 `BindingInfo.BindingSource == Body` 判定，不寫死字串。若濾除後 `errors` 無任何鍵，其訊息改列於空字串鍵，確保鍵數必大於 0 且不含參數名鍵（防禦性規則，由工廠單元測試直接以只含參數名鍵的 ModelState 覆蓋；實測字面值 `null` 本文的鍵為 `""` 與參數名鍵，濾除後本來就恰為 [`""`]，AER-034 不依賴此後備）。`ConfigureApiBehaviorOptions` 須接在 `AddControllers()` 之後，否則框架的預設設定會覆蓋——本文反序列化失敗或為空時框架會另加 `"request": ["The request field is required."]`，該鍵名會隨參數改名而變，不屬於 JSON 路徑；(2) 沒有錯誤訊息的項目不輸出（避免空陣列鍵）；(3) `ErrorMessage` 為空但有例外的項目，訊息補 `The input was not valid.`（框架原本行為）；(4) 非 nullable 參考型別的隱含必填只在欄位缺漏或為 null 時觸發（例如 `title` 缺漏或 null），發生在模型繫結階段，走本路徑、無 `detail`；空字串模型繫結通過，由 Handler 路徑的 Validator 處理（`NotEmpty` 失敗，帶 `detail` 與 `errors.title`，AER-035），Validator 規則（如長度上限）也在此路徑。設定放在 `Extensions/` 下的獨立擴充方法，`Program.cs` 只多一行呼叫，維持 `webapi-composition-root-cleanup` 後 Program.cs 的結構。
 
 - 理由：與 Handler 路徑共用同一個 result 型別與 `traceId` 機制。
 - 備選：改用 `SuppressModelStateInvalidFilter` 並在 filter 內處理——改動面更大，否決。
@@ -75,7 +75,7 @@ FluentValidation 的 `PropertyName`（例如 `Selections[0].Quantity`）原樣�
 - 請求本文層級（空字串鍵）只在模型繫結路徑出現，Handler 路徑的 FluentValidation 針對具體屬性，故不為 Handler 路徑設空字串鍵 Scenario。
 - `errors` 鍵「與 JSON 欄位路徑一致」的前提：`src/` 內沒有 `JsonPropertyName`，CLR 屬性名首字母小寫即 JSON 名稱；日後若引入自訂 JSON 名稱，須改為從序列化設定取得名稱。
 - AER-023 的判準為「由請求 Validator 產生」對比「Handler／Service 內的業務判斷」，不以「是否跨項目」區分：`PlaceOrderRequestValidator` 的總張數上限與同座位重複雖是跨項目規則，但由 Validator 產生，會帶 `errors.selections`。
-- 鍵格式化不支援 `$['a.b']` 括號路徑（目前 DTO 不會出現），遇到時原樣保留不拆段。
+- 鍵格式化處理 `$['a.b']` 括號路徑：括號段由 client 送出含 `.` 或空白的屬性名時產生（與 DTO 無關），先移除 `$`／`$.` 前綴，括號段內的 `.` 不拆段、鍵名原樣保留，括號段之外的每段仍首字母小寫。Opus 交叉審查指出原先「原樣保留（含 `$`）」違反「不帶 `$.` 前綴」。client 自訂、以 `$` 開頭的屬性名（如 `$x`）STJ 以點號路徑回報，鍵原樣保留為 `$x`，不視為框架前綴；括號段內若含 `']`，段落會提早結束（STJ 不轉義），僅影響該回音鍵的大小寫外觀，接受。
 - `InvalidModelStateResponseFactory` 實際套用到所有 ModelState 錯誤（含 query、route），格式一致；spec 只對本文繫結設 Scenario。
 
 ## 安全確認（CLAUDE.md 安全強制規則）
@@ -103,8 +103,13 @@ spec-reviewer 第 2 輪 PASS 後評估是否跑 design-hardener：本次不新�
 
 ### 決策 9：交叉審查取捨記錄（Claude Code Opus 審查＋ spec-reviewer 第 3、4 輪，採推薦方案）
 
-- 非 nullable 參考型別的隱含必填（`title` 缺漏／null／空字串）發生在模型繫結階段，歸入模型繫結 400（AER-033），不帶 `detail`；Handler 路徑的端對端測試改用 Validator 才會擋的輸入（title 201 字元）。
+- 非 nullable 參考型別的隱含必填（`title` 缺漏／null）發生在模型繫結階段，歸入模型繫結 400（AER-033），不帶 `detail`；Handler 路徑的端對端測試改用 Validator 才會擋的輸入（title 201 字元）。
 - 模型繫結 400 的 `errors` 濾除參數名稱鍵與空陣列鍵；`traceId` 明確取 `HttpContext.TraceIdentifier`，測試以 Activity 區分。
 - AER-023 判準為「Validator 產生」對比「Handler／Service 業務判斷」。
 - 模型繫結 400 的「只剩參數名鍵改列空字串鍵」規則（AER-034）。
 - 改前即綠的測試（AER-023 相關、`FieldErrors` 預設 null）標為特性固定測試並以突變證明。
+
+### 決策 10：task 1.1 實測後的 spec 修正（採推薦方案）
+
+- 實測（見 tasks.md task 1.1 完成紀錄）：`title` 為空字串模型繫結通過、走 Validator（有 `detail`），只有缺漏／null 走隱含必填。AER-033 移除空字串，新增 AER-035；不改程式去讓空字串走隱含必填。
+- 實測：字面值 `null` 本文的鍵為 `""` 與 `request`，與空本文相同；移除 spec 中「只剩參數名鍵」的例子，後備規則改為防禦性規則由工廠單元測試覆蓋。

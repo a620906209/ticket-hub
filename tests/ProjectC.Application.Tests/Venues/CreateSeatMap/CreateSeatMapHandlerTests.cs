@@ -76,4 +76,17 @@ public class CreateSeatMapHandlerTests
         result.Error!.Type.Should().Be(ErrorType.NotFound);
         _seatMapRepository.Data.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var venueId = SeedVenue();
+        var seats = Enumerable.Range(1, SeatMapLimits.MaxSeats + 1).Select(i => new SeatRequest("A", i.ToString())).ToList();
+
+        var result = await _handler.HandleAsync(venueId, new CreateSeatMapRequest(seats), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

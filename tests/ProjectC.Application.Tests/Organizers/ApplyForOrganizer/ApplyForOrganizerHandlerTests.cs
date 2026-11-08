@@ -76,4 +76,14 @@ public class ApplyForOrganizerHandlerTests
         result.IsSuccess.Should().BeTrue();
         _dbContext.OrganizerData.Should().ContainSingle().Which.Name.Should().Be(new string('a', length));
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var result = await _handler.HandleAsync(Guid.NewGuid(), new ApplyForOrganizerRequest(""), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

@@ -47,10 +47,17 @@
 - 認證挑戰／授權拒絕：JWT 認證 scheme 產生的 401（未帶、無效或過期 token）與 403（角色或 Policy 不足、控制器 `Forbid()`）為 `application/problem+json`，含 `status`、`Title`（`Unauthorized`／`Forbidden`）與 `traceId`（`HttpContext.TraceIdentifier`），不含 `Detail`；401 的狀態碼與 `WWW-Authenticate` header 與框架預設逐字相同。業務失敗轉換的 401／403 不屬此類，仍帶原 `Detail`。實作在 `JwtBearerProblemDetailsResponses`。
 - 限流：429，`Title = "TooManyRequests"`，帶 `Retry-After` header（若可得）與 `traceId`。
 
+### 驗證錯誤的逐欄位 `errors`
+
+- 請求 Validator（FluentValidation）失敗的 400 `Validation` 為 `ValidationProblemDetails`：除 `status`、`title`、`detail`、`traceId` 外，另含 `errors`（`{ "欄位": ["訊息", ...] }`）。`detail` 仍是所有訊息依回報順序以單一空白串接的字串，只讀 `detail` 的 client 不受影響。
+- Handler 以 `ValidationResult.ToValidationError()` 轉換（`Error.Validation(message, fieldErrors)`）；業務規則類的 `Validation` 錯誤（例如下單「所選項目不屬於同一個活動」）沒有對應欄位，維持 `Error.Validation(message)`，回應不含 `errors`。
+- 鍵格式由 WebApi 的 `FieldErrorKeyFormatter` 決定：以 `.` 分隔的每一段首字母轉小寫、其餘不變，集合索引保留（`Selections[0].Quantity` → `selections[0].quantity`）；轉換後相同的鍵合併其訊息。
+- 模型繫結失敗（JSON 格式錯誤、型別不符、非 nullable 參考型別缺漏或為 null 的隱含必填）由 `InvalidModelStateResponseFactory` 輸出同格式：`title = Validation`、無 `detail`、`traceId` 取 `HttpContext.TraceIdentifier`（不再是 Activity id）。框架內部的鍵會被處理：移除 `$.` 前綴（括號路徑如 `$['x y']` 移除 `$` 後括號段原樣保留）、濾除 action 的 body 參數名稱鍵；只剩這類鍵或本文為空時，訊息列在空字串鍵 `""` 下。
+- 前端 `ApiError.problem.errors` 保留此欄位，但 `ApiError.message` 仍取 `detail`；目前沒有畫面依 `errors` 逐欄位顯示。
+
 ### 不一致／待決定
 
-1. **驗證錯誤沒有逐欄位結構**：`Validation` 只有單一 `Detail` 字串，沒有 `errors` 欄位對照。
-2. **模型繫結自動產生的 400**（`[ApiController]`）的 `Title` 為框架預設句子（`One or more validation errors occurred.`），與其他錯誤的機器代碼風格不一致，待決定（預計併入 `validation-error-fields`）。
+（目前無）
 
 ## 3. 資料命名
 

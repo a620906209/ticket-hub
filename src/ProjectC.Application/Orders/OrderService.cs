@@ -2,6 +2,7 @@ using System.Diagnostics;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Application.Events;
@@ -141,7 +142,7 @@ public sealed class OrderService
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return Result<Guid>.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+            return Result<Guid>.Failure(validation.ToValidationError());
         }
 
         // 整筆下單只向連線池借一次連線，避免每次查詢後歸還、下次重新排到隊尾（order-placement-p95-phase2 design.md 決策 2）。

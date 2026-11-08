@@ -140,4 +140,16 @@ public class RegisterRealNameHandlerTests
         await act.Should().ThrowAsync<OperationCanceledException>();
         _memberRealNameRepository.TryRegisterCallCount.Should().Be(0);
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var member = SeedMember();
+
+        var result = await _handler.HandleAsync(member.Id, new RegisterRealNameRequest("王小明", "98x7"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

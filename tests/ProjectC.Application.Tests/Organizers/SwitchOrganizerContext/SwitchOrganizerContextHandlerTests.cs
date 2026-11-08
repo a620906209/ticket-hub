@@ -243,4 +243,17 @@ public class SwitchOrganizerContextHandlerTests
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Unauthorized);
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var member = SeedMember();
+        var organizer = SeedOrganizer(OrganizerStatus.Approved, member.Id);
+
+        var result = await _handler.HandleAsync(member.Id, organizer.Id, new SwitchOrganizerContextRequest(""), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

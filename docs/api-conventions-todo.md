@@ -45,11 +45,11 @@
 
 對應不一致項目：驗證錯誤沒有逐欄位結構。
 
-- [ ] 決策：回應格式（沿用 `ValidationProblemDetails` 的 `errors`，或自訂）
-- [ ] 決策：`Result` / `Error` 型別如何攜帶欄位資訊（影響 Application 層）
-- [ ] 保持向下相容：既有 `Detail` 字串仍保留
-- [ ] 前端是否消費欄位錯誤：決定範圍，不消費則只確認不破壞既有表單
-- [ ] 更新 `api-conventions.md` 第 2 節
+- [x] 決策：回應格式（沿用 `ValidationProblemDetails` 的 `errors`，或自訂）
+- [x] 決策：`Result` / `Error` 型別如何攜帶欄位資訊（影響 Application 層）
+- [x] 保持向下相容：既有 `Detail` 字串仍保留
+- [x] 前端是否消費欄位錯誤：決定範圍，不消費則只確認不破壞既有表單
+- [x] 更新 `api-conventions.md` 第 2 節
 
 ## 4. `time-field-naming-rule`
 

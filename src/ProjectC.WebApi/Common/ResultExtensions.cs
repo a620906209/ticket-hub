@@ -48,12 +48,13 @@ public static class ResultExtensions
             _ => StatusCodes.Status400BadRequest,
         };
 
-        var problemDetails = new ProblemDetails
-        {
-            Status = statusCode,
-            Title = error.Type.ToString(),
-            Detail = error.Message,
-        };
+        var problemDetails = error.FieldErrors is null
+            ? new ProblemDetails()
+            : new ValidationProblemDetails(FieldErrorKeyFormatter.FormatAll(error.FieldErrors));
+
+        problemDetails.Status = statusCode;
+        problemDetails.Title = error.Type.ToString();
+        problemDetails.Detail = error.Message;
 
         return new ProblemDetailsWithTraceIdResult(problemDetails);
     }
