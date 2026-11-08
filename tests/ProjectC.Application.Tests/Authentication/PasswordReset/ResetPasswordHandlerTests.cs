@@ -78,4 +78,14 @@ public class ResetPasswordHandlerTests
         result.IsSuccess.Should().BeFalse();
         result.Error!.Type.Should().Be(ErrorType.Validation);
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var result = await _handler.HandleAsync(new ResetPasswordRequest("", "NewPassword1"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

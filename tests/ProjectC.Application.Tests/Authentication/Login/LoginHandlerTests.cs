@@ -176,4 +176,14 @@ public class LoginHandlerTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var result = await _handler.HandleAsync(new LoginRequest("user@example.com", "Password123", "", "TEST"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

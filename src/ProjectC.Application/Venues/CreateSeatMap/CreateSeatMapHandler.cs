@@ -1,4 +1,5 @@
 using FluentValidation;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Venues;
@@ -29,7 +30,7 @@ public sealed class CreateSeatMapHandler
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return Result<Guid>.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+            return Result<Guid>.Failure(validation.ToValidationError());
         }
 
         var venue = await _venueRepository.GetByIdAsync(venueId, cancellationToken);

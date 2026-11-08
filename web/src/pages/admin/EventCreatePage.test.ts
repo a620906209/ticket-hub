@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import EventCreatePage from './EventCreatePage.vue'
 import * as adminApi from '../../api/admin'
+import { ApiError } from '../../api/httpClient'
 import type { VenueDetail } from '../../types/apiResponses'
 
 vi.mock('../../api/admin')
@@ -535,5 +536,44 @@ describe('EventCreatePage 販售期間（event-sales-window-web-ui）', () => {
     expect(salesEndAt.props('modelValue')).toBeFalsy()
     expect(wrapper.text()).toContain('留空代表建立後立即開賣；建立後不可變更')
     expect(wrapper.text()).toContain('留空代表活動開始時停售；建立後不可變更')
+  })
+})
+
+// [AER-031] 400 帶 errors 時，表單頁仍只顯示 detail；逐欄位顯示不在本次範圍。
+describe('EventCreatePage 驗證失敗回應（validation-error-fields）', () => {
+  beforeEach(() => {
+    pushMock.mockReset()
+    vi.mocked(adminApi.createEvent).mockReset()
+    vi.mocked(adminApi.getVenues).mockResolvedValue([{ id: 'venue-a', name: 'Venue A' }])
+    vi.mocked(adminApi.getVenueById).mockResolvedValue({
+      id: 'venue-a',
+      name: 'Venue A',
+      seatMaps: [{ id: 'seatmap-1', seatCount: 10 }],
+    })
+  })
+
+  it('createEvent_WhenApiReturns400WithDetailAndErrors_ShowsDetailText', async () => {
+    vi.mocked(adminApi.createEvent).mockRejectedValue(
+      new ApiError(400, {
+        status: 400,
+        title: 'Validation',
+        detail: '活動名稱過長。',
+        errors: { title: ['欄位層級訊息不應被顯示'] },
+      }),
+    )
+    const wrapper = mountPage()
+    await flushPromises()
+    const [venueSelect, seatMapSelect] = wrapper.findAll('select')
+    await venueSelect.setValue('venue-a')
+    await flushPromises()
+    await seatMapSelect.setValue('seatmap-1')
+    await wrapper.find('input[maxlength="200"]').setValue('Concert')
+    await wrapper.findComponent(ElDatePickerStub).setValue('2026-12-31T20:00')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('.el-alert').text()).toContain('活動名稱過長。')
+    expect(wrapper.text()).not.toContain('欄位層級訊息不應被顯示')
   })
 })

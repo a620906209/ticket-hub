@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Authentication;
@@ -42,7 +43,7 @@ public sealed class LoginHandler
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return Result<AuthTokensDto>.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+            return Result<AuthTokensDto>.Failure(validation.ToValidationError());
         }
 
         // 驗證碼檢查 MUST 在既有帳密比對之前執行，失敗時不繼續查詢會員資料（CAPTCHA-AUTH-001，

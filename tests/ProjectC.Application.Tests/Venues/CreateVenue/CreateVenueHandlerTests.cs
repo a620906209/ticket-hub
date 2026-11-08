@@ -40,4 +40,14 @@ public class CreateVenueHandlerTests
         _venueRepository.Data.Should().BeEmpty();
         _unitOfWork.BeginTransactionCallCount.Should().Be(0);
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var result = await _handler.HandleAsync(new CreateVenueRequest("  "), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

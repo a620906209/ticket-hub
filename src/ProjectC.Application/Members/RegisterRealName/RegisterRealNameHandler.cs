@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Members;
@@ -31,7 +32,7 @@ public sealed class RegisterRealNameHandler
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return Result<MemberProfileDto>.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+            return Result<MemberProfileDto>.Failure(validation.ToValidationError());
         }
 
         // AsNoTracking：RegisterRealName 只改這份副本；若改到追蹤中的實體，同 scope 之後任何 SaveChanges

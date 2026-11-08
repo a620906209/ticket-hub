@@ -558,4 +558,17 @@ public class JoinPurchaseQueueHandlerTests
         fixture.PurchaseQueueRepository.GetForUpdateCallCount.Should().Be(0);
         fixture.PurchaseQueueRepository.AddOrGetExistingCallCount.Should().Be(0);
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var fixture = new Fixture();
+        var @event = fixture.SeedEvent();
+
+        var result = await fixture.CreateHandler().HandleAsync(@event.Id, Guid.NewGuid(), new JoinPurchaseQueueRequest("", "TEST"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

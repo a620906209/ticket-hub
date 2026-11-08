@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 using ProjectC.Domain.Authentication;
@@ -35,7 +36,7 @@ public sealed class ResetPasswordHandler
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return Result.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+            return Result.Failure(validation.ToValidationError());
         }
 
         var tokenHash = _tokenService.HashOpaqueToken(request.Token);

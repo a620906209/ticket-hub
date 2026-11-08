@@ -312,6 +312,20 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         return (ownerClient, organizerId, eventId);
     }
 
+    // [AER-019] SetEventQueueMode 也走 ToValidationError：Enabled 為 null 時 400 帶 enabled 欄位錯誤。
+    [Fact]
+    public async Task SetQueueMode_WithMissingEnabled_Returns400WithEnabledFieldError()
+    {
+        var (ownerClient, _, eventId) = await CreateOwnedEventAsync();
+
+        var response = await PatchQueueModeAsync(ownerClient, eventId, new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        json.RootElement.GetProperty("title").GetString().Should().Be("Validation");
+        json.RootElement.GetProperty("errors").EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(["enabled"]);
+    }
+
     // [PQ-ADMIN-001]
     [Fact]
     public async Task SetQueueMode_AsOwningOrganizerWithEnabledTrue_Returns204AndEnablesQueueMode()

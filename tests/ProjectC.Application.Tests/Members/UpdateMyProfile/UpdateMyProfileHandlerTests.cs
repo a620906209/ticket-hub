@@ -61,4 +61,17 @@ public class UpdateMyProfileHandlerTests
         result.Value!.RealName.Should().Be("王小明");
         result.Value.NationalIdLast4Masked.Should().Be("**34");
     }
+
+    [Fact]
+    public async Task HandleAsync_WhenValidationFails_ReturnsFieldErrors()
+    {
+        var member = Member.Register("user@example.com", "Alice", "hashed:secret");
+        _dbContext.MemberData.Add(member);
+
+        var result = await _handler.HandleAsync(member.Id, new UpdateMyProfileRequest(""), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors.Should().NotBeNullOrEmpty();
+    }
 }

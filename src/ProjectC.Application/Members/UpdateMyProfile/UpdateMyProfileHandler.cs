@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using ProjectC.Application.Common.Validation;
 using ProjectC.Application.Common;
 using ProjectC.Application.Common.Interfaces;
 
@@ -21,7 +22,7 @@ public sealed class UpdateMyProfileHandler
         var validation = await _validator.ValidateAsync(request, cancellationToken);
         if (!validation.IsValid)
         {
-            return Result<MemberProfileDto>.Failure(Error.Validation(string.Join(" ", validation.Errors.Select(e => e.ErrorMessage))));
+            return Result<MemberProfileDto>.Failure(validation.ToValidationError());
         }
 
         var member = await _dbContext.Members.FirstOrDefaultAsync(m => m.Id == memberId, cancellationToken);

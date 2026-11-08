@@ -107,6 +107,21 @@ describe('httpClient request', () => {
     await expect(request('/events/x')).rejects.toMatchObject({ message: '找不到活動。' })
   })
 
+  // [AER-030]
+  it('400 回應含 errors 時，problem.errors 原樣保留且 message 等於 detail', async () => {
+    const errors = { title: ['標題過長。'], 'selections[0].quantity': ['數量至少為 1。'] }
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(400, { status: 400, title: 'Validation', detail: '標題過長。 數量至少為 1。', errors }),
+    )
+
+    const error = await request('/events').catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).problem?.errors?.['selections[0].quantity']).toEqual(['數量至少為 1。'])
+    expect((error as ApiError).problem?.errors).toEqual(errors)
+    expect((error as ApiError).message).toBe('標題過長。 數量至少為 1。')
+  })
+
   // [AER-011]
   it('非 JSON 失敗回應時，message 為通用文字且 problem 為 null', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
