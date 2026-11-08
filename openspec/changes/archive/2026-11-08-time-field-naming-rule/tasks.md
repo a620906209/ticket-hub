@@ -67,7 +67,8 @@
 
 - [x] 4.1 `docs/api-conventions.md` 第 3 節「時間欄位後綴」改為「`DateTime` 時間欄位一律以 `Utc` 結尾，由 `UtcSuffixNamingRuleTests` 強制」，刪除「不一致」描述；第 4 節如需列修改時機則補一條。TDD：N/A（純文件）。
 - [x] 4.2 `docs/api-conventions-todo.md`：第 4 項勾選，第 5 項標示「取消，併入第 4 項」。在 `docs/deployment-prerequisites.md` 加上此 migration 的停機部署注意事項（對應 design.md Migration Plan）。TDD：N/A（純文件）。
-- [ ] 4.3 主 spec 同步：本 change 的 `specs/organizer-management/spec.md` MODIFIED delta 只把「會員可以切換目前操作中的 Organizer」Requirement 中 Scenario `ORG-SWITCH-007` 的 `ExpiresAt` 改為 `ExpiresAtUtc`，其餘原文照抄；archive 時由 sync 寫入主 spec。驗證（雙向）：archive 後 `rg -w "ExpiresAt" openspec/specs` 無結果，且 `rg -w "ExpiresAtUtc" openspec/specs` 恰好只命中 `organizer-management/spec.md` 的 `ORG-SWITCH-007` 一處。TDD：N/A（純文件，語意不變；`ORG-SWITCH-007` 的行為由既有測試涵蓋，5.1 重跑）。
+- [x] 4.3 主 spec 同步：本 change 的 `specs/organizer-management/spec.md` MODIFIED delta 只把「會員可以切換目前操作中的 Organizer」Requirement 中 Scenario `ORG-SWITCH-007` 的 `ExpiresAt` 改為 `ExpiresAtUtc`，其餘原文照抄；archive 時由 sync 寫入主 spec。驗證（雙向）：archive 後 `rg -w "ExpiresAt" openspec/specs` 無結果，且 `rg -w "ExpiresAtUtc" openspec/specs` 恰好只命中 `organizer-management/spec.md` 的 `ORG-SWITCH-007` 一處。TDD：N/A（純文件，語意不變；`ORG-SWITCH-007` 的行為由既有測試涵蓋，5.1 重跑）。
+  - 驗證紀錄（2026-11-08，archive 同步後）：`rg -w "ExpiresAt" openspec/specs` 無結果（exit 1）；`rg -w "ExpiresAtUtc" openspec/specs` 恰好只命中 `openspec/specs/organizer-management/spec.md` 的 `ORG-SWITCH-007` 一處；delta 的 MODIFIED 區塊全文存在於同步後的主 spec，主 spec 只有該一行差異。
 
 ## 5. 全套驗證與審查
 
