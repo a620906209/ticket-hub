@@ -156,10 +156,11 @@ public sealed class OrganizerScopingFaultInjectionWebApplicationFactory : Custom
 
         public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => inner.GetByIdAsync(id, cancellationToken);
 
-        public Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-            => inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+        public Task<OrderPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken)
+            => inner.GetPageByOrganizerIdAsync(organizerId, skip, take, cancellationToken);
 
-        public Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken) => inner.GetByBuyerIdAsync(buyerId, cancellationToken);
+        public Task<OrderPage> GetPageByBuyerIdAsync(Guid buyerId, int skip, int take, CancellationToken cancellationToken)
+            => inner.GetPageByBuyerIdAsync(buyerId, skip, take, cancellationToken);
 
         public Task<Order?> GetByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken) => inner.GetByOrderItemIdAsync(orderItemId, cancellationToken);
 

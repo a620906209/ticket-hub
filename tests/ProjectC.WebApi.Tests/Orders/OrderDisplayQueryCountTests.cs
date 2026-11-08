@@ -90,6 +90,8 @@ public class OrderDisplayQueryCountTests : IClassFixture<QueryCountingWebApplica
 
         multiEventCounts.Should().BeEquivalentTo(singleEventCounts);
         singleEventCounts.GetValueOrDefault("Events").Should().Be(1);
+        // Orders 為 2：COUNT 與當頁各一次（分頁後的固定次數，不隨筆數成長）。
+        singleEventCounts.GetValueOrDefault("Orders").Should().Be(2);
     }
 
     // [ORD-LIST-004] 單元層的 Fake 無法區分單次 Contains 與逐筆查詢，此保證只在整合層驗證。
@@ -121,10 +123,11 @@ public class OrderDisplayQueryCountTests : IClassFixture<QueryCountingWebApplica
         // 正向錨點（以暖機後實測寫死）：買家名稱確實以單次 Members 查詢取得。只比兩次相等的話，
         // 若買家名稱查詢不經資料庫（例如日後加快取）兩邊都是 0，測試仍會空洞通過。
         singleCounts.GetValueOrDefault("Members").Should().Be(1);
-        singleCounts.GetValueOrDefault("Orders").Should().Be(1);
-        // Events 為 2：訂單查詢以 Events.Any(...)（EXISTS 子查詢）做 Organizer 過濾（interceptor 會把子查詢的表一併計入）佔 1 次，
-        // 活動名稱批次查詢佔 1 次；移除活動名稱查詢時此值降為 1（tasks.md 4.4 已實測確認）。
-        singleCounts.GetValueOrDefault("Events").Should().Be(2);
+        // Orders 為 2：COUNT 與當頁各一次。
+        singleCounts.GetValueOrDefault("Orders").Should().Be(2);
+        // Events 為 3：COUNT 與當頁兩個訂單查詢各帶 Events.Any(...)（EXISTS 子查詢）做 Organizer 過濾
+        // （interceptor 會把子查詢的表一併計入）佔 2 次，活動名稱批次查詢佔 1 次。
+        singleCounts.GetValueOrDefault("Events").Should().Be(3);
     }
 
     private async Task<IReadOnlyDictionary<string, int>> GetQueryCountsByTableAsync(HttpClient client, string url)

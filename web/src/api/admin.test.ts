@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createEvent, getTicketHolder, redeemTicket } from './admin'
+import { createEvent, getAdminOrders, getTicketHolder, redeemTicket } from './admin'
 
 // 驗證實名相關參數實際放進請求 body 的形狀：頁面測試只 mock 到 api 函式這一層，看不到 body。
 describe('admin api 實名相關請求（real-name-verification）', () => {
@@ -67,5 +67,34 @@ describe('admin api 實名相關請求（real-name-verification）', () => {
     const request = sentRequest()
     expect(request.url).toBe('/api/admin/tickets/ticket-1/holder')
     expect(request.method).toBe('GET')
+  })
+})
+
+describe('admin api 訂單列表分頁請求（order-list-pagination）', () => {
+  const fetchMock = vi.fn()
+  const envelope = { items: [], page: 3, pageSize: 20, totalCount: 45 }
+
+  beforeEach(() => {
+    fetchMock.mockReset().mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify(envelope), { status: 200, headers: { 'content-type': 'application/json' } })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('[AWU-ORDER-PAGE-001] getAdminOrders(3) 以 page=3 請求並回傳分頁結構', async () => {
+    const result = await getAdminOrders(3)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/admin/orders?page=3')
+    expect(result).toEqual(envelope)
+  })
+
+  it('[AWU-ORDER-LIST-001] getAdminOrders() 未指定頁碼時請求第 1 頁', async () => {
+    await getAdminOrders()
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/admin/orders?page=1')
   })
 })

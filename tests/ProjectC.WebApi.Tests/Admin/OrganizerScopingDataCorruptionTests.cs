@@ -5,6 +5,9 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using ProjectC.Application.Common.Paging;
+using ProjectC.Application.Orders.GetMyOrders;
+using ProjectC.Application.Orders.GetOrders;
 using ProjectC.Application.Tickets.RedeemTicket;
 using ProjectC.Domain.Tickets;
 using ProjectC.Infrastructure.Persistence;
@@ -162,6 +165,51 @@ public class OrganizerScopingDataCorruptionTests : IClassFixture<OrganizerScopin
             .And.NotContain(orphanOrderId.ToString())
             .And.NotContain(orphanEvent.EventId.ToString())
             .And.NotContain(exception.Message);
+    }
+
+    // [ORD-PAGE-004] 資料不一致只影響含該筆的頁面：兩筆訂單、pageSize=1，查不到活動的訂單所在頁 500，另一頁正常回 200。
+    [Fact]
+    public async Task GetAdminOrders_WhenOrphanOrderIsOnAnotherPage_OnlyThatPageReturns500()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var intactEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "Intact Page Event", seatCount: 1, countTicketTypeCount: 0);
+        var orphanEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "Orphan Page Event", seatCount: 1, countTicketTypeCount: 0);
+        var (buyer, _) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory);
+        var intactOrderId = await OrderDisplayTestData.PlaceOrderAsync(buyer, intactEvent, seatItemCount: 1, countItemCount: 0);
+        await OrderDisplayTestData.PlaceOrderAsync(buyer, orphanEvent, seatItemCount: 1, countItemCount: 0);
+        _factory.MissingEventIds.TryAdd(orphanEvent.EventId, 0);
+
+        var pageOne = await organizerClient.GetAsync("/api/admin/orders?page=1&pageSize=1");
+        var pageTwo = await organizerClient.GetAsync("/api/admin/orders?page=2&pageSize=1");
+
+        // 兩筆訂單的先後取決於建立時間（WSL2 時鐘可能倒退），故只斷言「恰好一頁成功、另一頁 500」且成功頁是完好的那筆。
+        new[] { pageOne.StatusCode, pageTwo.StatusCode }
+            .Should().BeEquivalentTo([HttpStatusCode.OK, HttpStatusCode.InternalServerError]);
+        var okResponse = pageOne.StatusCode == HttpStatusCode.OK ? pageOne : pageTwo;
+        var okPage = await okResponse.Content.ReadFromJsonAsync<PagedResultDto<OrderSummaryDto>>();
+        okPage!.Items.Should().ContainSingle().Which.Id.Should().Be(intactOrderId);
+    }
+
+    // [BOQ-LIST-TITLE-002] 買家列表同理：查不到活動的訂單在另一頁時，不影響請求的這一頁。
+    [Fact]
+    public async Task GetMyOrders_WhenOrphanOrderIsOnAnotherPage_OnlyThatPageReturns500()
+    {
+        var (organizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(_factory);
+        var intactEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "My Intact Page Event", seatCount: 1, countTicketTypeCount: 0);
+        var orphanEvent = await OrderDisplayTestData.SeedEventAsync(_factory, organizerClient, "My Orphan Page Event", seatCount: 1, countTicketTypeCount: 0);
+        var (buyer, _) = await OrderDisplayTestData.CreateBuyerClientAsync(_factory);
+        var intactOrderId = await OrderDisplayTestData.PlaceOrderAsync(buyer, intactEvent, seatItemCount: 1, countItemCount: 0);
+        await OrderDisplayTestData.PlaceOrderAsync(buyer, orphanEvent, seatItemCount: 1, countItemCount: 0);
+        _factory.MissingEventIds.TryAdd(orphanEvent.EventId, 0);
+
+        var pageOne = await buyer.GetAsync("/api/orders?page=1&pageSize=1");
+        var pageTwo = await buyer.GetAsync("/api/orders?page=2&pageSize=1");
+
+        new[] { pageOne.StatusCode, pageTwo.StatusCode }
+            .Should().BeEquivalentTo([HttpStatusCode.OK, HttpStatusCode.InternalServerError]);
+        var okResponse = pageOne.StatusCode == HttpStatusCode.OK ? pageOne : pageTwo;
+        var okPage = await okResponse.Content.ReadFromJsonAsync<PagedResultDto<MyOrderSummaryDto>>();
+        okPage!.Items.Should().ContainSingle().Which.Id.Should().Be(intactOrderId);
     }
 
     // 以回應的 traceId 篩出該請求的 log（factory 在整個測試類別共用同一個 logger）。

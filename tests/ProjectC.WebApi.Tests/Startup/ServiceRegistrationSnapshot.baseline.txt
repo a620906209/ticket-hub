@@ -1,5 +1,6 @@
 Scoped | FluentValidation.IValidator`1[ProjectC.Application.Authentication.Login.LoginRequest] | ProjectC.Application.Authentication.Login.LoginRequestValidator
 Scoped | FluentValidation.IValidator`1[ProjectC.Application.Authentication.PasswordReset.ResetPasswordRequest] | ProjectC.Application.Authentication.PasswordReset.ResetPasswordRequestValidator
+Scoped | FluentValidation.IValidator`1[ProjectC.Application.Common.Paging.PageRequest] | ProjectC.Application.Common.Paging.PageRequestValidator
 Scoped | FluentValidation.IValidator`1[ProjectC.Application.Events.CreateEvent.CreateEventRequest] | ProjectC.Application.Events.CreateEvent.CreateEventRequestValidator
 Scoped | FluentValidation.IValidator`1[ProjectC.Application.Events.SetEventQueueMode.SetEventQueueModeRequest] | ProjectC.Application.Events.SetEventQueueMode.SetEventQueueModeRequestValidator
 Scoped | FluentValidation.IValidator`1[ProjectC.Application.Members.Register.RegisterMemberRequest] | ProjectC.Application.Members.Register.RegisterMemberRequestValidator
@@ -27,6 +28,7 @@ Scoped | ProjectC.Application.Captcha.GetCaptcha.GetCaptchaHandler | ProjectC.Ap
 Scoped | ProjectC.Application.Common.Interfaces.IApplicationDbContext | factory
 Scoped | ProjectC.Application.Common.Interfaces.ICaptchaService | ProjectC.Infrastructure.Captcha.RedisCaptchaService
 Scoped | ProjectC.Application.Common.Interfaces.IUnitOfWork | ProjectC.Infrastructure.Persistence.UnitOfWork
+Scoped | ProjectC.Application.Common.Paging.PageRequestValidator | ProjectC.Application.Common.Paging.PageRequestValidator
 Scoped | ProjectC.Application.Events.CreateEvent.CreateEventHandler | ProjectC.Application.Events.CreateEvent.CreateEventHandler
 Scoped | ProjectC.Application.Events.CreateEvent.CreateEventRequestValidator | ProjectC.Application.Events.CreateEvent.CreateEventRequestValidator
 Scoped | ProjectC.Application.Events.GetAdminEvents.GetAdminEventsHandler | ProjectC.Application.Events.GetAdminEvents.GetAdminEventsHandler

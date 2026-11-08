@@ -8,8 +8,13 @@ public sealed class FakeOrderRepository : IOrderRepository
 
     // 收到的 token 供「token 原樣傳遞」斷言使用（order-display-enrichment tasks.md 1.2c）。
     public CancellationToken? LastGetByIdToken { get; private set; }
-    public CancellationToken? LastGetByOrganizerIdToken { get; private set; }
-    public CancellationToken? LastGetByBuyerIdToken { get; private set; }
+    public CancellationToken? LastGetPageByOrganizerIdToken { get; private set; }
+    public CancellationToken? LastGetPageByBuyerIdToken { get; private set; }
+
+    // 記錄分頁查詢實際收到的 skip/take/id，供 Handler 測試斷言「驗證失敗時 Repository 未被呼叫」與切頁參數。
+    public int GetPageCallCount { get; private set; }
+    public int? LastSkip { get; private set; }
+    public int? LastTake { get; private set; }
 
     public Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
@@ -19,14 +24,6 @@ public sealed class FakeOrderRepository : IOrderRepository
 
     // Order 只以 EventId 參照 Event，假物件無法自行 join；改由測試直接指定每個 EventId 所屬的 OrganizerId。
     public Dictionary<Guid, Guid> OrganizerIdByEventId { get; } = new();
-
-    public Task<IReadOnlyList<Order>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-    {
-        LastGetByOrganizerIdToken = cancellationToken;
-        return Task.FromResult<IReadOnlyList<Order>>(Data
-            .Where(o => OrganizerIdByEventId.TryGetValue(o.EventId, out var owner) && owner == organizerId)
-            .ToList());
-    }
 
     // 同 OrganizerIdByEventId：假物件無法 join Events，由測試指定哪些活動需實名。
     public HashSet<Guid> RealNameRequiredEventIds { get; } = new();
@@ -43,10 +40,29 @@ public sealed class FakeOrderRepository : IOrderRepository
         return Task.FromResult(context);
     }
 
-    public Task<IReadOnlyList<Order>> GetByBuyerIdAsync(Guid buyerId, CancellationToken cancellationToken)
+    public Task<OrderPage> GetPageByBuyerIdAsync(Guid buyerId, int skip, int take, CancellationToken cancellationToken)
     {
-        LastGetByBuyerIdToken = cancellationToken;
-        return Task.FromResult<IReadOnlyList<Order>>(Data.Where(order => order.BuyerId == buyerId).ToList());
+        LastGetPageByBuyerIdToken = cancellationToken;
+        return Task.FromResult(Page(Data.Where(order => order.BuyerId == buyerId), skip, take));
+    }
+
+    public Task<OrderPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken)
+    {
+        LastGetPageByOrganizerIdToken = cancellationToken;
+        return Task.FromResult(Page(
+            Data.Where(o => OrganizerIdByEventId.TryGetValue(o.EventId, out var owner) && owner == organizerId),
+            skip,
+            take));
+    }
+
+    // 與 OrderRepository 相同的排序與切頁語意（CreatedAtUtc 新到舊、Id 升冪）；真正的資料庫端行為由 Infrastructure 整合測試驗證。
+    private OrderPage Page(IEnumerable<Order> scopedOrders, int skip, int take)
+    {
+        GetPageCallCount++;
+        LastSkip = skip;
+        LastTake = take;
+        var ordered = scopedOrders.OrderByDescending(o => o.CreatedAtUtc).ThenBy(o => o.Id).ToList();
+        return new OrderPage(ordered.Skip(skip).Take(take).ToList(), ordered.Count);
     }
 
     public Task<Order?> GetByOrderItemIdAsync(Guid orderItemId, CancellationToken cancellationToken)

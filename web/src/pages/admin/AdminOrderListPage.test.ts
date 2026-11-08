@@ -3,7 +3,25 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import AdminOrderListPage from './AdminOrderListPage.vue'
 import * as adminApi from '../../api/admin'
-import type { OrderSummary } from '../../types/apiResponses'
+import { ApiError } from '../../api/httpClient'
+import type { OrderSummary, PagedResult } from '../../types/apiResponses'
+
+function pagedResult<T>(items: T[], overrides: Partial<PagedResult<T>> = {}): PagedResult<T> {
+  return { items, page: 1, pageSize: 20, totalCount: items.length, ...overrides }
+}
+
+type Deferred<T> = { promise: Promise<T>; resolve: (value: T) => void; reject: (reason: unknown) => void }
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve
+    reject = onReject
+  })
+  return { promise, resolve, reject }
+}
+
 
 vi.mock('../../api/admin')
 
@@ -51,7 +69,7 @@ function readShortIdsInOrder(wrapper: VueWrapper): string[] {
 describe('AdminOrderListPage 後台訂單列表', () => {
   beforeEach(() => {
     vi.mocked(adminApi.getAdminOrders).mockReset()
-    vi.mocked(adminApi.getAdminOrders).mockResolvedValue([
+    vi.mocked(adminApi.getAdminOrders).mockResolvedValue(pagedResult([
       createOrder({ id: 'pending-order', buyerId: 'buyer-guid-1', buyerDisplayName: 'Buyer 1', status: 'Pending' }),
       createOrder({
         id: 'paid-order',
@@ -62,7 +80,7 @@ describe('AdminOrderListPage 後台訂單列表', () => {
         createdAtUtc: '2026-09-30T10:50:00Z',
         heldUntilUtc: '2026-09-30T11:00:00Z',
       }),
-    ])
+    ]))
   })
 
   it('[AWU-ORDER-LIST-001] 訂單狀態以中文標籤顯示，Pending／Paid 分別為警示色／成功色', async () => {
@@ -85,14 +103,14 @@ describe('AdminOrderListPage 後台訂單列表', () => {
 
   // DisplayName 由會員自行設定、活動名稱由主辦方輸入，都會被看到，MUST 以文字渲染、不得產生元素（design.md 安全確認-前端）。
   it('[AWU-ORDER-LIST-001] 買家顯示名稱與活動名稱含 HTML 標籤時原樣以文字顯示，表格內不產生元素', async () => {
-    vi.mocked(adminApi.getAdminOrders).mockResolvedValue([
+    vi.mocked(adminApi.getAdminOrders).mockResolvedValue(pagedResult([
       createOrder({
         id: 'order-1',
         eventTitle: '<img src=x onerror=alert(2)>',
         buyerDisplayName: '<img src=x onerror=alert(1)>',
         status: 'Paid',
       }),
-    ])
+    ]))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -104,9 +122,9 @@ describe('AdminOrderListPage 後台訂單列表', () => {
   it('[AWU-ORDER-LIST-002] 顯示訂單編號短碼、活動、張數、總金額與建立時間，明細連結使用完整 Id', async () => {
     const orderId = '3f2a9c1e-0000-4000-8000-000000000001'
     const createdAtUtc = '2026-10-01T03:04:05Z'
-    vi.mocked(adminApi.getAdminOrders).mockResolvedValue([
+    vi.mocked(adminApi.getAdminOrders).mockResolvedValue(pagedResult([
       createOrder({ id: orderId, eventTitle: '春季音樂會', ticketCount: 2, totalAmount: 2500, status: 'Paid', createdAtUtc }),
-    ])
+    ]))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -121,12 +139,12 @@ describe('AdminOrderListPage 後台訂單列表', () => {
 
   // HeldUntilUtc 是建立訂單當下的原始值、不因終態改寫，對非 Pending 訂單顯示會誤導成仍在保留中；以「—」代替留白。
   it('[AWU-ORDER-HOLD-001] 持有到期時間只對 Pending 訂單顯示，其餘狀態顯示「—」', async () => {
-    vi.mocked(adminApi.getAdminOrders).mockResolvedValue([
+    vi.mocked(adminApi.getAdminOrders).mockResolvedValue(pagedResult([
       createOrder({ id: 'aaaa0001-0000-4000-8000-000000000000', status: 'Pending', heldUntilUtc: '2026-09-30T10:00:00Z' }),
       createOrder({ id: 'bbbb0002-0000-4000-8000-000000000000', status: 'Paid', heldUntilUtc: '2026-09-30T11:00:00Z' }),
       createOrder({ id: 'cccc0003-0000-4000-8000-000000000000', status: 'Cancelled', heldUntilUtc: '2026-09-30T12:00:00Z' }),
       createOrder({ id: 'dddd0004-0000-4000-8000-000000000000', status: 'Expired', heldUntilUtc: '2026-09-30T13:00:00Z' }),
-    ])
+    ]))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -139,14 +157,191 @@ describe('AdminOrderListPage 後台訂單列表', () => {
 
   // 排序由後端決定（ORD-LIST-006／008），前端重排會讓同一時間建立的訂單順序與 API 不一致。
   it('[AWU-ORDER-LIST-003] 依 API 回傳順序顯示，前端不重新排序', async () => {
-    vi.mocked(adminApi.getAdminOrders).mockResolvedValue([
+    vi.mocked(adminApi.getAdminOrders).mockResolvedValue(pagedResult([
       createOrder({ id: 'aaaa1111-0000-4000-8000-000000000000', createdAtUtc: '2026-09-30T10:00:00Z' }),
       createOrder({ id: 'bbbb2222-0000-4000-8000-000000000000', createdAtUtc: '2026-09-30T11:00:00Z' }),
       createOrder({ id: 'cccc3333-0000-4000-8000-000000000000', createdAtUtc: '2026-09-30T09:00:00Z' }),
-    ])
+    ]))
     const wrapper = mountPage()
     await flushPromises()
 
     expect(readShortIdsInOrder(wrapper)).toEqual(['aaaa1111', 'bbbb2222', 'cccc3333'])
+  })
+})
+
+describe('AdminOrderListPage 分頁（order-list-pagination）', () => {
+  const getList = () => vi.mocked(adminApi.getAdminOrders)
+
+  beforeEach(() => {
+    getList().mockReset()
+  })
+
+  function pageOf(page: number, totalCount = 45, count = 2) {
+    return pagedResult(
+      Array.from({ length: count }, (_, index) => createOrder({ id: `order${page}${index + 1}-0000-4000-8000-000000000000`, eventTitle: `Event ${page}-${index + 1}`, status: 'Paid' })),
+      { page, totalCount },
+    )
+  }
+
+  // v-loading 關閉後遮罩以 v-show 隱藏、延遲移除 DOM，只能以「存在且可見」判斷。
+  function isLoadingMaskVisible(wrapper: VueWrapper): boolean {
+    const mask = wrapper.find('.el-loading-mask')
+    return mask.exists() && mask.isVisible()
+  }
+
+  function rowTexts(wrapper: VueWrapper): string {
+    return wrapper.findAll('.el-table__body tr').map((row) => row.text()).join('|')
+  }
+
+  function activePage(wrapper: VueWrapper): string {
+    return wrapper.find('.el-pager li.is-active').text()
+  }
+
+  async function clickPage(wrapper: VueWrapper, pageNumber: number): Promise<void> {
+    const button = wrapper.findAll('.el-pager li').find((item) => item.text() === String(pageNumber))
+    expect(button, `應有頁碼 ${pageNumber}`).toBeDefined()
+    await button!.trigger('click')
+  }
+
+  async function clickRefresh(wrapper: VueWrapper): Promise<void> {
+    const button = wrapper.findAll('button').find((item) => item.text().includes('重新整理'))
+    expect(button, '應有重新整理按鈕').toBeDefined()
+    await button!.trigger('click')
+  }
+
+  it('[AWU-ORDER-PAGE-001] 超過一頁時顯示總筆數與頁碼（無每頁筆數選擇器），點第 2 頁以 page=2 取代列表並在載入期間顯示載入中', async () => {
+    getList().mockResolvedValueOnce(pageOf(1))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(getList()).toHaveBeenLastCalledWith(1)
+    expect(wrapper.find('.el-pagination').exists()).toBe(true)
+    expect(wrapper.find('.el-pagination__total').text()).toContain('45')
+    expect(wrapper.find('.el-pagination__sizes').exists()).toBe(false)
+    expect(wrapper.find('.el-pagination__jump').exists()).toBe(false)
+    expect(rowTexts(wrapper)).toContain('Event 1-1')
+
+    const second = createDeferred<ReturnType<typeof pageOf>>()
+    getList().mockReturnValueOnce(second.promise)
+    await clickPage(wrapper, 2)
+    await flushPromises()
+    expect(getList()).toHaveBeenLastCalledWith(2)
+    await vi.waitFor(() => expect(isLoadingMaskVisible(wrapper)).toBe(true))
+
+    second.resolve(pageOf(2))
+    await flushPromises()
+    expect(rowTexts(wrapper)).toContain('Event 2-1')
+    expect(rowTexts(wrapper)).not.toContain('Event 1-1')
+    expect(activePage(wrapper)).toBe('2')
+    await vi.waitFor(() => expect(isLoadingMaskVisible(wrapper)).toBe(false))
+  })
+
+  it('[AWU-ORDER-PAGE-002] 筆數不超過一頁或沒有訂單時不顯示分頁元件', async () => {
+    getList().mockResolvedValueOnce(pagedResult([], { totalCount: 0 }))
+    const emptyWrapper = mountPage()
+    await flushPromises()
+    expect(emptyWrapper.find('.el-pagination').exists()).toBe(false)
+
+    getList().mockResolvedValueOnce(pageOf(1, 20, 2))
+    const singlePageWrapper = mountPage()
+    await flushPromises()
+    expect(rowTexts(singlePageWrapper)).toContain('Event 1-1')
+    expect(singlePageWrapper.find('.el-pagination').exists()).toBe(false)
+  })
+
+  it('[AWU-ORDER-PAGE-003] 重新整理停留在目前頁，不回到第 1 頁', async () => {
+    getList().mockResolvedValueOnce(pageOf(1)).mockResolvedValueOnce(pageOf(2)).mockResolvedValueOnce(pageOf(2))
+    const wrapper = mountPage()
+    await flushPromises()
+    await clickPage(wrapper, 2)
+    await flushPromises()
+
+    await clickRefresh(wrapper)
+    await flushPromises()
+
+    expect(getList().mock.calls.map((call) => call[0])).toEqual([1, 2, 2])
+    expect(activePage(wrapper)).toBe('2')
+  })
+
+  it('[AWU-ORDER-PAGE-003] 目前頁回傳空 items 但 totalCount > 0 時只重試一次改請求最後一頁，並同步分頁元件頁碼', async () => {
+    getList()
+      .mockResolvedValueOnce(pageOf(1))
+      .mockResolvedValueOnce(pageOf(2))
+      .mockResolvedValueOnce(pagedResult([], { page: 2, totalCount: 45 }))
+      .mockResolvedValueOnce(pageOf(3, 45, 1))
+    const wrapper = mountPage()
+    await flushPromises()
+    await clickPage(wrapper, 2)
+    await flushPromises()
+
+    await clickRefresh(wrapper)
+    await flushPromises()
+
+    expect(getList().mock.calls.map((call) => call[0])).toEqual([1, 2, 2, 3])
+    expect(rowTexts(wrapper)).toContain('Event 3-1')
+    expect(activePage(wrapper)).toBe('3')
+  })
+
+  it('[AWU-ORDER-PAGE-003] 最後一頁仍為空時不再重試（只重試一次）', async () => {
+    getList()
+      .mockResolvedValueOnce(pagedResult([], { page: 1, totalCount: 45 }))
+      .mockResolvedValueOnce(pagedResult([], { page: 3, totalCount: 45 }))
+    mountPage()
+    await flushPromises()
+
+    expect(getList().mock.calls.map((call) => call[0])).toEqual([1, 3])
+  })
+
+  it('[AWU-ORDER-PAGE-004] 換頁請求失敗時頁碼退回前一頁，列表保留前一頁資料並顯示錯誤提示', async () => {
+    getList().mockResolvedValueOnce(pageOf(1)).mockRejectedValueOnce(new ApiError(500, { detail: '換頁失敗' }))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await clickPage(wrapper, 2)
+    await flushPromises()
+
+    expect(activePage(wrapper)).toBe('1')
+    expect(rowTexts(wrapper)).toContain('Event 1-1')
+    expect(wrapper.text()).toContain('換頁失敗')
+  })
+
+  it('[AWU-ORDER-PAGE-005] 快速連續換頁時丟棄過期回應：第 3 頁先到、第 2 頁後到，列表顯示第 3 頁', async () => {
+    getList().mockResolvedValueOnce(pageOf(1))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const second = createDeferred<ReturnType<typeof pageOf>>()
+    const third = createDeferred<ReturnType<typeof pageOf>>()
+    getList().mockReturnValueOnce(second.promise).mockReturnValueOnce(third.promise)
+    await clickPage(wrapper, 2)
+    await clickPage(wrapper, 3)
+    third.resolve(pageOf(3, 45, 1))
+    await flushPromises()
+    second.resolve(pageOf(2))
+    await flushPromises()
+
+    expect(rowTexts(wrapper)).toContain('Event 3-1')
+    expect(rowTexts(wrapper)).not.toContain('Event 2-1')
+    expect(activePage(wrapper)).toBe('3')
+  })
+
+  it('[AWU-ORDER-PAGE-005] 過期請求的失敗回應被丟棄：第 2 頁較晚失敗時，不顯示錯誤、不改動第 3 頁的頁碼與列表', async () => {
+    getList().mockResolvedValueOnce(pageOf(1))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const second = createDeferred<ReturnType<typeof pageOf>>()
+    const third = createDeferred<ReturnType<typeof pageOf>>()
+    getList().mockReturnValueOnce(second.promise).mockReturnValueOnce(third.promise)
+    await clickPage(wrapper, 2)
+    await clickPage(wrapper, 3)
+    third.resolve(pageOf(3, 45, 1))
+    await flushPromises()
+    second.reject(new ApiError(500, { detail: '過期的失敗' }))
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('過期的失敗')
+    expect(rowTexts(wrapper)).toContain('Event 3-1')
+    expect(activePage(wrapper)).toBe('3')
   })
 })

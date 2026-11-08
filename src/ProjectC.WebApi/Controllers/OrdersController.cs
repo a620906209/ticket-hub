@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.GetMyOrderDetail;
 using ProjectC.Application.Orders.GetMyOrders;
@@ -29,10 +30,14 @@ public class OrdersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetMyOrders(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetMyOrders(
+        CancellationToken cancellationToken,
+        [FromQuery] int page = PageRequest.DefaultPage,
+        [FromQuery] int pageSize = PageRequest.DefaultPageSize)
     {
-        var orders = await _getMyOrdersHandler.HandleAsync(User.GetMemberId(), cancellationToken);
-        return Ok(orders);
+        var result = await _getMyOrdersHandler.HandleAsync(
+            User.GetMemberId(), new PageRequest(page, pageSize), cancellationToken);
+        return result.ToActionResult(Ok);
     }
 
     [HttpGet("{id:guid}")]
