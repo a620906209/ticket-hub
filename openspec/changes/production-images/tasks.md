@@ -26,7 +26,7 @@
   - 完成紀錄：（待填：RED 輸出）
 - [ ] 2.2 新增 `deploy/api.Dockerfile`（`build`／`runtime`／`migrator`）、`deploy/web.Dockerfile` 與 `deploy/nginx/default.conf`，內容依 design 決策 2、3。**GREEN**：`bash scripts/verify-production-images.sh` 全部斷言通過。另以真實瀏覽器（claude-in-chrome）對 web 容器對外 port 跑一次：註冊、登入、重新整理子路由；數字與狀態以頁面文字或 DB 核對。
   - 完成紀錄：（待填：腳本摘要行原文、瀏覽器核對結果）
-- [ ] 2.3 突變驗證（腳本須失敗；一次一個改動，還原後重跑通過）：(a) `runtime` stage 改 `USER root`；(b) 移除 nginx `try_files`；(c) 移除 `migrator` 的 `ef migrations bundle` 步驟；(d) 在 `.dockerignore` 移除 `**/appsettings.Development.json`；(e) 移除 nginx `/api/` 的 `client_max_body_size 10m`。每個突變貼失敗斷言名稱與輸出原文。
+- [ ] 2.3 突變驗證（腳本須失敗；一次一個改動，還原後重跑通過）：(a) `runtime` stage 改 `USER root`；(b) 移除 nginx `try_files`；(c) 移除 `migrator` 的 `ef migrations bundle` 步驟；(d) 在 `.dockerignore` 移除 `**/appsettings.Development.json`（腳本已於 build context 放 dummy 檔，見 design 斷言 8，否則此突變不產生差異）；(e) 移除 nginx `/api/` 的 `client_max_body_size 10m`。每個突變貼失敗斷言名稱與輸出原文。
   - 完成紀錄：（待填）
 
 ## 3. 文件與收尾

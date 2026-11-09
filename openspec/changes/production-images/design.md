@@ -32,7 +32,7 @@
 
 ### 決策 1：Dockerfile 放 `deploy/`，與開發用檔案並存
 
-新檔 `deploy/api.Dockerfile`、`deploy/web.Dockerfile`，建置 context 為專案根目錄（api）與 `web/`（web）。理由：根目錄 `Dockerfile` 已被 compose 與 `docker-compose.loadtest-release.yml` 引用，改名或覆寫會動到開發流程。替代方案：用 `Dockerfile.prod` 並排在根目錄，否決原因是根目錄已有多個 compose 檔，再增加檔案更難分辨用途。
+新檔 `deploy/api.Dockerfile`、`deploy/web.Dockerfile`，建置 context 為專案根目錄（api）與 `web/`（web）。理由：根目錄 `Dockerfile` 已被 `docker-compose.yml` 的 build 定義引用（`docker-compose.loadtest-release.yml` 間接依賴），改名或覆寫會動到開發流程。替代方案：用 `Dockerfile.prod` 並排在根目錄，否決原因是根目錄已有多個 compose 檔，再增加檔案更難分辨用途。
 
 ### 決策 2：api 映像 — 三個 stage、非 root、預設 Production
 
@@ -54,7 +54,8 @@
 
 依據 `docker-compose.yml` 與 `.env.example` 逐項分類：
 - **機敏（日後 Secret）**：`POSTGRES_PASSWORD`（及含密碼的 `ConnectionStrings__DefaultConnection`）、`Jwt__SigningKey`、`TicketSigning__SigningKey`、`DevelopmentSeed__AdminPassword`。
-- **一般（日後 ConfigMap）**：`Jwt__Issuer`、`Jwt__Audience`、`Jwt__AccessTokenExpirationMinutes`、`Auth__*` 到期設定、`Seq__ServerUrl`、`ConnectionStrings__Redis`、`DevelopmentSeed__AdminEmail`、`DevelopmentSeed__OrganizerName`、`ASPNETCORE_URLS`／`ASPNETCORE_ENVIRONMENT`。
+- **一般（日後 ConfigMap）**：`Jwt__Issuer`、`Jwt__Audience`、`Jwt__AccessTokenExpirationMinutes`、`Auth__*` 到期設定、`Seq__ServerUrl`、`ConnectionStrings__Redis`、`DevelopmentSeed__AdminEmail`、`DevelopmentSeed__OrganizerName`、`ASPNETCORE_URLS`／`ASPNETCORE_ENVIRONMENT`、`POSTGRES_USER`、`POSTGRES_DB`（db 服務必需，日後 Postgres Deployment 也需要）。
+- **本機開發專用，不進部署分類表**（文件須各列一行標註排除理由）：`Testcontainers__ComposeNetworkName`、`TESTCONTAINERS_RYUK_DISABLED`（容器內整合測試用）、`.env.example` 的 `*_HOST_PORT` 覆寫（僅決定 host 對外 port）、`PGADMIN_*`（本機 pgAdmin）。
 
 文件只做分類與說明「為何歸入該類」，不產生 manifest；`k8s-local-manifests` 以此表為輸入。文件為新建，依 CLAUDE.md 檔名須帶建立日期前綴，放 `docs/todo/2026-11-10-deployment-env-vars.md`（K8s 線尚未完成，屬進行中前置文件）。
 
@@ -67,13 +68,13 @@
 - **替代內容**：腳本使用獨立的 compose 專案 `projectc-verify`（`deploy/docker-compose.verify.yml`，不共用開發環境的網路、volume、port），所有機敏值由腳本在執行時隨機產生並以環境變數傳入，不進版控；腳本不使用 `set -x` 或 `docker compose config`（會展開機敏值）、不把機敏值寫入持久檔案，並以 `trap` 清理 `projectc-verify` 的容器、volume 與網路。斷言（任一失敗即非 0 結束，並印出失敗項目與實際輸出）：
   1. 兩個映像與 `migrator` 映像建置成功。
   2. runtime 映像 `id -u` 不為 0，且 `dotnet --list-sdks` 輸出為空（不含 SDK）。
-  3. `migrator` 對空資料庫執行成功，且 `__EFMigrationsHistory` 的筆數等於 `Migrations/` 目錄內帶 `[Migration("...")]` 屬性的檔案數（不含 `.Designer.cs` 與 `ModelSnapshot`）。
+  3. `migrator` 對空資料庫執行成功，且 `__EFMigrationsHistory` 的筆數等於 `src/ProjectC.Infrastructure/Persistence/Migrations/` 內 `*.Designer.cs` 的檔案數（`[Migration("...")]` 屬性只存在於 `.Designer.cs`，主檔與 `ModelSnapshot` 不帶；目前為 16）。
   4. api 起動後 `/health/live`、`/health/ready` 回 200。
   5. 經 web（nginx）的 `/api/...` 公開端點回應可達且非 3xx（證實 HTTP-only 無轉址）。
-  6. SPA 子路由（例如 `/events`）直接 GET 回 200 與 `index.html`，`/assets/*` 帶 `immutable` 快取標頭，`index.html` 帶 `no-cache`。
+  6. SPA 子路由（例如 `/events/1`）直接 GET 回 200 與 `index.html`，`/assets/*` 帶 `immutable` 快取標頭，`index.html` 帶 `no-cache`。
   7. 負向：僅缺少 `Jwt__SigningKey`（其餘必填設定齊全）時 api 容器以非 0 結束，且容器日誌含 `OptionsValidationException` 與 `Jwt` 設定驗證訊息（避免因其他設定缺漏而假通過；其餘必填設定指連線字串、`TicketSigning__SigningKey`，皆由腳本提供）。
-  8. runtime 映像內不存在 `appsettings.Development.json`。
-  9. 經 nginx 對公開端點送大於 1 MB、小於 10 MB 的 POST body，回應必須來自 API 而非 nginx：判定為回應 Body 為 ProblemDetails 且 `title` 為 `PayloadTooLarge`（API 全域 1MB 上限的 413，見 `GlobalExceptionHandler`），nginx 自己的 413 是 HTML 頁面、不符。已知限制：此斷言只證明 nginx 上限高於 1MB；10MB 座位圖端點需 Admin 認證，不在腳本涵蓋範圍，由 `client_max_body_size 10m` 的設定值與突變 (e) 承擔。
+  8. runtime 映像內不存在 `appsettings.Development.json`。`appsettings.Development.json` 被 `.gitignore` 排除，乾淨 checkout 上本來就不存在，直接檢查會 vacuously 通過；因此腳本建置前先在 `src/ProjectC.WebApi/` 放一個 dummy 同名檔（內容無意義），以 `trap` 還原（原檔已存在者不覆寫、不刪除），並在斷言前確認該檔確實存在於 build context，確保 `.dockerignore` 排除規則真的被測到。
+  9. 經 nginx 對公開端點送約 10,000,000 bytes（小於 10 MiB 上限、遠大於 1 MB）的 POST body，回應必須來自 API 而非 nginx：判定為回應 Body 為 ProblemDetails 且 `title` 為 `PayloadTooLarge`（API 全域 1MB 上限的 413，見 `GlobalExceptionHandler`），nginx 自己的 413 是 HTML 頁面、不符。因 body 接近 10 MiB，nginx 上限若低於此值會回 HTML 413 而失敗，故此斷言實證 nginx 上限不低於約 10,000,000 bytes；突變 (e)（移除設定回到預設 1m）承擔「設定確實生效」。10 MiB 座位圖端點本身需 Admin 認證，不在腳本涵蓋範圍。
 - **失敗情境可證明**：以 `scripts/verify-test-evidence.sh mutate` 風格的暫時改動（改成 `USER root`、移除 `try_files`、移除 migrator 步驟）各做一次，腳本須失敗，記錄於 tasks.md。
 - **解除條件**：日後若 CI 能建置映像並執行同一支腳本，此例外改由 CI 取代；或本專案新增 `k8s-local-manifests` 後以 cluster 內驗證補強。
 - 另以 claude-in-chrome 對 web 容器的對外 port 做一次真實瀏覽器流程（註冊、登入、重新整理子路由），數字與狀態以頁面文字或 DB 核對。

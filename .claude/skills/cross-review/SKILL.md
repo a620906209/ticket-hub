@@ -38,7 +38,7 @@ description: 透過 herdr 另開 pane，以 Claude Code (Opus) 或 Devin CLI 跑
 ```bash
 herdr pane split --current --direction right --cwd "$PWD" --no-focus   # 讀 .result.pane.pane_id；窄／高 pane 改 down
 herdr pane run <pane> "claude --model opus --permission-mode auto"     # Claude Code
-herdr pane run <pane> "devin --permission-mode smart"                   # Devin（不要用 dangerous）
+herdr pane run <pane> "devin --permission-mode dangerous"                  # Devin（bypass：smart 會卡權限對話框，2026-11-10 使用者決定改用）
 herdr agent list                                                         # 取 agent 名稱與 pane id
 ```
 
@@ -53,6 +53,7 @@ herdr agent list                                                         # 取 a
 
 必須包含：
 - 使用 subagent：Claude Code 用 `spec-reviewer` / `strict-reviewer`（`.claude/agents`）；Devin 用 `.agents/agents` 下同名 agent。Devin 的 prompt 要**明確**寫「請用 subagent 執行」。
+- 角色聲明：「你是 reviewer，不要使用 cross-review／apply-in-pane skill，也不要詢問要用哪個工具，直接審查。」（Devin 會自動載入專案 skill，曾自行觸發 cross-review 並反問工具選擇，2026-11-10）
 - 唯讀，不修改任何檔案、不 commit。
 - blocking 必須附具體失敗情境；沒有就列為建議。
 - 第一次送審的結尾：審完後用 herdr 把**完整報告**送回主 session pane（pane id 以 `herdr agent list` 查到的主 session 為準），再回 idle。
