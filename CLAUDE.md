@@ -66,7 +66,7 @@
   - **純技術性、不承載業務語意的介面放 `Application/Common/Interfaces`**：例如 `IDateTimeProvider`、`IDistributedLock`、`IQueryCache`、`ICaptchaService`、`ITokenService`、`IPasswordHasher`、`IUnitOfWork`。
   - 判準：換掉這個介面的實作時，業務規則的描述需不需要跟著改？需要就放 `Domain`，不需要就放 `Application`。新增介面時在 design.md 說明歸類理由，不需另立例外。
 - 資料存取：
-  - 會員、主辦方範圍（`Member`、`RefreshToken`、`PasswordResetToken`、`Organizer`、`OrganizerMember`）沿用 `IApplicationDbContext`，Handler 可直接以 EF 查詢。這是 `membership-system` 時期依簡化條款採用的既有做法，2026-10-16 審視後決定不重構（見 `docs/project-review-2026-10-16.md` 3.1）。
+  - 會員、主辦方範圍（`Member`、`RefreshToken`、`PasswordResetToken`、`Organizer`、`OrganizerMember`）沿用 `IApplicationDbContext`，Handler 可直接以 EF 查詢。這是 `membership-system` 時期依簡化條款採用的既有做法，2026-10-16 審視後決定不重構（見 `docs/archive/2026-10-16-project-review.md` 3.1）。
   - 其餘 Entity 一律透過 `Domain` 定義的 Repository 介面存取；**禁止再擴充 `IApplicationDbContext` 的 `DbSet`**，新增 Entity 一律走 Repository。
 - Domain Entity 內部狀態一律 `private set`，外部只能透過方法修改（Rich Domain Model，禁止 Anemic Domain Model）。
 - 跨 Entity 的判斷邏輯（需要查詢多個 Entity 或外部條件才能決定的規則）放 `Application`，單一 Entity 自己能判斷的規則放 `Domain`，不得混放。
@@ -128,6 +128,17 @@
 - 密碼、API Key 等禁止寫死在程式碼或進版控的設定檔中
 - 正式環境建議使用 Secret Manager / Azure Key Vault 等機制注入
 - 本地開發的環境變數透過 compose 的 env_file 注入，.env 不進版本控制
+
+---
+
+## 文件存放規則
+
+- `docs/` 下的文件依性質放入資料夾，其餘（長期有效的現況文件，如 `project-scope.md`、`api-conventions.md`）才放 `docs/` 根目錄：
+  - `docs/todo/`：進行中、尚未完成的待辦與前置條件文件。
+  - `docs/archive/`：已完成或封存的審視、報告與待辦；待辦全部完成後從 `docs/todo/` 移到這裡，或在確認沒有保留價值時刪除。
+- **新建文件的檔名必須帶建立日期前綴**：`YYYY-MM-DD-<名稱>.md`（例如 `2026-11-10-k8s-todo.md`），日期用建立當天，不隨之後修改變動。找不到建立日期的既有文件可不補。
+- 既有被 agent、skill、主 spec 或腳本固定引用的文件（`project-scope.md`、`api-conventions.md`、`architecture-guide/`、`load-test/`）維持原名與位置，不必為了套用本規則改名。
+- 移動或改名文件時，須同步更新 CLAUDE.md、README、其他文件與腳本中的路徑；`openspec/changes/archive/` 內已歸檔的內容不改。
 
 ---
 
