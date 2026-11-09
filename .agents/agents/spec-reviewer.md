@@ -312,7 +312,7 @@ model: gpt-5.6-terra
 
 ## 下一步
 
-- **PASS**：可進入 design-hardener 或 implementation 階段。
+- **PASS**：接著跑 design-hardener（不符合其觸發條件時它會自行 PASS）；兩者都 PASS 後暫停等使用者交叉審查，再進入 implementation 階段。
 - **FAIL**：先修正上述 Blocking Issues，再重新審查。
 - **BLOCKED**：先解除文件或工具存取限制，再重新審查。
 
