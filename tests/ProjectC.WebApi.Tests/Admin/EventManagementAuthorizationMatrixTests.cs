@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Common;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Tickets.CreateTicketType;
@@ -95,7 +96,7 @@ public class EventManagementAuthorizationMatrixTests : IClassFixture<CustomWebAp
                 venue!.SeatMaps.Should().ContainSingle("只應有 SeedResourcesAsync 建立的那一張座位圖");
                 break;
             case "CreateEvent":
-                var events = await organizerClient.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+                var events = (await organizerClient.GetFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>("/api/admin/events?pageSize=100"))!.Items;
                 events.Should().NotContain(e => e.Title == probe);
                 break;
             case "CreateTicketType":
@@ -194,10 +195,10 @@ public class EventManagementAuthorizationMatrixTests : IClassFixture<CustomWebAp
         var suspendResponse = await adminClient.PatchAsync($"/api/admin/organizers/{organizerId}/suspend", null);
         suspendResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        var response = await organizerClient.GetAsync("/api/admin/events");
+        var response = await organizerClient.GetAsync("/api/admin/events?pageSize=100");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var events = await response.Content.ReadFromJsonAsync<List<AdminEventSummaryDto>>();
+        var events = (await response.Content.ReadFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>())!.Items;
         events.Should().Contain(e => e.Id == seeded.EventId);
     }
 
@@ -226,7 +227,7 @@ public class EventManagementAuthorizationMatrixTests : IClassFixture<CustomWebAp
         // 必須用同一個 Organizer 的身份查詢：後台活動列表依 OrganizerId 過濾，換成其他 Organizer 查詢永遠查不到，
         // 斷言會變成恆真、無法證明資料庫未被寫入。
         await AssertWriteDidNotHappenAsync(organizerClient, "CreateEvent", seeded, expiredProbe);
-        var events = await organizerClient.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+        var events = (await organizerClient.GetFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>("/api/admin/events?pageSize=100"))!.Items;
         events.Should().Contain(e => e.Title == validProbe, "同一查詢必須看得到對照組建立的活動，否則「查無過期探針」不具證明力");
     }
 

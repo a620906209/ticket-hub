@@ -266,8 +266,8 @@ public class GetMyOrdersHandlerTests
         public virtual Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken)
             => inner.GetByIdsAsync(eventIds, cancellationToken);
 
-        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-            => inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+        public Task<EventPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken)
+            => inner.GetPageByOrganizerIdAsync(organizerId, skip, take, cancellationToken);
 
         public void Add(Event @event) => inner.Add(@event);
 

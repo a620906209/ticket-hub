@@ -13,7 +13,10 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    page?: number | string;
+                    pageSize?: number | string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;

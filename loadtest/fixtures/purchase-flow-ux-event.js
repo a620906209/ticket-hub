@@ -41,9 +41,16 @@ function postCreatedId(path, body, token) {
 }
 
 function countRetainedEvents(adminToken) {
-  const events = getOk('/api/admin/events', withTags(authHeaders(adminToken), 'fixture'));
-  if (!Array.isArray(events)) fail('fixture failed: GET /api/admin/events did not return an array');
-  return events.filter((e) => typeof e.title === 'string' && e.title.startsWith(TITLE_PREFIX)).length;
+  const pageSize = 100;
+  let retained = 0;
+  let seen = 0;
+  for (let page = 1; ; page++) {
+    const body = getOk(`/api/admin/events?page=${page}&pageSize=${pageSize}`, withTags(authHeaders(adminToken), 'fixture'));
+    if (!body || !Array.isArray(body.items)) fail('fixture failed: GET /api/admin/events did not return an object with an items array');
+    retained += body.items.filter((e) => typeof e.title === 'string' && e.title.startsWith(TITLE_PREFIX)).length;
+    seen += body.items.length;
+    if (body.items.length === 0 || seen >= body.totalCount) return retained;
+  }
 }
 
 function buildSeats() {

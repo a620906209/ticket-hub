@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Events.SetEventQueueMode;
@@ -50,7 +51,10 @@ public class AdminEventsController : ControllerBase
 
     [Authorize(Policy = AuthorizationPolicies.RequireOrganizerContext)]
     [HttpGet]
-    public async Task<IActionResult> GetEvents(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetEvents(
+        CancellationToken cancellationToken,
+        [FromQuery] int page = PageRequest.DefaultPage,
+        [FromQuery] int pageSize = PageRequest.DefaultPageSize)
     {
         if (!User.TryGetOrganizerId(out var organizerId))
         {
@@ -58,8 +62,9 @@ public class AdminEventsController : ControllerBase
             return Forbid();
         }
 
-        var events = await _getAdminEventsHandler.HandleAsync(organizerId, cancellationToken);
-        return Ok(events);
+        var result = await _getAdminEventsHandler.HandleAsync(
+            organizerId, new PageRequest(page, pageSize), cancellationToken);
+        return result.ToActionResult(Ok);
     }
 
     [Authorize(Policy = AuthorizationPolicies.RequireOrganizerContext)]

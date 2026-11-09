@@ -11,9 +11,9 @@ public interface IEventRepository
     /// MUST 直接回傳空清單，不得執行任何資料庫查詢。</summary>
     Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken);
 
-    /// <summary>只回傳指定 Organizer 名下的活動；過濾 MUST 在資料庫端執行，不得把其他 Organizer 的活動
-    /// 載入記憶體再過濾（見 event-management-organizer-scoping design.md「安全確認-資料庫」）。</summary>
-    Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken);
+    /// <summary>分頁查詢指定 Organizer 名下的活動：依 CreatedAtUtc 新到舊、null 最後、Id 升冪；<c>TotalCount</c> 與 <c>Items</c> 使用同一個範圍條件，
+    /// 分頁、排序、總數 MUST 在資料庫端完成（list-pagination）。</summary>
+    Task<EventPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken);
 
     void Add(Event @event);
 

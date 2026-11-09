@@ -19,16 +19,53 @@ function formatSalesWindow(event: AdminEventSummary): string {
 const loading = ref(false)
 const listError = ref('')
 
-async function loadEvents(): Promise<void> {
+const currentPage = ref(1)
+const loadedPage = ref(1)
+const pageSize = ref(20)
+const totalCount = ref(0)
+let latestRequestSequence = 0
+
+// 以遞增序號丟棄過期回應；空頁且 totalCount > 0 時只重試一次改請求最後一頁；失敗時頁碼退回上一個成功載入的頁，
+// 避免分頁元件與表格內容不一致（order-list-pagination design.md 決策 7，admin-event-list-pagination 決策 6）。
+async function loadPage(page: number): Promise<void> {
+  const requestSequence = ++latestRequestSequence
   loading.value = true
   listError.value = ''
   try {
-    events.value = await getAdminEvents()
+    let result = await getAdminEvents(page)
+    if (requestSequence !== latestRequestSequence) {
+      return
+    }
+    let resolvedPage = page
+    if (result.items.length === 0 && result.totalCount > 0) {
+      resolvedPage = Math.ceil(result.totalCount / result.pageSize)
+      result = await getAdminEvents(resolvedPage)
+      if (requestSequence !== latestRequestSequence) {
+        return
+      }
+    }
+    events.value = result.items
+    pageSize.value = result.pageSize
+    totalCount.value = result.totalCount
+    loadedPage.value = resolvedPage
+    currentPage.value = resolvedPage
+    clearSelectedEventMissingFromPage()
   } catch (error) {
+    if (requestSequence !== latestRequestSequence) {
+      return
+    }
     listError.value = toErrorMessage(error, '載入活動列表失敗')
+    currentPage.value = loadedPage.value
   } finally {
-    loading.value = false
+    if (requestSequence === latestRequestSequence) {
+      loading.value = false
+    }
   }
+}
+
+function handlePageChange(page: number): Promise<void> {
+  currentPage.value = page
+  return loadPage(page)
 }
 
 // 場館名稱另外查，與活動列表各自處理失敗，場地查詢失敗不能讓活動列表無法顯示（frontend-minor-polish design.md 決策 1）。
@@ -53,7 +90,7 @@ function getVenueLabel(venueId: string): string {
 }
 
 onMounted(() => {
-  void loadEvents()
+  void loadPage(currentPage.value)
   void loadVenueNames()
 })
 
@@ -71,6 +108,13 @@ const ticketTypeRules = {
   // 此欄位在 requiresSeat 為 true（座位制）時 v-if 不會掛載，不會被 el-form 註冊進驗證範圍，
   // 不需要額外用 ticketTypeForm.requiresSeat 判斷是否跳過——見設計文件決策 4。
   availableQuantity: [requiredPositiveIntegerRule('可售總量須為大於 0 的整數')],
+}
+// 下拉選單只列當頁活動；已選活動不在新一頁時清除，否則選擇框會顯示活動 Id，且可能對畫面上看不到的活動建立票種
+// （admin-event-list-pagination design.md 決策 5）。函式宣告會提升，loadPage 在表單建立後才被呼叫。
+function clearSelectedEventMissingFromPage(): void {
+  if (ticketTypeForm.eventId && !events.value.some((event) => event.id === ticketTypeForm.eventId)) {
+    ticketTypeForm.eventId = ''
+  }
 }
 const ticketTypeSubmitting = ref(false)
 const ticketTypeError = ref('')
@@ -226,6 +270,16 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
       </el-table-column>
     </el-table>
 
+    <el-pagination
+      v-if="totalCount > pageSize"
+      class="pagination"
+      layout="total, prev, pager, next"
+      :total="totalCount"
+      :page-size="pageSize"
+      :current-page="currentPage"
+      @current-change="handlePageChange"
+    />
+
     <h2>建立票種</h2>
     <el-alert v-if="ticketTypeError" :title="ticketTypeError" type="error" show-icon style="margin-bottom: 16px" />
     <el-form
@@ -261,6 +315,10 @@ async function refreshTicketTypes(eventId: string): Promise<void> {
 </template>
 
 <style scoped>
+.pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
 .real-name-tag {
   margin-left: 8px;
 }
