@@ -2,6 +2,7 @@
 
 > 本文件整理**目前程式碼實際採用**的跨模組決策（認證、錯誤格式、資料命名），來源以括號標註。
 > 標「不一致」「待決定」者是現況與意圖不一致之處，尚未做決定，不代表已核准的規則。
+> **長期有效的現況文件，請勿刪除或改名。** 被下列位置固定引用：`CLAUDE.md`、`README.md`、`openspec/config.yaml`（design 規則）、`.claude/agents/` 與 `.agents/agents/` 的 `spec-reviewer`／`strict-reviewer`；`scripts/check-doc-paths.sh`（CI 的 docs 工作）會在路徑失效時失敗。刪除、改名或移動前須先更新這些引用。
 > 2026-11-07 依 `src/` 與 `web/src/api/httpClient.ts` 反推建立。
 
 ## 1. 認證與授權
@@ -76,4 +77,5 @@
 - 決定上方「待決定」項目時：先在對應 change 的 `design.md` 記錄決策，再回頭更新本文件。
 - 新增或改造列表端點的分頁（含 `GET /api/events`）時：更新第 3 節「列表分頁」列的「已套用」「後續 change」清單。
 - 提案偏離本文件任何一條，或導入新的跨模組慣例時：在該 change 的 `design.md`「跨模組慣例對照」小節記錄理由，並於同一 change 更新本文件。
+- 變更路由命名例外、新增回傳集合的 Handler（含判定不分頁的清單）時：同步更新 `ApiConventionRuleTests` 的例外清單與本文件第 3 節；新增例外須寫明理由。
 - 變更時間欄位後綴規則或其例外清單時：同步更新 `UtcSuffixNamingRuleTests` 與本文件第 3 節。

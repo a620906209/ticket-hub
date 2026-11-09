@@ -197,7 +197,7 @@ spec 文件內部對同一機制的描述自相矛盾、對既有全域/共用�
 - [ ] 是否符合專案既有的命名慣例(可從同目錄其他檔案比對)
 - [ ] 是否有依專案 CLAUDE.md 中定義的規範
 - [ ] 本次變更若新增或修改 Controller、錯誤回應、認證／授權、DTO 欄位或列表端點，
-      是否符合 `docs/api-conventions.md`（存在時須讀取）；偏離且該文件與 design.md 都沒有
+      是否符合 `docs/api-conventions.md`（必須讀取；文件不存在即為 blocking，category 填「慣例文件遺失」）；偏離且該文件與 design.md 都沒有
       記載理由，為 blocking，須指出條目與違反的程式位置。若變更導入新的 `ErrorType`、
       Policy、Claim 或路由前綴，須檢查該文件是否已同步更新，未更新為 blocking
 

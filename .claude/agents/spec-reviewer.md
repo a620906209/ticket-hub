@@ -157,7 +157,7 @@ model: sonnet
 - [ ] 本次 spec 使用的術語是否與既有文件一致,有無同一個概念用不同名稱、
       或不同概念共用同一個名稱
 - [ ] 若 change 新增或修改 API 端點、錯誤回應、認證／授權、DTO 欄位命名或列表端點，
-      是否已讀 `docs/api-conventions.md`（存在時），且 design.md 有「跨模組慣例對照」
+      是否已讀 `docs/api-conventions.md`（此文件必須存在；找不到即為 blocking，category 填「慣例文件遺失」，不得略過此項檢查），且 design.md 有「跨模組慣例對照」
       小節，逐項寫明沿用該文件哪一條，或偏離的理由。缺少此小節，或 spec／design 與該文件
       衝突且未說明偏離理由（例如錯誤回應不是 ProblemDetails、`Title` 不是機器代碼、
       路由不符命名規則、列表端點不用 `page`／`pageSize`、時間欄位缺 `Utc` 後綴），

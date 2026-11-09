@@ -80,3 +80,15 @@ jobs:
       - run: npm run test
       # build 包含 vue-tsc 型別檢查。
       - run: npm run build
+
+  docs:
+    name: Docs path references
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      # CLAUDE.md、README、agent、config 與 docs/ 內寫到的 docs/ 路徑必須存在，
+      # 防止搬移、改名或誤刪文件（例如 docs/api-conventions.md）後留下失效引用。
+      - run: bash scripts/tests/check-doc-paths.test.sh
+      - run: bash scripts/check-doc-paths.sh
