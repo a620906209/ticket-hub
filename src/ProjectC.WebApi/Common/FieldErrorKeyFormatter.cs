@@ -14,9 +14,7 @@ public static class FieldErrorKeyFormatter
             return string.Empty;
         }
 
-        var path = key.StartsWith(JsonPathPrefix, StringComparison.Ordinal) ? key[JsonPathPrefix.Length..]
-            : key.StartsWith("$[", StringComparison.Ordinal) ? key[JsonPathRoot.Length..]
-            : key;
+        var path = RemoveJsonPathRoot(key);
 
         // 括號段（['a.b']）由 client 送出含 '.' 或空白的屬性名時產生，System.Text.Json 以此表示路徑；
         // 括號內的 '.' 不是分隔符，且鍵名原樣保留（不改大小寫）。
@@ -43,6 +41,21 @@ public static class FieldErrorKeyFormatter
         }
 
         return builder.ToString();
+    }
+
+    private static string RemoveJsonPathRoot(string key)
+    {
+        if (key.StartsWith(JsonPathPrefix, StringComparison.Ordinal))
+        {
+            return key[JsonPathPrefix.Length..];
+        }
+
+        if (key.StartsWith("$[", StringComparison.Ordinal))
+        {
+            return key[JsonPathRoot.Length..];
+        }
+
+        return key;
     }
 
     // 兩個原始鍵轉換後相同時合併訊息而不是覆寫，避免靜默丟失錯誤。

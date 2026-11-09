@@ -47,7 +47,10 @@ public static class JwtBearerProblemDetailsResponses
         }
 
         var builder = new StringBuilder(scheme);
+        // 刻意用 > 0 而非 >= 0：與 JwtBearerHandler 相同，位置 0 的空白不是 scheme 與參數之間的分隔，不補逗號。
+#pragma warning disable S2692
         if (scheme.IndexOf(' ') > 0)
+#pragma warning restore S2692
         {
             builder.Append(',');
         }
