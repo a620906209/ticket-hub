@@ -32,6 +32,7 @@ Scoped | ProjectC.Application.Common.Paging.PageRequestValidator | ProjectC.Appl
 Scoped | ProjectC.Application.Events.CreateEvent.CreateEventHandler | ProjectC.Application.Events.CreateEvent.CreateEventHandler
 Scoped | ProjectC.Application.Events.CreateEvent.CreateEventRequestValidator | ProjectC.Application.Events.CreateEvent.CreateEventRequestValidator
 Scoped | ProjectC.Application.Events.GetAdminEvents.GetAdminEventsHandler | ProjectC.Application.Events.GetAdminEvents.GetAdminEventsHandler
+Scoped | ProjectC.Application.Events.GetEventById.GetEventByIdHandler | ProjectC.Application.Events.GetEventById.GetEventByIdHandler
 Scoped | ProjectC.Application.Events.GetEventSeats.GetEventSeatsHandler | ProjectC.Application.Events.GetEventSeats.GetEventSeatsHandler
 Scoped | ProjectC.Application.Events.GetEvents.GetEventsHandler | ProjectC.Application.Events.GetEvents.GetEventsHandler
 Scoped | ProjectC.Application.Events.SetEventQueueMode.SetEventQueueModeHandler | ProjectC.Application.Events.SetEventQueueMode.SetEventQueueModeHandler

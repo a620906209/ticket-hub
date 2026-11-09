@@ -12,3 +12,7 @@ export function getEventSeats(eventId: string): Promise<EventSeat[]> {
 export function getTicketTypes(eventId: string): Promise<TicketType[]> {
   return authorizedRequest(`/events/${eventId}/ticket-types`)
 }
+
+export function getEventById(eventId: string): Promise<EventSummary> {
+  return authorizedRequest(`/events/${eventId}`)
+}

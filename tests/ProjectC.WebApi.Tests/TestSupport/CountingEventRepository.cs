@@ -8,10 +8,15 @@ namespace ProjectC.WebApi.Tests.TestSupport;
 public sealed class EventRepositoryCallCounter
 {
     private int _getAllAsyncCallCount;
+    private int _getByIdAsyncCallCount;
 
     public int GetAllAsyncCallCount => _getAllAsyncCallCount;
 
+    public int GetByIdAsyncCallCount => _getByIdAsyncCallCount;
+
     public void RecordGetAllAsyncCall() => Interlocked.Increment(ref _getAllAsyncCallCount);
+
+    public void RecordGetByIdAsyncCall() => Interlocked.Increment(ref _getByIdAsyncCallCount);
 }
 
 // 裝飾器：建構子注入真正的 EventRepository，每個方法直接轉呼叫真正的實作，行為完全不變
@@ -29,7 +34,10 @@ public sealed class CountingEventRepository : IEventRepository
     }
 
     public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
-        => _inner.GetByIdAsync(id, cancellationToken);
+    {
+        _counter.RecordGetByIdAsyncCall();
+        return _inner.GetByIdAsync(id, cancellationToken);
+    }
 
     public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken)
     {

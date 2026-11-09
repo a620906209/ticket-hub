@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using ProjectC.Application.Events.GetEventById;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Tickets.GetTicketTypes;
@@ -11,15 +12,18 @@ namespace ProjectC.WebApi.Controllers;
 public class EventsController : ControllerBase
 {
     private readonly GetEventsHandler _getEventsHandler;
+    private readonly GetEventByIdHandler _getEventByIdHandler;
     private readonly GetEventSeatsHandler _getEventSeatsHandler;
     private readonly GetTicketTypesHandler _getTicketTypesHandler;
 
     public EventsController(
         GetEventsHandler getEventsHandler,
+        GetEventByIdHandler getEventByIdHandler,
         GetEventSeatsHandler getEventSeatsHandler,
         GetTicketTypesHandler getTicketTypesHandler)
     {
         _getEventsHandler = getEventsHandler;
+        _getEventByIdHandler = getEventByIdHandler;
         _getEventSeatsHandler = getEventSeatsHandler;
         _getTicketTypesHandler = getTicketTypesHandler;
     }
@@ -29,6 +33,13 @@ public class EventsController : ControllerBase
     {
         var events = await _getEventsHandler.HandleAsync(cancellationToken);
         return Ok(events);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetEventById(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await _getEventByIdHandler.HandleAsync(id, cancellationToken);
+        return result.ToActionResult(Ok);
     }
 
     [HttpGet("{id:guid}/seats")]

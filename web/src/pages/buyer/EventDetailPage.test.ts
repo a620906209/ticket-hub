@@ -310,14 +310,14 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   beforeEach(() => {
     mockIsAuthenticated = true
     pushMock.mockReset()
-    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventById).mockReset()
     vi.mocked(eventsApi.getEventSeats).mockReset()
     vi.mocked(eventsApi.getTicketTypes).mockReset()
     vi.mocked(ordersApi.placeOrder).mockReset()
   })
 
   it('選擇可售座位並成功下單', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
     vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-seat-1' })
@@ -332,8 +332,8 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     expectOrderPlacedAndReturnedToEventList('order-seat-1')
   })
 
-  it('下單時座位已被搶先鎖定：顯示錯誤、清空已選座位、重新整理資料', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+  it('[BW-DETAIL-004] 下單時座位已被搶先鎖定：顯示錯誤、清空已選座位、重新整理資料', async () => {
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(new Error('座位已被搶'))
@@ -346,7 +346,8 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     expectReplacedToSelectionStep()
     expect(wrapper.text()).toContain('下單失敗')
     expect(wrapper.text()).toContain('已選 0 個座位')
-    expect(eventsApi.getEvents).toHaveBeenCalledTimes(2)
+    expect(eventsApi.getEventById).toHaveBeenCalledTimes(2)
+    expect(eventsApi.getEvents).not.toHaveBeenCalled()
   })
 
   it('下單時因換發失敗回傳 401：導向登入頁，保留已選座位/計數輸入，不重新呼叫查詢 API', async () => {
@@ -355,7 +356,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     // 攔截 401 並導向登入頁；且 401 分支不應執行 loadData()／clearSelections()——
     // 只驗證「有導頁、沒顯示下單失敗文字」不足以防止未來有人誤把這兩個呼叫放回 401 分支，
     // 必須直接斷言選購狀態還在、查詢 API 沒有被重新呼叫。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(401, { detail: 'unauthorized' }))
@@ -372,13 +373,13 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
     browserBack()
     await flushPromises()
     expect(wrapper.text()).toContain('已選 1 個座位、2 張計數票券')
-    expect(eventsApi.getEvents).toHaveBeenCalledTimes(1)
+    expect(eventsApi.getEventById).toHaveBeenCalledTimes(1)
     expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
     expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(1)
   })
 
   it('已選座位數達到每筆訂單限購張數，無法再選新座位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 1 })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 1 }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -396,7 +397,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   })
 
   it('活動未設定限購張數，可選任意數量座位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -417,7 +418,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   // 後端不保證座位順序（event-management spec）；2026-10-13 走查時同區座位亂序、找不到想要的位置。
   // 刻意用 2／10 驗證是數字自然排序而不是字串排序（字串排序會得到 1、10、2）。
   it('seatGrid_WhenApiReturnsSeatsUnordered_ShowsEachZoneInNaturalSeatOrder', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'a-10', seatNumber: '10', zoneCode: 'A' }),
       buildSeat({ eventSeatId: 'b-2', seatNumber: '2', zoneCode: 'B' }),
@@ -434,7 +435,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   })
 
   it('[BW-QUICK-001] 區域隨選：維持預設「全部區域」，抽出座位填入已選清單，由買家送出訂單', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1', zoneCode: 'A' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2', zoneCode: 'B' }),
@@ -467,7 +468,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   })
 
   it('[BW-QUICK-003] 自動選位後手動取消其中一個座位，送出的請求不包含該座位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -500,7 +501,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   })
 
   it('[BW-QUICK-002] 區域隨選：指定單一分區時，只從該分區抽出座位，不會選到其他分區', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-a1', seatNumber: '1', zoneCode: 'A' }),
       buildSeat({ eventSeatId: 'seat-a2', seatNumber: '2', zoneCode: 'A' }),
@@ -537,7 +538,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   it('區域隨選：分區有可售座位但沒有對應的座位制票種時，不出現在分區選單與抽選池中，也不會縮減數量後下單', async () => {
     // B 區有座位，但故意不建立對應的票種——buildSelection() 對這種座位會回傳 null。
     // 若 zoneOptions／candidates 沒有排除這種分區，要求 2 張時仍可能只抽到 1 張有效座位就直接送出。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-a1', seatNumber: '1', zoneCode: 'A' }),
       buildSeat({ eventSeatId: 'seat-b1', seatNumber: '1', zoneCode: 'B' }),
@@ -563,7 +564,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
 
   it('區域隨選張數超過可售座位或限購剩餘額度時，顯示錯誤、不呼叫下單 API', async () => {
     // 限購 1 張，先手動選滿額度，讓區域隨選當下的剩餘額度為 0，觸發「張數超過剩餘額度」分支。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 1 })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 1 }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -583,7 +584,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   it('區域隨選要求數量超過可售座位數時（未設限購），顯示錯誤、不靜默縮減張數送出', async () => {
     // 沒有限購張數，只有 2 個可售座位，但要求 5 張——不能靜默縮成 2 張直接下單，
     // 買家要求的數量跟實際送出的訂單張數不一致是錯的，必須擋下並提示，完全不呼叫下單 API。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -604,7 +605,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
 
   it('[BW-QUICK-001] 連續使用自動選位：只從尚未選取的座位抽出，不會重複加入同一個座位', async () => {
     // 若候選集合沒有排除已選座位，第二次抽選可能抽到已選的座位，實際新增的張數就會少於買家要求的張數。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -637,7 +638,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
   })
 
   it('[BW-FLOW-007] 手動點選座位成功不清除結帳列的既有錯誤（只有「自動選位」與「下一步」會清除）', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -661,7 +662,7 @@ describe('EventDetailPage 座位選購（既有行為的基礎測試覆蓋）', 
 
   it('未登入使用區域隨選：導向登入頁，不進行任何選位或下單動作', async () => {
     mockIsAuthenticated = false
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
     const wrapper = mountPage()
@@ -679,7 +680,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   beforeEach(() => {
     mockIsAuthenticated = true
     pushMock.mockReset()
-    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventById).mockReset()
     vi.mocked(eventsApi.getEventSeats).mockReset()
     vi.mocked(eventsApi.getTicketTypes).mockReset()
     vi.mocked(ordersApi.placeOrder).mockReset()
@@ -688,7 +689,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
 
   it('未登入嘗試調整計數購買數量：立即導向登入頁，不套用該次變更', async () => {
     mockIsAuthenticated = false
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType()])
     const wrapper = mountPage()
     await flushPromises()
@@ -705,7 +706,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('純計數票種輸入購買數量並成功下單', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType()])
     vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-count-1' })
     const wrapper = mountPage()
@@ -720,7 +721,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('混合座位選購與純計數購買並成功下單', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
     vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-mixed-1' })
@@ -740,7 +741,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('純計數購買數量達到每筆訂單限購張數：輸入元件限制上限，不顯示提示訊息（限制型，與可售總量的互動模式一致）', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 2 })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 2 }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
     const wrapper = mountPage()
@@ -755,7 +756,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('計數輸入元件限制數量不得超過可售總量（限制型，不呈現為錯誤狀態）', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 3 })])
     const wrapper = mountPage()
     await flushPromises()
@@ -768,7 +769,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('送出時因庫存已變動被後端拒絕：清空已選座位與計數輸入、重新整理資料', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType()])
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(new Error('庫存已變動'))
     const wrapper = mountPage()
@@ -785,7 +786,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('純計數票種可售總量為 0：輸入框上限為 0，顯示「已售完」', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 0 })])
     const wrapper = mountPage()
     await flushPromises()
@@ -799,7 +800,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
 
   // 可售總量小於系統上限 50 時以可售總量為上限；大於 50 的分支見 [BW-ORDER-LIMIT-004]。
   it('[BW-ORDER-013] countInput_WhenNoEventLimitAndStockBelowFifty_ClampsToStock', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 5 })])
     const wrapper = mountPage()
     await flushPromises()
@@ -811,7 +812,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('計數購買數量為 0 時不送出對應項目', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
       buildCountTicketType({ id: 'tt-count-a', zoneCode: '站立區A' }),
       buildCountTicketType({ id: 'tt-count-b', zoneCode: '站立區B' }),
@@ -830,7 +831,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   it('[BW-CONFIRM-012][BW-ORDER-015] nextStep_WhenTotalExceedsLimit_ShowsErrorInCheckoutBarAndStays', async () => {
     // 選座位與計數輸入在同一個同步區段內完成（未等待中間 re-render），
     // 計數輸入框當下的 max 還沒反映剛選的座位，才能製造出合計超過限購的狀態。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 2 })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 2 }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
     const wrapper = mountPage()
@@ -856,7 +857,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('已輸入純計數購買數量時，區域隨選的剩餘額度隨之減少', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 2 })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 2 }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -877,7 +878,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('純計數票種不會出現在區域隨選的分區選單與抽選池中', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat({ zoneCode: 'A' })])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
       buildSeatTicketType({ zoneCode: 'A' }),
@@ -894,7 +895,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   it('純計數票種的名稱跟座位分區同名時，不會覆寫座位分區的票種對照，座位下單仍組出正確的座位制票種 Id', async () => {
     // 計數票種的 zoneCode 只是自由顯示名稱，這裡刻意跟座位分區同名（都是 'A'），
     // 且刻意排在陣列後面模擬「後蓋前」的順序，驗證座位選購不會被純計數票種的 id 覆寫掉。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat({ zoneCode: 'A' })])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
       buildSeatTicketType({ id: 'tt-seat-a', zoneCode: 'A' }),
@@ -911,7 +912,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('[BW-QUICK-008] 自動選位後與已輸入的計數購買合併送出', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType(), buildCountTicketType()])
     vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
@@ -940,7 +941,7 @@ describe('EventDetailPage 純計數票種購買（本次新增）', () => {
   })
 
   it('已手動選取座位佔用額度後，計數購買輸入上限隨之減少', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 2 })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 2 }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
       buildSeatTicketType(),
@@ -962,7 +963,7 @@ describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () =
   beforeEach(() => {
     mockIsAuthenticated = true
     pushMock.mockReset()
-    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventById).mockReset()
     vi.mocked(eventsApi.getEventSeats).mockReset()
     vi.mocked(eventsApi.getTicketTypes).mockReset()
     vi.mocked(ordersApi.placeOrder).mockReset()
@@ -984,7 +985,7 @@ describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () =
   }
 
   it('[BW-ORDER-005] seatClick_WhenNoEventLimitAndFiftySelected_BlocksWithFiftyMessage', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue(buildSeats(51))
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
     const wrapper = mountPage()
@@ -1006,7 +1007,7 @@ describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () =
   })
 
   it('[BW-ORDER-LIMIT-001] limitHint_WhenNoEventLimit_ShowsSystemLimit', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildSeatTicketType()])
     const wrapper = mountPage()
     await flushPromises()
@@ -1015,7 +1016,7 @@ describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () =
   })
 
   it('[BW-ORDER-LIMIT-002] limitHint_WhenEventLimitBelowSystemLimit_ShowsEventLimit', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 3 })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 3 }))
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 10 })])
     const wrapper = mountPage()
     await flushPromises()
@@ -1028,7 +1029,7 @@ describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () =
   })
 
   it('[BW-ORDER-LIMIT-003] eventLimitAboveSystemLimit_ShowsAndEnforcesFifty', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 80 })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 80 }))
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 100 })])
     const wrapper = mountPage()
     await flushPromises()
@@ -1043,7 +1044,7 @@ describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () =
   })
 
   it('[BW-ORDER-LIMIT-004] countInput_WhenNoEventLimit_ClampsToFifty', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([buildCountTicketType({ availableQuantity: 80 })])
     const wrapper = mountPage()
     await flushPromises()
@@ -1058,7 +1059,7 @@ describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () =
 
   it('[BW-ORDER-LIMIT-005] nextStep_WhenNoEventLimitAndTotalExceedsFifty_ShowsErrorAndStays', async () => {
     // 比照 [BW-CONFIRM-012]：選座位與計數輸入在同一個同步區段完成，計數輸入框的 max 還沒反映剛選的座位。
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
       buildSeatTicketType(),
@@ -1086,7 +1087,7 @@ describe('EventDetailPage 系統上限 50（frontend-order-limit-hints）', () =
   })
 
   it('[BW-ORDER-LIMIT-006] quickPick_WhenNoEventLimitAndCountExceedsRemaining_ShowsErrorWithoutSelecting', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: null })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: null }))
     vi.mocked(eventsApi.getEventSeats).mockResolvedValue(buildSeats(60))
     vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
       buildSeatTicketType(),
@@ -1127,7 +1128,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
   beforeEach(() => {
     mockIsAuthenticated = true
     pushMock.mockReset()
-    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventById).mockReset()
     vi.mocked(eventsApi.getEventSeats).mockReset()
     vi.mocked(eventsApi.getTicketTypes).mockReset()
     vi.mocked(ordersApi.placeOrder).mockReset()
@@ -1144,7 +1145,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
   })
 
   it('BW-QUEUE-001：進入熱門搶購模式活動且尚未加入排隊，顯示加入排隊操作、不開放選位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus)
       .mockResolvedValueOnce(buildQueueStatus({ status: 'NotJoined' }))
       .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 0 }))
@@ -1166,7 +1167,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
 
   // CAPTCHA-BW-QUEUE-001：尚未加入排隊時顯示驗證碼圖片與輸入欄位。
   it('CAPTCHA-BW-QUEUE-001：尚未加入排隊時顯示驗證碼圖片與輸入欄位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     const wrapper = mountPage()
     await flushPromises()
@@ -1177,7 +1178,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
 
   // CAPTCHA-BW-QUEUE-002：驗證碼錯誤時，MUST 同時滿足以下四項，缺一不可。
   it('CAPTCHA-BW-QUEUE-002：驗證碼錯誤時顯示提示、清空輸入並自動換發、停留原畫面、不開放選位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     vi.mocked(queueApi.joinQueue).mockRejectedValue(
       new ApiError(400, { status: 400, title: 'CaptchaInvalid', detail: '驗證碼錯誤或已逾時，請重新取得驗證碼。' }),
@@ -1204,7 +1205,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
   // CAPTCHA-BW-005／006：GET /api/captcha 載入或刷新失敗時顯示提示、停用加入排隊按鈕，
   // 不清空/重新整理座位與票種資料。
   it('GET /api/captcha 初次載入失敗時顯示提示、停用加入排隊按鈕，不重新整理座位票種資料', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     vi.mocked(captchaApi.getCaptcha).mockReset()
     vi.mocked(captchaApi.getCaptcha).mockRejectedValue(new Error('network error'))
@@ -1220,7 +1221,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
 
   it('BW-QUEUE-002：排隊中顯示等待畫面與前方等待人數，停用選位/計數/區域隨選，並定期輪詢狀態', async () => {
     vi.useFakeTimers()
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 3 }))
     const wrapper = mountPage()
     await flushPromises()
@@ -1237,7 +1238,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
 
   it('BW-QUEUE-003：排隊狀態由 Waiting 轉為 Admitted 後，停止輪詢並開放選位與下單', async () => {
     vi.useFakeTimers()
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus)
       .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 1 }))
       .mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
@@ -1256,7 +1257,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
   })
 
   it('BW-QUEUE-004：下單時排隊資格已逾時（403 + QueueAdmissionRequired），導回排隊等待畫面，不清空已選座位、不重新整理座位票種資料', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus)
       .mockResolvedValueOnce(buildQueueStatus({ status: 'Admitted' }))
       .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 2 }))
@@ -1278,7 +1279,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
   // 驗證碼為一次性：加入成功後若沿用舊 token，排隊資格逾時後重新加入必定被後端以 CaptchaInvalid 拒絕，
   // 使用者等於被迫多失敗一次。此測試確保重新出現加入畫面時一定換發新驗證碼、且不殘留上次輸入的答案。
   it('加入排隊成功後資格逾時再次出現加入畫面：換發新驗證碼、清空舊答案，重新加入使用新 token', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus)
       .mockResolvedValueOnce(buildQueueStatus({ status: 'NotJoined' }))
       .mockResolvedValueOnce(buildQueueStatus({ status: 'Admitted' }))
@@ -1308,7 +1309,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
   })
 
   it('加入排隊成功但狀態仍為 NotJoined（加入畫面持續顯示）：立即換發新驗證碼並清空答案', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     vi.mocked(queueApi.joinQueue).mockResolvedValue({ id: 'entry-1' })
     const wrapper = mountPage()
@@ -1326,7 +1327,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
 
   // 後端可能在驗證碼已消耗後才因其他原因失敗，前端無從分辨，必須一律換發，否則下一次送出必定 CaptchaInvalid。
   it('加入排隊因非驗證碼錯誤失敗：顯示錯誤、換發新驗證碼並清空答案', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     vi.mocked(queueApi.joinQueue).mockRejectedValue(
       new ApiError(409, { status: 409, title: 'Conflict', detail: '活動目前未開啟熱門搶購模式' }),
@@ -1345,7 +1346,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
   })
 
   it('BW-QUEUE-005：下單因請求頻率限制被拒絕（429），停在確認步驟顯示提示、不清空已選內容、不重新整理資料', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(429, { status: 429, title: 'TooManyRequests' }))
     const wrapper = mountPage()
@@ -1361,7 +1362,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
   })
 
   it('BW-QUEUE-006：其他語意的 403（title 不是 QueueAdmissionRequired）沿用一般失敗處理，不導向排隊等待畫面', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(403, { status: 403, title: 'Forbidden', detail: '非本人操作' }))
     const wrapper = mountPage()
@@ -1379,7 +1380,7 @@ describe('EventDetailPage 熱門搶購模式排隊（本次新增）', () => {
 
   it('BW-TOGGLE-001：排隊等待期間 Queue Mode 被關閉，下一次輪詢的 queueModeEnabled 為 false 時，停止輪詢並開放正常購票', async () => {
     vi.useFakeTimers()
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus)
       .mockResolvedValueOnce(buildQueueStatus({ status: 'Waiting', waitingCount: 1, queueModeEnabled: true }))
       .mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 1, queueModeEnabled: false }))
@@ -1433,7 +1434,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
   beforeEach(() => {
     mockIsAuthenticated = true
     pushMock.mockReset()
-    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventById).mockReset()
     vi.mocked(eventsApi.getEventSeats).mockReset().mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockReset().mockResolvedValue([buildSeatTicketType()])
     vi.mocked(ordersApi.placeOrder).mockReset()
@@ -1445,7 +1446,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
   })
 
   it('[BW-RN-EVENT-001] 需實名活動顯示「本活動需實名」文字標示', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1454,7 +1455,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
 
   it('[BW-RN-EVENT-001] 未登入者也看得到標示，但不查詢個人資料、不顯示登記提示', async () => {
     mockIsAuthenticated = false
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1465,7 +1466,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
 
   it('[BW-RN-EVENT-002] 不需實名活動不顯示標示與登記提示', async () => {
     vi.mocked(membersApi.getMyProfile).mockResolvedValue(unregisteredProfile)
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: false })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: false }))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1475,7 +1476,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
 
   it('[BW-RN-EVENT-003] 未登記者看到登記引導，前往登記連結帶 redirect 指回此活動頁', async () => {
     vi.mocked(membersApi.getMyProfile).mockResolvedValue(unregisteredProfile)
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1484,7 +1485,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
   })
 
   it('[BW-RN-EVENT-004] 已登記者看到標示、看不到登記提示', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1494,7 +1495,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
   })
 
   it('[BW-RN-EVENT-005] 下單回 403 RealNameRequired 時顯示引導，不導向登入頁、不顯示泛用錯誤、保留已選座位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(
       new ApiError(403, { status: 403, title: 'RealNameRequired', detail: '此活動需實名登記後才能購票。' }),
     )
@@ -1516,7 +1517,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
   })
 
   it('[BW-RN-EVENT-006] 加入排隊回 403 RealNameRequired 時顯示引導，未進入排隊等待畫面並換發驗證碼', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true, isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true, isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     vi.mocked(queueApi.joinQueue).mockRejectedValue(
       new ApiError(403, { status: 403, title: 'RealNameRequired', detail: '此活動需實名登記後才能購票。' }),
@@ -1540,7 +1541,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
 
   it('[BW-RN-EVENT-007] 個人資料查詢失敗時不顯示提示，「下一步」可用且確認後會呼叫建立訂單 API', async () => {
     vi.mocked(membersApi.getMyProfile).mockRejectedValue(new ApiError(500, null))
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
     const wrapper = mountPage()
     await flushPromises()
@@ -1557,7 +1558,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
 
   it('未登記者仍可送出訂單，前端不自行擋下（以後端判斷為準）', async () => {
     vi.mocked(membersApi.getMyProfile).mockResolvedValue(unregisteredProfile)
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: 'order-1' })
     const wrapper = mountPage()
     await flushPromises()
@@ -1569,7 +1570,7 @@ describe('EventDetailPage 需實名活動的標示與登記引導（real-name-ve
   })
 
   it('403 但 title 不是 RealNameRequired 時不顯示實名引導', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(new ApiError(403, { status: 403, title: 'Forbidden' }))
     const wrapper = mountPage()
     await flushPromises()
@@ -1652,7 +1653,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     vi.setSystemTime(NOW)
     mockIsAuthenticated = true
     pushMock.mockReset()
-    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventById).mockReset()
     vi.mocked(eventsApi.getEventSeats).mockReset()
     vi.mocked(eventsApi.getTicketTypes).mockReset()
     vi.mocked(ordersApi.placeOrder).mockReset()
@@ -1677,9 +1678,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   it('[BW-SALES-002] 詳情頁顯示開賣、停售時間與「販售中」', async () => {
     const salesStart = NOW - 3_600_000
     const salesEnd = NOW + 3_600_000
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([
-      buildEvent({ salesStartAtUtc: iso(salesStart), salesEndAtUtc: iso(salesEnd) }),
-    ])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ salesStartAtUtc: iso(salesStart), salesEndAtUtc: iso(salesEnd) }))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1691,7 +1690,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
 
   it('[BW-SALES-003] 未設定販售期間顯示「即日起」至活動開始時間，可選位並送出', async () => {
     const event = buildEvent()
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([event])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(event)
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1709,7 +1708,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     ['BW-SALES-004', '尚未開賣', () => notOpenEvent(), `尚未開賣，將於 ${localized(SALES_START)} 開放購票`],
     ['BW-SALES-005', '已停售', () => closedEvent(), '本活動已停售'],
   ])('[%s] %s時座位圖仍顯示但停用全部購票操作', async (_id, tagText, buildFixture, promptText) => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildFixture()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildFixture())
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1730,7 +1729,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-006] 尚未開賣的熱門搶購活動不顯示加入排隊畫面、不呼叫驗證碼 API', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     const wrapper = mountPage()
     await flushPromises()
@@ -1741,7 +1740,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-007] 停留到開賣時間自動解鎖，手動選位後可經確認步驟送出訂單', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent())
     const wrapper = mountPage()
     await flushPromises()
     expect(salesTagText(wrapper)).toBe('尚未開賣')
@@ -1758,7 +1757,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-007] 熱門搶購活動跨過開賣才載入驗證碼並顯示加入排隊畫面', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     const wrapper = mountPage()
     await flushPromises()
@@ -1773,7 +1772,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-017] 跨過開賣時「尚未開賣」提示原位改為「現在開放購票」', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent())
     const wrapper = mountPage()
     await flushPromises()
     const promptBefore = firstElementAfterHeading(wrapper)
@@ -1790,7 +1789,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
 
   it('[BW-SALES-017] 未登入者跨過開賣同樣顯示「現在開放購票」，且排在「請先登入」之前', async () => {
     mockIsAuthenticated = false
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent())
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1804,7 +1803,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-017] 熱門搶購活動跨過開賣後「現在開放購票」位於加入排隊畫面上方', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     const wrapper = mountPage()
     await flushPromises()
@@ -1820,7 +1819,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-017] 載入時即為販售中的活動不顯示「現在開放購票」', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     const wrapper = mountPage()
     await flushPromises()
     await vi.advanceTimersByTimeAsync(3000)
@@ -1830,7 +1829,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-018] 停留期間依序跨過開賣與停售，提示與標籤同步變化', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ salesEndAtUtc: iso(SALES_END) })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent({ salesEndAtUtc: iso(SALES_END) }))
     const wrapper = mountPage()
     await flushPromises()
     expect(salesPrompt(wrapper).text()).toContain('尚未開賣')
@@ -1848,7 +1847,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-019] 熱門搶購開賣後排隊等待時隱藏「現在開放購票」，放行後重新顯示並可下單', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     vi.mocked(queueApi.joinQueue).mockResolvedValue({ id: 'entry-1' })
     const wrapper = mountPage()
@@ -1877,7 +1876,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-008] 停留到停售時間自動停用，跨越前已選的座位不會送出', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ salesEndAtUtc: iso(SALES_END) })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ salesEndAtUtc: iso(SALES_END) }))
     const wrapper = mountPage()
     await flushPromises()
     expect(salesTagText(wrapper)).toBe('販售中')
@@ -1897,7 +1896,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-009] 分頁切回前景時立即重算，不等下一次定時更新', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent())
     const wrapper = mountPage()
     await flushPromises()
     expect(salesTagText(wrapper)).toBe('尚未開賣')
@@ -1914,7 +1913,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-009] 分頁仍在背景（hidden）時不提前重算', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([notOpenEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(notOpenEvent())
     const wrapper = mountPage()
     await flushPromises()
 
@@ -1927,7 +1926,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   async function mountWithSeatAndCountSelected() {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     const wrapper = mountPage()
     await flushPromises()
     await wrapper.findAll('.seat-btn')[0].trigger('click')
@@ -1936,7 +1935,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   }
 
   function expectNoReload() {
-    expect(eventsApi.getEvents).toHaveBeenCalledTimes(1)
+    expect(eventsApi.getEventById).toHaveBeenCalledTimes(1)
     expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(1)
     expect(eventsApi.getTicketTypes).toHaveBeenCalledTimes(1)
   }
@@ -1962,7 +1961,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-010] 快速選位路徑收到 SalesNotOpen 時保留抽出的座位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesWindowError('SalesNotOpen'))
     const wrapper = mountPage()
     await flushPromises()
@@ -2000,7 +1999,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-011] 快速選位路徑收到 SalesClosed 時保留抽出的座位', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     vi.mocked(ordersApi.placeOrder).mockRejectedValue(salesWindowError('SalesClosed'))
     const wrapper = mountPage()
     await flushPromises()
@@ -2020,7 +2019,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   async function mountJoinPromptAndSubmit(title: 'SalesNotOpen' | 'SalesClosed') {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     vi.mocked(queueApi.joinQueue).mockRejectedValue(salesWindowError(title))
     const wrapper = mountPage()
@@ -2062,7 +2061,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     ['已停售', () => closedEvent(), '本活動已停售'],
   ])('[BW-SALES-015] 未登入者在%s時控制項不停用，操作皆導向登入頁', async (_label, buildFixture, promptText) => {
     mockIsAuthenticated = false
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildFixture()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildFixture())
     const wrapper = mountPage()
     await flushPromises()
 
@@ -2089,9 +2088,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
   })
 
   it('[BW-SALES-016] 排隊等待中跨越停售仍顯示等待畫面，放行後顯示已停售並停用送出', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([
-      buildEvent({ isQueueModeEnabled: true, salesEndAtUtc: iso(SALES_END) }),
-    ])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true, salesEndAtUtc: iso(SALES_END) }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 5 }))
     const wrapper = mountPage()
     await flushPromises()
@@ -2114,7 +2111,7 @@ describe('EventDetailPage 販售期間（event-sales-window-web-ui）', () => {
     const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
     const addListenerSpy = vi.spyOn(document, 'addEventListener')
     const removeListenerSpy = vi.spyOn(document, 'removeEventListener')
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
     const wrapper = mountPage()
     await flushPromises()
 
@@ -2165,7 +2162,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
   // BW-FLOW-007 的前置狀態：一般下單失敗且重新載入也失敗，頁面層級與操作層級錯誤並存。
   // 重新載入失敗時 event 仍保留上一次的值（loadData 只在全部成功後才寫入），頁面不會變成「找不到活動」。
   async function mountWithPageAndActionErrors(event: EventSummary = buildEvent()) {
-    vi.mocked(eventsApi.getEvents).mockResolvedValueOnce([event]).mockRejectedValueOnce(new Error('network'))
+    vi.mocked(eventsApi.getEventById).mockResolvedValueOnce(event).mockRejectedValueOnce(new Error('network'))
     vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(new Error('座位已被搶'))
     const wrapper = mountPage()
     await flushPromises()
@@ -2197,7 +2194,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
   beforeEach(() => {
     mockIsAuthenticated = true
     pushMock.mockReset()
-    vi.mocked(eventsApi.getEvents).mockReset().mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockReset().mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockReset().mockResolvedValue([buildSeat()])
     vi.mocked(eventsApi.getTicketTypes).mockReset().mockResolvedValue([buildSeatTicketType()])
     vi.mocked(ordersApi.placeOrder).mockReset()
@@ -2257,7 +2254,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
       '(a) 限購 1 張時點選第 2 個座位',
       '這個活動每筆訂單最多購買 1 張',
       async () => {
-        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 1 })])
+        vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 1 }))
         vi.mocked(eventsApi.getEventSeats).mockResolvedValue(seatsOf(2))
         const wrapper = mountPage()
         await flushPromises()
@@ -2293,7 +2290,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
       '(d) 區域隨選張數超過限購剩餘額度',
       '這個活動每筆訂單最多購買 1 張',
       async () => {
-        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 1 })])
+        vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 1 }))
         vi.mocked(eventsApi.getEventSeats).mockResolvedValue(seatsOf(2))
         const wrapper = mountPage()
         await flushPromises()
@@ -2306,7 +2303,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
       '(e) 送出前合併總數超過限購',
       '每筆訂單最多購買 3 張',
       async () => {
-        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ maxTicketsPerOrder: 3 })])
+        vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ maxTicketsPerOrder: 3 }))
         vi.mocked(eventsApi.getEventSeats).mockResolvedValue([])
         vi.mocked(eventsApi.getTicketTypes).mockResolvedValue([
           buildCountTicketType({ id: 'tt-count-a', zoneCode: '站立區A' }),
@@ -2410,7 +2407,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
   })
 
   it('[BW-FLOW-004] 活動載入失敗：錯誤顯示在頁面頂端並帶 role="alert"，不出現在結帳列', async () => {
-    vi.mocked(eventsApi.getEvents).mockRejectedValue(new Error('network'))
+    vi.mocked(eventsApi.getEventById).mockRejectedValue(new Error('network'))
     const wrapper = mountPage()
     await flushPromises()
 
@@ -2420,7 +2417,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
   })
 
   it('[BW-FLOW-004] 熱門搶購模式查詢排隊狀態失敗：錯誤顯示在頁面頂端', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockRejectedValue(new Error('network'))
     const wrapper = mountPage()
     await flushPromises()
@@ -2430,7 +2427,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
   })
 
   it('[BW-FLOW-004] 熱門搶購模式加入排隊一般失敗：錯誤顯示在頁面頂端', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'NotJoined' }))
     vi.mocked(queueApi.joinQueue).mockRejectedValue(
       new ApiError(409, { status: 409, title: 'Conflict', detail: '活動目前未開啟熱門搶購模式' }),
@@ -2449,7 +2446,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
   })
 
   it('[BW-FLOW-004、006] 送出時排隊資格逾時並轉為 Waiting：錯誤顯示在頁面頂端，結帳列不存在', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus)
       .mockResolvedValueOnce(buildQueueStatus({ status: 'Admitted' }))
       .mockResolvedValue(buildQueueStatus({ status: 'Waiting', waitingCount: 2 }))
@@ -2467,7 +2464,7 @@ describe('EventDetailPage 結帳列與座位無障礙（purchase-flow-ux）', ()
   })
 
   it.each(['NotJoined', 'Waiting'])('[BW-FLOW-006] 排隊狀態為 %s 時不顯示結帳列與「下一步」', async (status) => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status, waitingCount: 1 }))
     const wrapper = mountPage()
     await flushPromises()
@@ -2786,7 +2783,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
   beforeEach(() => {
     mockIsAuthenticated = true
     pushMock.mockReset()
-    vi.mocked(eventsApi.getEvents).mockReset().mockResolvedValue([buildEvent()])
+    vi.mocked(eventsApi.getEventById).mockReset().mockResolvedValue(buildEvent())
     vi.mocked(eventsApi.getEventSeats).mockReset().mockResolvedValue([
       buildSeat({ eventSeatId: 'seat-1', seatNumber: '1' }),
       buildSeat({ eventSeatId: 'seat-2', seatNumber: '2' }),
@@ -2955,7 +2952,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
   ])(
     '[BW-CONFIRM-013] confirmStep_RealNameRequiredEvent_ShowsRealNameNotice（需實名：$isRealNameRequired）',
     async ({ isRealNameRequired, shouldShow }) => {
-      vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired })])
+      vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired }))
       vi.mocked(membersApi.getMyProfile).mockResolvedValue({ hasRegisteredRealName: true } as MemberProfile)
       const wrapper = await mountWithSelectionsOnConfirmStep()
 
@@ -2982,7 +2979,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
   it('[BW-CONFIRM-010] confirmStep_WhenSalesEndPasses_ReplacesToSelectionAndDisablesNext', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ salesEndAtUtc: new Date(NOW + 60_000).toISOString() })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ salesEndAtUtc: new Date(NOW + 60_000).toISOString() }))
     const wrapper = await mountWithSelectionsOnConfirmStep()
 
     vi.setSystemTime(NOW + 61_000)
@@ -3057,7 +3054,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
     {
       kind: 'QueueAdmissionRequired',
       arrange: () => {
-        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+        vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
         vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
         return new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' })
       },
@@ -3069,7 +3066,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
     {
       kind: 'RealNameRequired',
       arrange: () => {
-        vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+        vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
         vi.mocked(membersApi.getMyProfile).mockResolvedValue({ hasRegisteredRealName: true } as MemberProfile)
         return new ApiError(403, { status: 403, title: 'RealNameRequired', detail: '此活動需實名登記後才能購票。' })
       },
@@ -3222,7 +3219,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
 
   // 錯誤退回只以 role="alert" 公告，不搶焦點（design.md 決策 7）；送出結束後也不能延後把焦點移到「下一步」。
   it('[BW-CONFIRM-008] confirmOrder_WhenErrorReturnsToSelection_DoesNotMoveFocusToNextButton', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
     vi.mocked(ordersApi.placeOrder).mockRejectedValueOnce(new ApiError(403, { status: 403, title: 'QueueAdmissionRequired' }))
     const wrapper = mountAttached()
@@ -3270,7 +3267,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
         return failure
       },
     },
-  ])('[BW-CONFIRM-015] confirmOrder_WhenNavigationToEventListFails_ShowsSuccessAndReturnsToRefreshedSelection（$via）', async ({ failNavigation }) => {
+  ])('[BW-CONFIRM-015][BW-DETAIL-004] confirmOrder_WhenNavigationToEventListFails_ShowsSuccessAndReturnsToRefreshedSelection（$via）', async ({ failNavigation }) => {
     const successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} }) as never)
     vi.mocked(ordersApi.placeOrder).mockResolvedValueOnce({ id: 'order-nav-failed' } as PlaceOrderResult)
     const wrapper = await mountWithSelectionsOnConfirmStep()
@@ -3290,6 +3287,8 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
     expect(checkoutSummary(wrapper)).toContain('已選 0 個座位、0 張計數票券')
     expect(wrapper.text()).not.toContain('下單失敗')
     expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+    expect(eventsApi.getEventById).toHaveBeenCalledTimes(2)
+    expect(eventsApi.getEvents).not.toHaveBeenCalled()
     successSpy.mockRestore()
   })
 
@@ -3342,7 +3341,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
   it.each([
     { via: '導覽被取消', failLeaving: (to: object) => afterEachHook?.(to, {}, { type: 4 }) },
     { via: '目標頁載入失敗', failLeaving: (to: object) => navigationErrorHook?.(new Error('chunk load failed'), to) },
-  ])('[BW-CONFIRM-020] confirmOrder_WhenLeavingFailsAfterSuccess_ReturnsToRefreshedSelection（$via）', async ({ failLeaving }) => {
+  ])('[BW-CONFIRM-020][BW-DETAIL-004] confirmOrder_WhenLeavingFailsAfterSuccess_ReturnsToRefreshedSelection（$via）', async ({ failLeaving }) => {
     const successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} }) as never)
     const pending = deferred<PlaceOrderResult>()
     vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
@@ -3361,6 +3360,8 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
     expect(confirmStep(wrapper).exists()).toBe(false)
     expect(checkoutSummary(wrapper)).toContain('已選 0 個座位、0 張計數票券')
     expect(eventsApi.getEventSeats).toHaveBeenCalledTimes(2)
+    expect(eventsApi.getEventById).toHaveBeenCalledTimes(2)
+    expect(eventsApi.getEvents).not.toHaveBeenCalled()
 
     // 重載只補一次：之後沒有新訂單的離頁失敗不再重載。
     failLeaving(startLeavingPage())
@@ -3390,7 +3391,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
 
   // 需退回選位但確認步驟仍可顯示的錯誤（403 RealNameRequired）落在離頁途中：離頁失敗後要補做退回（spec 的錯誤分流）。
   it('[BW-CONFIRM-020] confirmOrder_WhenLeavingFailsAfterRealNameRequired_ReturnsToSelectionStep', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     const pending = deferred<PlaceOrderResult>()
     vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
     const wrapper = await mountWithSelectionsOnConfirmStep()
@@ -3409,7 +3410,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
 
   // 補做退回後旗標須清掉：否則下一次離頁途中收到可重試的 429，離頁失敗時會被錯誤退回（違反 BW-CONFIRM-006）。
   it('[BW-CONFIRM-020] confirmOrder_WhenSecondLeaveFailsAfter429_StaysOnConfirmStepDespiteEarlierReturn', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isRealNameRequired: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isRealNameRequired: true }))
     const first = deferred<PlaceOrderResult>()
     const second = deferred<PlaceOrderResult>()
     vi.mocked(ordersApi.placeOrder).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
@@ -3437,7 +3438,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
 
   // 送出中離頁、頁面已卸載後才收到 403 QueueAdmissionRequired：查一次排隊狀態無妨，但不能再排程輪詢。
   it('[BW-CONFIRM-014] confirmOrder_WhenQueueAdmissionRequiredAfterUnmount_DoesNotStartQueuePolling', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
     const pending = deferred<PlaceOrderResult>()
     vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
@@ -3505,7 +3506,7 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
 
   // 送出中上一頁又下一頁回到確認步驟後，先前等送出結束才移焦點的動作必須取消，錯誤退回時不搶焦點（design.md 決策 7）。
   it('[BW-CONFIRM-008] confirmOrder_WhenErrorAfterBackThenForward_DoesNotMoveFocusToNextButton', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([buildEvent({ isQueueModeEnabled: true })])
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent({ isQueueModeEnabled: true }))
     vi.mocked(queueApi.getMyQueueStatus).mockResolvedValue(buildQueueStatus({ status: 'Admitted' }))
     const pending = deferred<PlaceOrderResult>()
     vi.mocked(ordersApi.placeOrder).mockReturnValue(pending.promise)
@@ -3554,5 +3555,110 @@ describe('EventDetailPage 確認步驟（order-confirmation-page）', () => {
     await confirmOrder(wrapper)
     expect(ordersApi.placeOrder).toHaveBeenCalledTimes(2)
     expect(confirmStepError(wrapper).exists()).toBe(false)
+  })
+})
+
+describe('EventDetailPage 以單一活動 API 載入（public-event-detail-endpoint）', () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((res) => {
+      resolve = res
+    })
+    return { promise, resolve }
+  }
+
+  beforeEach(() => {
+    mockIsAuthenticated = true
+    pushMock.mockReset()
+    vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventById).mockReset()
+    vi.mocked(eventsApi.getEventSeats).mockReset()
+    vi.mocked(eventsApi.getTicketTypes).mockReset()
+  })
+
+  it('[BW-DETAIL-001] loadData_OnMount_CallsGetEventByIdWithRouteIdInParallelAndNotGetEvents', async () => {
+    const pendingEvent = deferred<EventSummary>()
+    const pendingSeats = deferred<EventSeat[]>()
+    const pendingTicketTypes = deferred<TicketType[]>()
+    vi.mocked(eventsApi.getEventById).mockReturnValue(pendingEvent.promise)
+    vi.mocked(eventsApi.getEventSeats).mockReturnValue(pendingSeats.promise)
+    vi.mocked(eventsApi.getTicketTypes).mockReturnValue(pendingTicketTypes.promise)
+    const wrapper = mountPage()
+    await flushPromises()
+
+    // 三個請求在任一者 resolve 前皆已發出（並行，不是前一個完成才發下一個）。
+    expect(eventsApi.getEventById).toHaveBeenCalledWith('event-1')
+    expect(eventsApi.getEventSeats).toHaveBeenCalledWith('event-1')
+    expect(eventsApi.getTicketTypes).toHaveBeenCalledWith('event-1')
+    expect(eventsApi.getEvents).not.toHaveBeenCalled()
+
+    pendingEvent.resolve(buildEvent())
+    pendingSeats.resolve([buildSeat()])
+    pendingTicketTypes.resolve([buildSeatTicketType()])
+    await flushPromises()
+    expect(wrapper.text()).toContain('Concert')
+    expect(wrapper.text()).not.toContain('找不到這個活動')
+  })
+
+  it('[BW-DETAIL-002] loadData_WhenAllThreeRequestsReturn404_ShowsNotFoundWithoutErrorAlert', async () => {
+    const notFound = () => new ApiError(404, { status: 404, title: 'NotFound' })
+    vi.mocked(eventsApi.getEventById).mockRejectedValue(notFound())
+    vi.mocked(eventsApi.getEventSeats).mockRejectedValue(notFound())
+    vi.mocked(eventsApi.getTicketTypes).mockRejectedValue(notFound())
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('找不到這個活動')
+    expect(pageError(wrapper).exists()).toBe(false)
+  })
+
+  it('[BW-DETAIL-002] loadData_WhenEventIs404ButSeatsAndTicketTypesFailWith500_ShowsNotFoundWithoutErrorAlert', async () => {
+    vi.mocked(eventsApi.getEventById).mockRejectedValue(new ApiError(404, { status: 404, title: 'NotFound' }))
+    vi.mocked(eventsApi.getEventSeats).mockRejectedValue(new ApiError(500, null))
+    vi.mocked(eventsApi.getTicketTypes).mockRejectedValue(new ApiError(500, null))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('找不到這個活動')
+    expect(pageError(wrapper).exists()).toBe(false)
+  })
+
+  it.each([
+    { name: '僅活動請求 500', seats: () => Promise.resolve([buildSeat()]), ticketTypes: () => Promise.resolve([buildSeatTicketType()]) },
+    {
+      name: '活動 500 且座位／票種 404',
+      seats: () => Promise.reject(new ApiError(404, { status: 404, title: 'NotFound' })),
+      ticketTypes: () => Promise.reject(new ApiError(404, { status: 404, title: 'NotFound' })),
+    },
+  ])('[BW-DETAIL-003] loadData_WhenEventRequestFailsWith500_ShowsLoadFailedNotNotFound（$name）', async ({ seats, ticketTypes }) => {
+    vi.mocked(eventsApi.getEventById).mockRejectedValue(new ApiError(500, null))
+    vi.mocked(eventsApi.getEventSeats).mockImplementation(seats)
+    vi.mocked(eventsApi.getTicketTypes).mockImplementation(ticketTypes)
+    const wrapper = mountPage()
+    await flushPromises()
+
+    // ApiError 的訊息取自回應本身（toErrorMessage），固定文案「載入活動資訊失敗」由非 ApiError 的 BW-FLOW-004 案例鎖定。
+    expect(pageError(wrapper).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('找不到這個活動')
+  })
+
+  it.each([
+    { name: '座位 500', seatsFail: true },
+    { name: '票種 500', seatsFail: false },
+  ])('[BW-DETAIL-005] loadData_WhenEventSucceedsButSeatsOrTicketTypesFail_ShowsLoadFailed（$name）', async ({ seatsFail }) => {
+    vi.mocked(eventsApi.getEventById).mockResolvedValue(buildEvent())
+    vi.mocked(eventsApi.getEventSeats).mockImplementation(() =>
+      seatsFail ? Promise.reject(new ApiError(500, null)) : Promise.resolve([buildSeat()]),
+    )
+    vi.mocked(eventsApi.getTicketTypes).mockImplementation(() =>
+      seatsFail ? Promise.resolve([buildSeatTicketType()]) : Promise.reject(new ApiError(500, null)),
+    )
+    const wrapper = mountPage()
+    await flushPromises()
+
+    // ApiError 的訊息取自回應本身（toErrorMessage），固定文案「載入活動資訊失敗」由非 ApiError 的 BW-FLOW-004 案例鎖定。
+    expect(pageError(wrapper).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('找不到這個活動')
+    expect(wrapper.text()).not.toContain('Concert')
   })
 })

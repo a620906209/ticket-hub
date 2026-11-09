@@ -26,7 +26,7 @@
 單一活動查詢不新增 key、不改失效與 TTL，行為完全由既有列表快取 Requirement 涵蓋；新行為只在 `event-catalog` 以 EVT-DETAIL-004～008 場景明文化。`QC-ACCESS-001` 所指「`GET /api/events` 與 `ticket-types` 維持匿名」不受影響。`query-caching` 的 QC-ACCESS／QC-FAIL 條文只列舉這兩個端點，新端點的對應保證（匿名、不依身份而異、Redis 失效仍可查）由 EVT-DETAIL-007／008 承擔；QC-ACCESS 的「未來個人化必須重新設計 key」條款對新端點同樣適用，若日後 `EventDto` 加入依呼叫者而異的欄位，必須同時重新設計列表快取 key。
 
 ### 決策 3：前端以 `ApiError.status === 404` 區分「不存在」與「載入失敗」
-`loadData` 目前以 `find ?? null` 把不存在視為 `event=null`，頁面顯示「找不到這個活動」。改呼叫單筆 API 後，不存在變成 `404` 例外：捕捉 `ApiError` 且 `status === 404` 時設 `event=null`（不設 `errorMessage`），座位與票種仍以 `Promise.all` 並行載入；但單筆活動 `404` 時座位／票種端點同樣回 `404`，因此 `Promise.all` 會以最先拒絕的錯誤結束——實作須用 `Promise.allSettled` 或個別 catch，使活動 `404` 判定不受座位／票種錯誤影響，且活動非 `404` 的失敗仍走「載入活動資訊失敗」。細節由 BW-DETAIL-002／003 測試鎖定。
+`loadData` 目前以 `find ?? null` 把不存在視為 `event=null`，頁面顯示「找不到這個活動」。改呼叫單筆 API 後，不存在變成 `404` 例外：捕捉 `ApiError` 且 `status === 404` 時設 `event=null`（不設 `errorMessage`），座位與票種仍以 `Promise.all` 並行載入；但單筆活動 `404` 時座位／票種端點同樣回 `404`，因此 `Promise.all` 會以最先拒絕的錯誤結束——實作須用 `Promise.allSettled` 或個別 catch，使活動 `404` 判定不受座位／票種錯誤影響，且活動非 `404` 的失敗仍走既有載入失敗訊息（`toErrorMessage`：ApiError 顯示回應訊息，其他例外顯示「載入活動資訊失敗」）。細節由 BW-DETAIL-002／003 測試鎖定。
 
 改用 `allSettled` 後須保留既有「任一請求失敗即顯示載入失敗」的行為：活動成功但座位或票種非 `404` 失敗時，不得顯示活動內容卻無錯誤訊息（回歸風險），由 BW-DETAIL-005 鎖定。
 
