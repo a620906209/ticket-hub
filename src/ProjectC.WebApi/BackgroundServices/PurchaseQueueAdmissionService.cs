@@ -442,32 +442,15 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
         var waitingKey = PurchaseQueueAdmissionRedisKeys.Waiting(eventId);
         var admittedKey = PurchaseQueueAdmissionRedisKeys.Admitted(eventId);
 
-        // 步驟 3：補齊 waiting，排除已在 A_redis 的 entryId（第十輪審查修正，避免同時存在於兩集合，
-        // 見 design.md Decision 5 步驟 3／PQLE-REBUILD-005）。
-        foreach (var entry in waitingPg)
-        {
-            var idStr = entry.Id.ToString();
-            if (waitingRedis.Contains(idStr) || admittedRedis.ContainsKey(idStr))
-            {
-                continue;
-            }
+        var round = new ReconciliationRound(
+            purchaseQueueRepository, database, now,
+            waitingPg, admittedNotOverduePg, admittedOverduePg,
+            waitingRedis, admittedRedis, waitingKey, admittedKey);
 
-            await TryReconcileOperationAsync(entry.Id, "ZADD waiting (gap-fill)",
-                () => database.SortedSetAddAsync(waitingKey, idStr, PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(entry.JoinedAtUtc)));
-        }
-
-        // 步驟 4：補齊 admitted。
-        foreach (var entry in admittedNotOverduePg)
-        {
-            var idStr = entry.Id.ToString();
-            if (admittedRedis.ContainsKey(idStr))
-            {
-                continue;
-            }
-
-            await TryReconcileOperationAsync(entry.Id, "ZADD admitted (gap-fill)",
-                () => database.SortedSetAddAsync(admittedKey, idStr, PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(entry.AdmissionExpiresAtUtc!.Value)));
-        }
+        // 步驟 3～8 依下列順序執行且不可調整：步驟 5 依賴下方先算出的 waitingButAdmittedIds，
+        // 維持與 design.md 一致的順序（Decision 3 I1／I2）。
+        await ReconcileMissingWaitingAsync(round);
+        await ReconcileMissingAdmittedAsync(round);
 
         // 步驟 5 之前先算出「Postgres 仍 Waiting、但已在 admitted 鏡像」的候選過渡態集合——這整個集合
         // （不只是 pending 標記仍存活的子集）MUST 從步驟 5 的「不屬於目前合法狀態集合」判定中排除。
@@ -482,17 +465,25 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
             .Where(admittedRedis.ContainsKey)
             .ToHashSet();
 
-        // 步驟 5：清除 admitted 中不屬於目前合法狀態集合（Completed／Expired／孤兒，統一以集合差
-        // 運算判定，不逐一枚舉終態）的殘留；A_pg_overdue 與上方的候選過渡態集合本身仍合法，
-        // MUST NOT 被本步驟清除（design.md Decision 5 步驟 5／Decision 9）。Decision 8「重試與升級
-        // 策略」適用於此步驟（見下方 TryTrackedReconcileOperationAsync）——涵蓋 Completed 訂單完成
-        // 同步失敗的收斂情境（PQ-COMPLETE-003／PQLE-REBUILD-004），統一套用到 Expired／孤兒兩種情況
-        // 不影響正確性、避免額外查詢區分「為何需要清除」的複雜度（CLAUDE.md Simplicity First）。
-        var legalAdmittedIds = admittedNotOverduePg.Select(e => e.Id.ToString())
-            .Concat(admittedOverduePg.Select(e => e.Id.ToString()))
+        await RemoveStaleAdmittedMembersAsync(round, waitingButAdmittedIds);
+        await RemoveStaleWaitingMembersAsync(round);
+        await RepairAbandonedPromotionsAsync(round, cancellationToken);
+        await RepairAbandonedTimeoutsAsync(round, cancellationToken);
+    }
+
+    // 步驟 5：清除 admitted 中不屬於目前合法狀態集合（Completed／Expired／孤兒，統一以集合差
+    // 運算判定，不逐一枚舉終態）的殘留；A_pg_overdue 與上方的候選過渡態集合本身仍合法，
+    // MUST NOT 被本步驟清除（design.md Decision 5 步驟 5／Decision 9）。Decision 8「重試與升級
+    // 策略」適用於此步驟（見下方 TryTrackedReconcileOperationAsync）——涵蓋 Completed 訂單完成
+    // 同步失敗的收斂情境（PQ-COMPLETE-003／PQLE-REBUILD-004），統一套用到 Expired／孤兒兩種情況
+    // 不影響正確性、避免額外查詢區分「為何需要清除」的複雜度（CLAUDE.md Simplicity First）。
+    private async Task RemoveStaleAdmittedMembersAsync(ReconciliationRound round, HashSet<string> waitingButAdmittedIds)
+    {
+        var legalAdmittedIds = round.AdmittedNotOverduePg.Select(e => e.Id.ToString())
+            .Concat(round.AdmittedOverduePg.Select(e => e.Id.ToString()))
             .Concat(waitingButAdmittedIds)
             .ToHashSet();
-        foreach (var member in admittedRedis.Keys)
+        foreach (var member in round.AdmittedRedis.Keys)
         {
             if (legalAdmittedIds.Contains(member))
             {
@@ -503,17 +494,20 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
             // 略過——否則會永久佔用 ZCARD 計算出的名額（strict-reviewer 事後審查修正）。
             if (!Guid.TryParse(member, out var entryId))
             {
-                await TryRemoveMalformedMemberAsync(admittedKey, member, "admitted", database);
+                await TryRemoveMalformedMemberAsync(round.AdmittedKey, member, "admitted", round.Database);
                 continue;
             }
 
             await TryTrackedReconcileOperationAsync(entryId, "ZREM admitted (stale/orphan)",
-                () => database.SortedSetRemoveAsync(admittedKey, member));
+                () => round.Database.SortedSetRemoveAsync(round.AdmittedKey, member));
         }
+    }
 
-        // 步驟 6：清除 waiting 中不屬於 W_pg 的殘留。
-        var waitingIdSet = waitingPg.Select(e => e.Id.ToString()).ToHashSet();
-        foreach (var member in waitingRedis)
+    // 步驟 6：清除 waiting 中不屬於 W_pg 的殘留。
+    private async Task RemoveStaleWaitingMembersAsync(ReconciliationRound round)
+    {
+        var waitingIdSet = round.WaitingPg.Select(e => e.Id.ToString()).ToHashSet();
+        foreach (var member in round.WaitingRedis)
         {
             if (waitingIdSet.Contains(member))
             {
@@ -522,47 +516,86 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
 
             if (!Guid.TryParse(member, out var entryId))
             {
-                await TryRemoveMalformedMemberAsync(waitingKey, member, "waiting", database);
+                await TryRemoveMalformedMemberAsync(round.WaitingKey, member, "waiting", round.Database);
                 continue;
             }
 
             await TryReconcileOperationAsync(entryId, "ZREM waiting (orphan)",
-                () => database.SortedSetRemoveAsync(waitingKey, member));
+                () => round.Database.SortedSetRemoveAsync(round.WaitingKey, member));
         }
+    }
 
-        // 步驟 7：偵測並修復放棄的推進決策——pending 標記存活期間視為合法過渡態，不動；已過期則
-        // 代為完成 Postgres 落地（design.md Decision 5 步驟 7／Decision 9）。步驟 5 已把這整個
-        // waitingButAdmittedIds 集合排除在清除範圍外，這裡才是唯一處理它們的地方。
-        foreach (var entryId in waitingPg.Select(entry => entry.Id))
+    // 步驟 3：補齊 waiting，排除已在 A_redis 的 entryId（第十輪審查修正，避免同時存在於兩集合，
+    // 見 design.md Decision 5 步驟 3／PQLE-REBUILD-005）。
+    private async Task ReconcileMissingWaitingAsync(ReconciliationRound round)
+    {
+        foreach (var entry in round.WaitingPg)
         {
-            var idStr = entryId.ToString();
-            if (!admittedRedis.TryGetValue(idStr, out var admittedScore))
+            var idStr = entry.Id.ToString();
+            if (round.WaitingRedis.Contains(idStr) || round.AdmittedRedis.ContainsKey(idStr))
             {
                 continue;
             }
 
-            if (await database.KeyExistsAsync(PurchaseQueueAdmissionRedisKeys.Pending(entryId)))
+            await TryReconcileOperationAsync(entry.Id, "ZADD waiting (gap-fill)",
+                () => round.Database.SortedSetAddAsync(round.WaitingKey, idStr, PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(entry.JoinedAtUtc)));
+        }
+    }
+
+    // 步驟 4：補齊 admitted。
+    private async Task ReconcileMissingAdmittedAsync(ReconciliationRound round)
+    {
+        foreach (var entry in round.AdmittedNotOverduePg)
+        {
+            var idStr = entry.Id.ToString();
+            if (round.AdmittedRedis.ContainsKey(idStr))
+            {
+                continue;
+            }
+
+            await TryReconcileOperationAsync(entry.Id, "ZADD admitted (gap-fill)",
+                () => round.Database.SortedSetAddAsync(round.AdmittedKey, idStr, PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(entry.AdmissionExpiresAtUtc!.Value)));
+        }
+    }
+
+    // 步驟 7：偵測並修復放棄的推進決策——pending 標記存活期間視為合法過渡態，不動；已過期則
+    // 代為完成 Postgres 落地（design.md Decision 5 步驟 7／Decision 9）。步驟 5 已把這整個
+    // waitingButAdmittedIds 集合排除在清除範圍外，這裡才是唯一處理它們的地方。
+    private async Task RepairAbandonedPromotionsAsync(ReconciliationRound round, CancellationToken cancellationToken)
+    {
+        foreach (var entryId in round.WaitingPg.Select(entry => entry.Id))
+        {
+            var idStr = entryId.ToString();
+            if (!round.AdmittedRedis.TryGetValue(idStr, out var admittedScore))
+            {
+                continue;
+            }
+
+            if (await round.Database.KeyExistsAsync(PurchaseQueueAdmissionRedisKeys.Pending(entryId)))
             {
                 continue;
             }
 
             var expiresAtUtc = PurchaseQueueAdmissionTimeConversion.FromUnixMilliseconds(admittedScore);
             await TryTrackedReconcileOperationAsync(entryId, "conditional UPDATE admit (abandoned decision)",
-                () => purchaseQueueRepository.AdmitIfWaitingAsync(entryId, now, expiresAtUtc, cancellationToken));
+                () => round.PurchaseQueueRepository.AdmitIfWaitingAsync(entryId, round.Now, expiresAtUtc, cancellationToken));
         }
+    }
 
-        // 步驟 8：偵測並修復放棄的逾時標記——不需要 TTL 寬限窗口判斷，「已逾時」是純粹的時間事實
-        // （design.md Decision 5 步驟 8）。
-        foreach (var entryId in admittedOverduePg.Select(entry => entry.Id))
+    // 步驟 8：偵測並修復放棄的逾時標記——不需要 TTL 寬限窗口判斷，「已逾時」是純粹的時間事實
+    // （design.md Decision 5 步驟 8）。
+    private async Task RepairAbandonedTimeoutsAsync(ReconciliationRound round, CancellationToken cancellationToken)
+    {
+        foreach (var entryId in round.AdmittedOverduePg.Select(entry => entry.Id))
         {
             var idStr = entryId.ToString();
-            if (admittedRedis.ContainsKey(idStr))
+            if (round.AdmittedRedis.ContainsKey(idStr))
             {
                 continue;
             }
 
             await TryTrackedReconcileOperationAsync(entryId, "conditional UPDATE expire (abandoned timeout)",
-                () => purchaseQueueRepository.ExpireBatchAsync([entryId], cancellationToken));
+                () => round.PurchaseQueueRepository.ExpireBatchAsync([entryId], cancellationToken));
         }
     }
 
@@ -626,6 +659,20 @@ public sealed class PurchaseQueueAdmissionService : BackgroundService
             }
         }
     }
+
+    // 對帳各步驟共用的一輪輸入：Postgres 三個互斥集合、Redis 鏡像 snapshot 與兩個 key；
+    // 欄位沿用主方法原區域變數名，抽出的步驟方法本體才能與原迴圈逐行對應。
+    private sealed record ReconciliationRound(
+        IPurchaseQueueRepository PurchaseQueueRepository,
+        IDatabase Database,
+        DateTime Now,
+        IReadOnlyList<PurchaseQueueEntry> WaitingPg,
+        IReadOnlyList<PurchaseQueueEntry> AdmittedNotOverduePg,
+        IReadOnlyList<PurchaseQueueEntry> AdmittedOverduePg,
+        HashSet<string> WaitingRedis,
+        IReadOnlyDictionary<string, double> AdmittedRedis,
+        string WaitingKey,
+        string AdmittedKey);
 }
 
 /// <summary>Decision 5 步驟 2 原子快照讀取的結果：waiting zset 全部成員（entryId 字串)、

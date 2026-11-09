@@ -300,6 +300,91 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
         (await database.SortedSetScoreAsync(admittedKey, legalActive.Id.ToString())).Should().NotBeNull("其他合法 entry 的校正結果不受影響");
     }
 
+    // 步驟 6 的特徵化測試：Redis waiting 中插入一個 Postgres 完全查無對應紀錄的隨機 Guid，驗證清除
+    // 且不拋例外、不影響其他合法 waiting entry（reconcile-event-queue-complexity 重構前的保護網缺口）。
+    // 名額已滿（maxConcurrentAdmittedBuyers: 1 且已有一筆未逾時 Admitted），推進不會 ZPOPMIN 到孤兒，
+    // 孤兒只可能被步驟 6 清除，才能單獨守住該步驟。
+    [Fact]
+    public async Task Reconciliation_RemovesOrphanWaitingMirrorMemberWithNoCorrespondingPostgresRecord()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var eventId = await PurchaseQueueLeaderElectionTestData.SeedQueueModeEventAsync(dbContext, maxConcurrentAdmittedBuyers: 1);
+        var now = DateTime.UtcNow;
+        await PurchaseQueueLeaderElectionTestData.SeedAdmittedEntryAsync(dbContext, eventId, now.AddMinutes(-20), now.AddMinutes(-15), now.AddMinutes(30));
+        var legalWaiting = await PurchaseQueueLeaderElectionTestData.SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-5));
+
+        var orphanId = Guid.NewGuid();
+        var database = GetDatabase();
+        var waitingKey = PurchaseQueueAdmissionRedisKeys.Waiting(eventId);
+        await database.SortedSetAddAsync(waitingKey, orphanId.ToString(), PurchaseQueueAdmissionTimeConversion.ToUnixMilliseconds(now));
+
+        var act = () => CreateService(maxConcurrentAdmittedBuyers: 1).AdvanceQueueOnceAsync(CancellationToken.None);
+        await act.Should().NotThrowAsync("孤兒 waiting member 的清除不應拋出例外");
+
+        (await database.SortedSetScoreAsync(waitingKey, orphanId.ToString())).Should().BeNull("孤兒 waiting member MUST 被清除");
+        (await database.SortedSetScoreAsync(waitingKey, legalWaiting.Id.ToString())).Should().NotBeNull("其他合法 waiting entry 不受影響，名額已滿故仍留在 waiting");
+    }
+
+    // design.md Decision 3 I3 的特徵化測試：snapshot 讀取失敗時整輪略過（Warning + return），不進入
+    // 任何步驟。Postgres 有 Waiting 紀錄但 Redis 鏡像缺少它；若讀取失敗後仍繼續（例如改以空 snapshot
+    // 往下走），步驟 3 會把它補回 waiting。名額已滿，推進腳本不會動它。
+    [Fact]
+    public async Task Reconciliation_WhenSnapshotReadFails_SkipsTheWholeRoundAndRecoversOnTheNextRound()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var eventId = await PurchaseQueueLeaderElectionTestData.SeedQueueModeEventAsync(dbContext, maxConcurrentAdmittedBuyers: 1);
+        var now = DateTime.UtcNow;
+        await PurchaseQueueLeaderElectionTestData.SeedAdmittedEntryAsync(dbContext, eventId, now.AddMinutes(-20), now.AddMinutes(-15), now.AddMinutes(30));
+        var legalWaiting = await PurchaseQueueLeaderElectionTestData.SeedWaitingEntryAsync(dbContext, eventId, now.AddMinutes(-5));
+        var waitingKey = PurchaseQueueAdmissionRedisKeys.Waiting(eventId);
+        var database = GetDatabase();
+
+        var failingConnection = CreateSnapshotReadFailingConnectionMultiplexer();
+        await CreateService(maxConcurrentAdmittedBuyers: 1, connectionMultiplexer: failingConnection).AdvanceQueueOnceAsync(CancellationToken.None);
+
+        (await database.SortedSetScoreAsync(waitingKey, legalWaiting.Id.ToString())).Should().BeNull(
+            "snapshot 讀取失敗時整輪略過，步驟 3 不得補回 waiting 缺漏的紀錄");
+
+        await CreateService(maxConcurrentAdmittedBuyers: 1).AdvanceQueueOnceAsync(CancellationToken.None);
+        (await database.SortedSetScoreAsync(waitingKey, legalWaiting.Id.ToString())).Should().NotBeNull(
+            "下一輪 snapshot 讀取成功後正常補回");
+    }
+
+    /// <summary>快照讀取（<c>ScriptEvaluateAsync</c> 不帶 values）一律拋出 RedisTimeoutException，其餘呼叫轉發至真實 Redis；
+    /// 推進腳本帶 values，因此不受影響。</summary>
+    private IConnectionMultiplexer CreateSnapshotReadFailingConnectionMultiplexer()
+    {
+        var realDatabase = _factory.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase();
+        var mockDatabase = new Mock<IDatabase>();
+        mockDatabase
+            .Setup(d => d.ScriptEvaluateAsync(It.IsAny<string>(), It.IsAny<RedisKey[]>(), It.IsAny<RedisValue[]>(), It.IsAny<CommandFlags>()))
+            .Returns<string, RedisKey[], RedisValue[], CommandFlags>((s, k, v, f) =>
+                v is null
+                    ? throw new RedisTimeoutException(CommandFlags.None, "Simulated snapshot read timeout for test.", CommandStatus.Unknown)
+                    : realDatabase.ScriptEvaluateAsync(s, k, v, f));
+        mockDatabase
+            .Setup(d => d.SortedSetAddAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<double>(), It.IsAny<CommandFlags>()))
+            .Returns<RedisKey, RedisValue, double, CommandFlags>((k, m, s, f) => realDatabase.SortedSetAddAsync(k, m, s, f));
+        mockDatabase
+            .Setup(d => d.SortedSetAddAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<double>(), It.IsAny<SortedSetWhen>(), It.IsAny<CommandFlags>()))
+            .Returns<RedisKey, RedisValue, double, SortedSetWhen, CommandFlags>((k, m, s, w, f) => realDatabase.SortedSetAddAsync(k, m, s, w, f));
+        mockDatabase
+            .Setup(d => d.SortedSetScoreAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<CommandFlags>()))
+            .Returns<RedisKey, RedisValue, CommandFlags>((k, m, f) => realDatabase.SortedSetScoreAsync(k, m, f));
+        mockDatabase
+            .Setup(d => d.SortedSetRemoveAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<CommandFlags>()))
+            .Returns<RedisKey, RedisValue, CommandFlags>((k, m, f) => realDatabase.SortedSetRemoveAsync(k, m, f));
+        mockDatabase
+            .Setup(d => d.KeyExistsAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .Returns<RedisKey, CommandFlags>((k, f) => realDatabase.KeyExistsAsync(k, f));
+
+        var mockMultiplexer = new Mock<IConnectionMultiplexer>();
+        mockMultiplexer.Setup(m => m.GetDatabase(It.IsAny<int>(), It.IsAny<object?>())).Returns(mockDatabase.Object);
+        return mockMultiplexer.Object;
+    }
+
     // strict-reviewer 事後審查修正：格式損壞（非合法 Guid）的殘留 member 先前會被 `Guid.TryParse`
     // 失敗直接跳過、永久卡住 ZCARD 計算出的名額，須視為孤兒直接清除，涵蓋 admitted 與 waiting 兩個
     // 鏡像。
