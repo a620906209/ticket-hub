@@ -164,6 +164,7 @@ describe('下單成功通知鏈：活動詳情頁確認訂單 → 活動列表�
     pushMock.mockClear()
     replaceMock.mockClear()
     vi.mocked(eventsApi.getEvents).mockReset()
+    vi.mocked(eventsApi.getEventById).mockReset()
     vi.mocked(eventsApi.getEventSeats).mockReset()
     vi.mocked(eventsApi.getTicketTypes).mockReset()
     vi.mocked(ordersApi.placeOrder).mockReset()
@@ -177,7 +178,7 @@ describe('下單成功通知鏈：活動詳情頁確認訂單 → 活動列表�
   it.each(flowCases)(
     'confirmOrder_WhenSucceeded_EventListShowsNoticeLinkingToSameOrderId：$name',
     async ({ seats, ticketTypes, selectsSeat, countQuantity, expectedSelections, orderId }) => {
-      vi.mocked(eventsApi.getEvents).mockResolvedValue([EVENT])
+      vi.mocked(eventsApi.getEventById).mockResolvedValue(EVENT)
       vi.mocked(eventsApi.getEventSeats).mockResolvedValue(seats)
       vi.mocked(eventsApi.getTicketTypes).mockResolvedValue(ticketTypes)
       vi.mocked(ordersApi.placeOrder).mockResolvedValue({ id: orderId })

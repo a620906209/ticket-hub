@@ -86,11 +86,9 @@ export function createLoadTestEvent({ adminToken, scenarioLabel, countTicketQuan
   return { eventId, targetTicketTypeId };
 }
 
-/** 以公開 `GET /api/events` 核對活動為販售中、非排隊模式；不符就 `fail()`。 */
+/** 以公開 `GET /api/events/{id}` 核對活動為販售中、非排隊模式；不符就 `fail()`。 */
 export function assertEventOnSale(eventId) {
-  const events = getOk('/api/events', withTags({}, 'setup'));
-  const event = Array.isArray(events) ? events.find((e) => e.id === eventId) : undefined;
-  if (!event) fail(`setup failed: event ${eventId} not found in GET /api/events`);
+  const event = getOk(`/api/events/${eventId}`, withTags({}, 'setup'));
   const now = Date.now();
   const isOnSale = event.salesStartAtUtc !== null && Date.parse(event.salesStartAtUtc) <= now &&
     event.salesEndAtUtc === null && now < Date.parse(event.startAtUtc);

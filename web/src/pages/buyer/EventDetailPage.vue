@@ -4,7 +4,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import type { RouteLocationNormalized } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { ButtonInstance } from 'element-plus'
-import { getEvents, getEventSeats, getTicketTypes } from '../../api/events'
+import { getEventById, getEventSeats, getTicketTypes } from '../../api/events'
 import { placeOrder } from '../../api/orders'
 import type { PlaceOrderSelection } from '../../api/orders'
 import { getMyQueueStatus, joinQueue } from '../../api/queue'
@@ -663,19 +663,34 @@ async function handleJoinQueue(): Promise<void> {
   }
 }
 
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404
+}
+
 async function loadData(): Promise<void> {
   loading.value = true
   errorMessage.value = ''
   try {
-    // 沒有「查單一活動」的 API，活動列表本來就要整包抓，直接從裡面找這筆。
-    const [events, seatResult, ticketTypeResult] = await Promise.all([
-      getEvents(),
+    // 用 allSettled：活動不存在時座位／票種端點同樣回 404，Promise.all 會拿到最先拒絕的錯誤，
+    // 無法分辨「活動不存在」與「載入失敗」；改以活動請求的結果判定。
+    const [eventResult, seatsResult, ticketTypesResult] = await Promise.allSettled([
+      getEventById(eventId),
       getEventSeats(eventId),
       getTicketTypes(eventId),
     ])
-    event.value = events.find((e) => e.id === eventId) ?? null
-    seats.value = seatResult
-    ticketTypes.value = ticketTypeResult
+    if (eventResult.status === 'rejected' && isNotFoundError(eventResult.reason)) {
+      event.value = null
+      seats.value = []
+      ticketTypes.value = []
+    } else {
+      // 只在全部成功後才寫入：任一請求失敗時保留上一次的畫面狀態並顯示載入失敗。
+      for (const result of [eventResult, seatsResult, ticketTypesResult]) {
+        if (result.status === 'rejected') throw result.reason
+      }
+      event.value = (eventResult as PromiseFulfilledResult<EventSummary>).value
+      seats.value = (seatsResult as PromiseFulfilledResult<EventSeat[]>).value
+      ticketTypes.value = (ticketTypesResult as PromiseFulfilledResult<TicketType[]>).value
+    }
 
     if (authStore.isAuthenticated && event.value?.isRealNameRequired) {
       void loadRealNameStatus()
@@ -1085,7 +1100,7 @@ onUnmounted(() => {
         </section>
       </div>
     </template>
-    <el-empty v-else-if="!loading" description="找不到這個活動" />
+    <el-empty v-else-if="!loading && !errorMessage" description="找不到這個活動" />
   </div>
 </template>
 

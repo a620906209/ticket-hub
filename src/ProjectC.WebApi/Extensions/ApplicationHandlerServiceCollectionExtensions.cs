@@ -5,6 +5,7 @@ using ProjectC.Application.Authentication.PasswordReset;
 using ProjectC.Application.Authentication.Refresh;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
+using ProjectC.Application.Events.GetEventById;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Events.SetEventQueueMode;
@@ -61,6 +62,7 @@ public static class ApplicationHandlerServiceCollectionExtensions
         services.AddScoped<CancelOrderHandler>();
         services.AddScoped<OrderService>();
         services.AddScoped<GetEventsHandler>();
+        services.AddScoped<GetEventByIdHandler>();
         services.AddScoped<GetEventSeatsHandler>();
         services.AddScoped<GetTicketTypesHandler>();
         services.AddScoped<GetOrdersHandler>();

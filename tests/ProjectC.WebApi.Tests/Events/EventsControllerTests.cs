@@ -68,6 +68,63 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         events!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeFalse();
     }
 
+    // EVT-DETAIL-001
+    [Fact]
+    public async Task GetEventById_WhenEventExists_Returns200WithSameFieldsAsListEntry()
+    {
+        var eventId = await SeedEventWithSeatAndTicketTypeAsync();
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/events/{eventId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var detail = await response.Content.ReadFromJsonAsync<EventDto>();
+        var listEntry = (await client.GetFromJsonAsync<List<EventDto>>("/api/events"))!.Single(e => e.Id == eventId);
+        detail.Should().Be(listEntry);
+        detail!.Title.Should().Be("Concert");
+    }
+
+    // EVT-DETAIL-002
+    [Fact]
+    public async Task GetEventById_WhenEventDoesNotExist_Returns404ProblemDetails()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/events/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("title").GetString().Should().Be("NotFound");
+    }
+
+    // EVT-DETAIL-007：公開端點不依身份而異，且不洩漏後台專用欄位。
+    [Fact]
+    public async Task GetEventById_AsAnonymousBuyerAndAdmin_ReturnsIdenticalPublicContent()
+    {
+        var eventId = await SeedEventWithSeatAndTicketTypeAsync();
+        var anonymousClient = _factory.CreateClient();
+        var buyerClient = _factory.CreateClient();
+        var tokens = await AuthTestHelper.RegisterAndLoginAsync(buyerClient);
+        buyerClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
+
+        var anonymousResponse = await anonymousClient.GetAsync($"/api/events/{eventId}");
+        var buyerResponse = await buyerClient.GetAsync($"/api/events/{eventId}");
+        var adminResponse = await adminClient.GetAsync($"/api/events/{eventId}");
+
+        anonymousResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        buyerResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        adminResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var anonymousBody = await anonymousResponse.Content.ReadAsStringAsync();
+        (await buyerResponse.Content.ReadAsStringAsync()).Should().Be(anonymousBody);
+        (await adminResponse.Content.ReadAsStringAsync()).Should().Be(anonymousBody);
+        using var document = JsonDocument.Parse(anonymousBody);
+        foreach (var field in new[] { "createdByMemberId", "createdByDisplayName", "createdAtUtc", "availableSeatCount", "heldSeatCount", "soldSeatCount", "organizerId" })
+        {
+            document.RootElement.TryGetProperty(field, out _).Should().BeFalse($"公開的 GET /api/events/{{id}} 不應該回傳 Admin 專用欄位 '{field}'");
+        }
+    }
+
     [Fact]
     public async Task GetEventSeats_ReturnsSeatsWithZoneCodeAndAvailableStatus()
     {

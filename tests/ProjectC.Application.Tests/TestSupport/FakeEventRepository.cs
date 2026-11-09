@@ -12,6 +12,7 @@ public sealed class FakeEventRepository : IEventRepository
     public CancellationToken? LastGetByIdToken { get; private set; }
     public int GetByIdsCallCount { get; private set; }
     public int GetAllCallCount { get; private set; }
+    public CancellationToken? LastGetAllToken { get; private set; }
     public IReadOnlyList<Guid>? LastGetByIdsIds { get; private set; }
     public CancellationToken? LastGetByIdsToken { get; private set; }
 
@@ -31,6 +32,7 @@ public sealed class FakeEventRepository : IEventRepository
     public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken)
     {
         GetAllCallCount++;
+        LastGetAllToken = cancellationToken;
         return Task.FromResult<IReadOnlyList<Event>>(Data.ToList());
     }
 
