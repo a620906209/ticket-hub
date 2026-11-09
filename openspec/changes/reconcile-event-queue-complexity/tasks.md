@@ -58,7 +58,7 @@
 
 ## 3. 主方法收尾
 
-- [ ] 3.1 確認主方法只剩步驟 1、snapshot 讀取（含失敗 return）、`waitingButAdmittedIds` 計算與六個 `await`，順序為 3、4、（計算）、5、6、7、8。確認 I3：既有測試是否涵蓋「snapshot 讀取失敗時整輪略過」，用突變驗證（例如把 catch 內的 `return;` 改為 `// no-op` 使其繼續執行，或對應等價改動），測試仍通過則補特徵化測試。再做 I1 順序突變：對調步驟 5 與步驟 7 的呼叫行（暫時改動，驗後還原），預期至少一個測試失敗。
+- [ ] 3.1 確認主方法只剩步驟 1、snapshot 讀取（含失敗 return）、`waitingButAdmittedIds` 計算與六個 `await`，順序為 3、4、（計算）、5、6、7、8。確認 I3：既有測試是否涵蓋「snapshot 讀取失敗時整輪略過」，用突變驗證（突變必須能編譯：例如把 catch 內的 `return;` 改為 `snapshot = new PurchaseQueueRedisMirrorSnapshot([], new Dictionary<string, double>());` 使其以空 snapshot 繼續執行；僅刪除 `return;` 會因 `snapshot` 未指派產生 CS0165，編譯錯誤不得當作證據），測試仍通過則補特徵化測試。所有 mutate 的失敗須為 `Failed!` 測試斷言失敗，腳本對編譯錯誤會回報無法判定（退出碼 2），不算證據。再做 I1 順序突變：對調步驟 5 與步驟 7 的呼叫行（暫時改動，驗後還原），預期至少一個測試失敗。
   - 完成紀錄：
   - TDD：N/A。
 
