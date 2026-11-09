@@ -64,7 +64,7 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 - **THEN** 系統顯示「系統暫時無法取得驗證碼，請稍後再試」提示，停用送出按鈕直到下一次成功取得新驗證碼，不清空表單其他已填欄位
 
 ### Requirement: 買家可瀏覽活動列表與座位可售狀態
-系統 SHALL 提供活動列表頁與活動詳情頁，呼叫既有 `event-catalog`／`ticket-purchase` API 顯示活動基本資訊與座位可售狀態（Available／Held／Sold），不需要登入即可瀏覽。活動詳情頁 SHALL 並排顯示活動資訊（含海報圖片與說明文字，若 Admin 建立活動時有填寫）與座位選擇區；座位依分區分組顯示。座位可售狀態（Available／Held／Sold）為頁面載入或手動重新整理當下查詢 API 取得的結果，非伺服器推播的即時更新（不使用 WebSocket／SignalR），此部分不受本節下述快取異動影響（`ticket-purchase`「瀏覽活動與座位可售狀態」能力的座位查詢端點不在 `query-caching` 能力的快取範圍內）。**活動基本資訊（包含 `IsQueueModeEnabled`）呼叫的 `GET /api/events` 端點，自 `query-caching` 能力起可能回傳快取內容，落後資料庫實際值的時間不超過該能力定義的 TTL 上限（`EventListTtlSeconds`，預設 30 秒）；這不改變本頁「頁面載入或手動重新整理當下取得結果」的既有行為模式（前端仍是每次載入即發起一次查詢，只是該次查詢在後端可能命中快取），只是該次查詢結果本身可能不是資料庫當下的絕對最新值。**
+系統 SHALL 提供活動列表頁與活動詳情頁，呼叫既有 `event-catalog`／`ticket-purchase` API 顯示活動基本資訊與座位可售狀態（Available／Held／Sold），不需要登入即可瀏覽。活動詳情頁 SHALL 並排顯示活動資訊（含海報圖片與說明文字，若 Admin 建立活動時有填寫）與座位選擇區；座位依分區分組顯示。座位可售狀態（Available／Held／Sold）為頁面載入或手動重新整理當下查詢 API 取得的結果，非伺服器推播的即時更新（不使用 WebSocket／SignalR），此部分不受本節下述快取異動影響（`ticket-purchase`「瀏覽活動與座位可售狀態」能力的座位查詢端點不在 `query-caching` 能力的快取範圍內）。**活動基本資訊（包含 `IsQueueModeEnabled`）呼叫的端點（活動列表頁為 `GET /api/events`，活動詳情頁為 `event-catalog` 能力的 `GET /api/events/{id}`；兩者取自同一份列表快取、TTL 相同），自 `query-caching` 能力起可能回傳快取內容，落後資料庫實際值的時間不超過該能力定義的 TTL 上限（`EventListTtlSeconds`，預設 30 秒）；這不改變本頁「頁面載入或手動重新整理當下取得結果」的既有行為模式（前端仍是每次載入即發起一次查詢，只是該次查詢在後端可能命中快取），只是該次查詢結果本身可能不是資料庫當下的絕對最新值。**
 
 #### Scenario: 瀏覽活動列表
 - **WHEN** 使用者開啟活動列表頁
@@ -93,7 +93,7 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 
 下單 API 呼叫失敗時，若為 401（換發失敗），系統 SHALL 直接導向登入頁（比照既有座位選位的登入要求），不顯示下單失敗訊息、不套用下方的清空/刷新處理——活動詳情頁為公開頁，既有全域換發/登入導頁機制僅在需要登入的路由才會生效，不會處理公開頁上的登入失效，此元件 MUST 自行攔截 401 並導頁。除 401 與本 Requirement 另行列出的例外（`403 QueueAdmissionRequired`、`429`、`409 SalesNotOpen`／`SalesClosed`）以外的其他下單失敗（座位已被搶先鎖定、計數票種可售總量於送出當下已被其他買家買光、或後端其他驗證失敗），系統 SHALL 一律顯示錯誤訊息、清空目前已選座位與已輸入的計數購買數量、並重新呼叫查詢 API 刷新座位與票種資料——比照既有座位選購失敗時的既定處理，除上述明列例外外，不依失敗原因做差異化處理（維持既有行為單純、一致，明列例外以外不新增依錯誤類型分流的重試或保留輸入邏輯）。
 
-活動是否處於熱門搶購模式，前端 SHALL 直接讀取活動列表查詢 API（`GET /api/events`，`ticket-purchase`「瀏覽活動與座位可售狀態」能力）回應中的 `IsQueueModeEnabled` 欄位判斷，不需另外呼叫其他端點確認。若活動處於熱門搶購模式（`IsQueueModeEnabled = true`），買家進入活動詳情頁的選位/計數購票操作前，系統 SHALL 先呼叫排隊狀態查詢 API：**尚未加入排隊時 SHALL 顯示驗證碼圖片與輸入欄位（呼叫 `GET /api/captcha` 取得），提供加入排隊的操作，加入排隊時 MUST 一併附帶取得的 token 與使用者填寫的驗證碼文字；驗證碼相關元件沿用「買家可透過介面註冊與登入」能力所述的共用 `useCaptcha` composable，不重複實作；加入排隊因驗證碼錯誤被拒絕時，系統 SHALL 顯示驗證碼錯誤提示、自動換發新驗證碼、清空舊輸入，停留在尚未加入排隊的畫面，不清空/重新整理座位與票種資料（與此操作無關）；此處驗證碼圖片載入、刷新失敗時的處理沿用「買家可透過介面註冊與登入」能力所述的共用行為（顯示「系統暫時無法取得驗證碼，請稍後再試」、停用加入排隊按鈕、提供重試操作），不重複定義**；已加入且狀態為 `Waiting` 時 SHALL 顯示排隊等待畫面（含前方等待人數），停用座位選擇、計數購買輸入與區域隨選快速下單的操作入口，並以固定間隔定期輪詢排隊狀態查詢 API（輪詢間隔為可設定值，與後端 `PurchaseQueueOptions.PollingInterval` 同數量級，避免輪詢過於頻繁造成負擔或過於稀疏造成畫面更新明顯延遲）；每次輪詢回應除排隊紀錄狀態外，SHALL 一併包含該活動當下的 `queueModeEnabled`（見 `purchase-queue`「買家可查詢自己的排隊狀態」能力），不需另外呼叫活動列表 API 確認——若某次輪詢回應的 `queueModeEnabled` 為 `false`（Admin 已於買家等待期間關閉熱門搶購模式），系統 SHALL 停止輪詢、關閉排隊等待畫面，開放選位/計數購買、區域隨選與送出訂單操作，比照該活動從未開啟熱門搶購模式的一般行為。狀態轉為 `Admitted` 時 SHALL 停止輪詢、關閉排隊等待畫面，開放選位/計數購買、區域隨選與送出訂單操作。下單 API 回傳 `403 Forbidden` 且 `ProblemDetails.title === "QueueAdmissionRequired"`（排隊資格不足：未入場或已逾時）而失敗時，系統 SHALL 顯示提示訊息並導回排隊等待畫面重新查詢狀態，不套用「其他下單失敗」一般情形的清空/刷新處理（此情形不代表座位或庫存資料有變動）；前端 MUST 同時檢查 `status` 與 `title` 兩者才視為排隊資格不足，不得只依 HTTP 403 狀態碼判斷——其他業務語意的 403（例如既有「非本人操作」情境）SHALL 沿用一般授權錯誤處理，不導向排隊等待畫面。下單 API 因超過請求頻率限制（429）而失敗時，系統 SHALL 顯示「請稍後再試」的提示訊息，不清空已選座位與已輸入的計數購買數量、不重新整理座位與票種資料——此情形代表發送速度過快，而非資料已變動，維持買家目前已選內容供其等待後直接重試。下單 API 回傳 `409 Conflict` 且 `ProblemDetails.title` 為 `SalesNotOpen` 或 `SalesClosed`（販售期間外）而失敗時，系統 SHALL 依「活動頁依販售期間顯示狀態並限制購票操作」能力處理：顯示對應中文訊息，不清空已選座位與已輸入的計數購買數量、不重新整理座位與票種資料——後端在檢查販售期間時尚未鎖定任何座位或庫存，選擇仍然有效；前端 MUST 同時檢查 `status` 與 `title`，其他 409 沿用一般失敗處理。
+活動是否處於熱門搶購模式，前端 SHALL 直接讀取單一活動查詢 API（`GET /api/events/{id}`，`event-catalog` 能力「公開單一活動查詢端點」）回應中的 `IsQueueModeEnabled` 欄位判斷，不需另外呼叫其他端點確認。若活動處於熱門搶購模式（`IsQueueModeEnabled = true`），買家進入活動詳情頁的選位/計數購票操作前，系統 SHALL 先呼叫排隊狀態查詢 API：**尚未加入排隊時 SHALL 顯示驗證碼圖片與輸入欄位（呼叫 `GET /api/captcha` 取得），提供加入排隊的操作，加入排隊時 MUST 一併附帶取得的 token 與使用者填寫的驗證碼文字；驗證碼相關元件沿用「買家可透過介面註冊與登入」能力所述的共用 `useCaptcha` composable，不重複實作；加入排隊因驗證碼錯誤被拒絕時，系統 SHALL 顯示驗證碼錯誤提示、自動換發新驗證碼、清空舊輸入，停留在尚未加入排隊的畫面，不清空/重新整理座位與票種資料（與此操作無關）；此處驗證碼圖片載入、刷新失敗時的處理沿用「買家可透過介面註冊與登入」能力所述的共用行為（顯示「系統暫時無法取得驗證碼，請稍後再試」、停用加入排隊按鈕、提供重試操作），不重複定義**；已加入且狀態為 `Waiting` 時 SHALL 顯示排隊等待畫面（含前方等待人數），停用座位選擇、計數購買輸入與區域隨選快速下單的操作入口，並以固定間隔定期輪詢排隊狀態查詢 API（輪詢間隔為可設定值，與後端 `PurchaseQueueOptions.PollingInterval` 同數量級，避免輪詢過於頻繁造成負擔或過於稀疏造成畫面更新明顯延遲）；每次輪詢回應除排隊紀錄狀態外，SHALL 一併包含該活動當下的 `queueModeEnabled`（見 `purchase-queue`「買家可查詢自己的排隊狀態」能力），不需另外呼叫活動查詢 API 確認——若某次輪詢回應的 `queueModeEnabled` 為 `false`（Admin 已於買家等待期間關閉熱門搶購模式），系統 SHALL 停止輪詢、關閉排隊等待畫面，開放選位/計數購買、區域隨選與送出訂單操作，比照該活動從未開啟熱門搶購模式的一般行為。狀態轉為 `Admitted` 時 SHALL 停止輪詢、關閉排隊等待畫面，開放選位/計數購買、區域隨選與送出訂單操作。下單 API 回傳 `403 Forbidden` 且 `ProblemDetails.title === "QueueAdmissionRequired"`（排隊資格不足：未入場或已逾時）而失敗時，系統 SHALL 顯示提示訊息並導回排隊等待畫面重新查詢狀態，不套用「其他下單失敗」一般情形的清空/刷新處理（此情形不代表座位或庫存資料有變動）；前端 MUST 同時檢查 `status` 與 `title` 兩者才視為排隊資格不足，不得只依 HTTP 403 狀態碼判斷——其他業務語意的 403（例如既有「非本人操作」情境）SHALL 沿用一般授權錯誤處理，不導向排隊等待畫面。下單 API 因超過請求頻率限制（429）而失敗時，系統 SHALL 顯示「請稍後再試」的提示訊息，不清空已選座位與已輸入的計數購買數量、不重新整理座位與票種資料——此情形代表發送速度過快，而非資料已變動，維持買家目前已選內容供其等待後直接重試。下單 API 回傳 `409 Conflict` 且 `ProblemDetails.title` 為 `SalesNotOpen` 或 `SalesClosed`（販售期間外）而失敗時，系統 SHALL 依「活動頁依販售期間顯示狀態並限制購票操作」能力處理：顯示對應中文訊息，不清空已選座位與已輸入的計數購買數量、不重新整理座位與票種資料——後端在檢查販售期間時尚未鎖定任何座位或庫存，選擇仍然有效；前端 MUST 同時檢查 `status` 與 `title`，其他 409 沿用一般失敗處理。
 
 #### Scenario: BW-ORDER-001 選擇可售座位並成功下單
 - **WHEN** 已登入買家在活動詳情頁選擇一個或多個 Available 狀態的座位，按「下一步」、勾選注意事項後按「確認訂單」
@@ -453,7 +453,7 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 - **THEN** 頁面不顯示登記提示，買家仍可選位並送出訂單
 
 ### Requirement: 活動頁依販售期間顯示狀態並限制購票操作
-前端 SHALL 依公開活動列表回傳的 `salesStartAtUtc`、`salesEndAtUtc`、`startAtUtc` 推導販售狀態，規則與後端一致（見 `event-management` 能力「建立活動時可指定販售期間，建立後不可變更」）：
+前端 SHALL 依公開活動 API 回傳的（活動列表頁為 `GET /api/events`，活動詳情頁為 `GET /api/events/{id}`）`salesStartAtUtc`、`salesEndAtUtc`、`startAtUtc` 推導販售狀態，規則與後端一致（見 `event-management` 能力「建立活動時可指定販售期間，建立後不可變更」）：
 
 - 實際販售期間為左閉右開區間 `[salesStartAtUtc, salesEndAtUtc ?? startAtUtc)`
 - `salesStartAtUtc` 為 null 時沒有下界
@@ -960,3 +960,26 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 #### Scenario: BW-RESULT-REDIRECT-003 舊網址帶不存在、非 GUID 或他人的訂單 Id
 - **WHEN** 已登入買家開啟 `/order-result/{Id}`，Id 為不存在的 GUID、非 GUID 字串（例如 `not-a-guid`），或他人訂單的 Id
 - **THEN** 前端導向 `/orders/{同一個 Id 原值}`；不存在與非 GUID 時顯示「找不到這筆訂單」，他人訂單時顯示「你沒有權限查看這筆訂單」，兩者都不顯示任何訂單內容
+
+### Requirement: 活動詳情頁以單一活動 API 載入活動資訊
+活動詳情頁 SHALL 以 `GET /api/events/{id}` 載入該活動的資訊，MUST NOT 為了取得單一活動而呼叫整份列表 `GET /api/events`。頁面載入與重新載入時（瀏覽器重新載入頁面、下單成功後、下單一般失敗後、下單成功後離頁導覽失敗而留在本頁時的重新同步），活動資訊、座位與票種三項資料並行載入，且每次重新載入都呼叫 `GET /api/events/{id}`。該 API 回應 `404`（活動不存在）時，頁面 SHALL 顯示既有的「找不到這個活動」空狀態，不顯示載入失敗的錯誤訊息，並以活動請求的結果為準，不論同時載入的座位、票種請求結果為何；活動請求發生非 `404` 的失敗（網路錯誤、`5xx`），或活動請求成功但座位、票種任一項失敗，維持既有的載入失敗錯誤呈現（沿用 `toErrorMessage`）。活動資訊載入成功後，頁面對實名需求、排隊模式、販售期間與限購張數的既有行為不變。
+
+#### Scenario: BW-DETAIL-001 以單一活動 API 載入
+- **WHEN** 使用者開啟某活動的詳情頁
+- **THEN** 前端呼叫 `GET /api/events/{id}` 取得活動資訊（不呼叫 `GET /api/events`），並同時載入座位與票種，頁面顯示活動資訊與座位圖
+
+#### Scenario: BW-DETAIL-002 活動不存在
+- **WHEN** 使用者開啟的活動詳情頁網址中，`id` 為合法 GUID 但活動不存在（`GET /api/events/{id}` 回 `404`）
+- **THEN** 頁面顯示「找不到這個活動」，不顯示載入失敗的錯誤訊息；同時載入的座位或票種請求即使發生非 `404` 的失敗（例如 `500`），仍以活動請求的結果為準
+
+#### Scenario: BW-DETAIL-003 載入失敗
+- **WHEN** 開啟詳情頁時 `GET /api/events/{id}` 發生非 `404` 的失敗（例如 `500`）
+- **THEN** 頁面頂端顯示載入失敗的錯誤訊息（ApiError 顯示回應本身的訊息，其他例外顯示「載入活動資訊失敗」），不顯示「找不到這個活動」
+
+#### Scenario: BW-DETAIL-004 重新載入時再次呼叫單一活動 API
+- **WHEN** 詳情頁在下單一般失敗後（清空選擇並重新載入資料）重新載入
+- **THEN** 前端再次呼叫 `GET /api/events/{id}`，且不呼叫 `GET /api/events`；下單成功後，以及下單成功後離頁導覽失敗而留在本頁時的重新同步同樣適用
+
+#### Scenario: BW-DETAIL-005 活動載入成功但座位或票種載入失敗
+- **WHEN** `GET /api/events/{id}` 回 `200`，但座位或票種查詢發生非 `404` 的失敗（例如 `500`）
+- **THEN** 頁面頂端顯示載入失敗的錯誤訊息（ApiError 顯示回應本身的訊息，其他例外顯示「載入活動資訊失敗」），不顯示「找不到這個活動」
