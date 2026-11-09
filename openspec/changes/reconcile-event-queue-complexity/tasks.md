@@ -1075,7 +1075,7 @@
 
 ## 6. 審查與歸檔
 
-- [ ] 6.1 依 CLAUDE.md「開發流程總覽」步驟 6：`strict-reviewer` 與全新的對抗式 general-purpose subagent 依序審查（只給 change 名稱與審查目標，不給前輪結論；對抗式 reviewer 的審查目標含「逐行核對搬移前後等價」與「步驟 5 排除集合的跨步驟依賴」），或以 `cross-review` skill 走外部審查；直到沒有 blocking。每輪的工具／模型與 commit 記錄於下。
-  - 完成紀錄：
-- [ ] 6.2 使用者明確同意後 `/opsx:archive`（無 delta spec，skip_specs）並合併回 master。
-  - 完成紀錄：
+- [x] 6.1 依 CLAUDE.md「開發流程總覽」步驟 6：`strict-reviewer` 與全新的對抗式 general-purpose subagent 依序審查（只給 change 名稱與審查目標，不給前輪結論；對抗式 reviewer 的審查目標含「逐行核對搬移前後等價」與「步驟 5 排除集合的跨步驟依賴」），或以 `cross-review` skill 走外部審查；直到沒有 blocking。每輪的工具／模型與 commit 記錄於下。
+  - 完成紀錄：採 cross-review 三 pane 流程。(1) 實作 pane 內 strict-reviewer 第 1 輪 FAIL（B-001 證據被過濾／截斷），修正後第 2 輪 PASS，無 blocking，未改程式碼。(2) 外部審查第 1 輪：Claude Code Opus 5.5（pane w2:p18）strict-reviewer 審 commit f464e2b，PASS、無 blocking，未改任何檔案；對帳測試 Passed! - Failed: 0, Passed: 32, Skipped: 0, Total: 32 - ProjectC.WebApi.Tests.dll (net10.0)。(3) 經使用者指示不做 cross-review 步驟 5 的最後主 session 審查（對抗式 subagent）。非 blocking 建議留待另案：舊 helper CreateFailNTimesOnSortedSetRemoveConnectionMultiplexer 只 mock 舊簽章；方法宣告順序與執行順序不同。
+- [x] 6.2 使用者明確同意後 `/opsx:archive`（無 delta spec，skip_specs）並合併回 master。
+  - 完成紀錄：使用者 2026-11-10 明確同意歸檔並合併 master；無 delta spec（skip_specs）。
