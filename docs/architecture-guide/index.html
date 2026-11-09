@@ -264,7 +264,7 @@
     <h2>代價（誠實版）</h2>
     <ul>
       <li><b>檔案多、跳來跳去</b>：做一個功能要碰 4 個專案。小專案這樣做是過度設計；這個專案 Entity 已經很多，才划算。</li>
-      <li><b>有既有例外</b>：會員、主辦方相關的程式碼直接用 <code>IApplicationDbContext</code> 查 EF，沒走 Repository。這是早期簡化留下的，2026-10-16 審視後決定不重構，新功能則一律走 Repository（見 <code>docs/project-review-2026-10-16.md</code> 3.1）。讀程式碼時看到兩種寫法不要困惑。</li>
+      <li><b>有既有例外</b>：會員、主辦方相關的程式碼直接用 <code>IApplicationDbContext</code> 查 EF，沒走 Repository。這是早期簡化留下的，2026-10-16 審視後決定不重構，新功能則一律走 Repository（見 <code>docs/archive/2026-10-16-project-review.md</code> 3.1）。讀程式碼時看到兩種寫法不要困惑。</li>
       <li><b>少數 Raw SQL</b>：EF Core 沒有 <code>FOR UPDATE</code> 的寫法，所以鎖定查詢用參數化的 Raw SQL，是有寫明理由的例外。</li>
     </ul>
   </section>

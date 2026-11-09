@@ -60,7 +60,7 @@ WebApi → Infrastructure → Application → Domain
 - **Infrastructure**：EF Core 實作、Redis、Mock 金流、QR Code 產生等技術細節。
 - **WebApi**：Controller、DI 註冊、middleware（含全域例外處理、JWT 驗證、限流）。
 
-資料存取有兩套寫法並存：售票側（活動、票種、座位、訂單、票券、排隊）走 Domain 定義的 Repository；會員與主辦方側的 Handler 直接使用 `IApplicationDbContext`（暴露 EF Core `DbSet`），因此 Application 參照了 EF Core 套件。這是早期會員系統沿用下來的寫法，評估後決定不重構，改為規定不再擴充、新 Entity 一律走 Repository，詳見 [`docs/project-review-2026-10-16.md`](docs/project-review-2026-10-16.md)。
+資料存取有兩套寫法並存：售票側（活動、票種、座位、訂單、票券、排隊）走 Domain 定義的 Repository；會員與主辦方側的 Handler 直接使用 `IApplicationDbContext`（暴露 EF Core `DbSet`），因此 Application 參照了 EF Core 套件。這是早期會員系統沿用下來的寫法，評估後決定不重構，改為規定不再擴充、新 Entity 一律走 Repository，詳見 [`docs/archive/2026-10-16-project-review.md`](docs/archive/2026-10-16-project-review.md)。
 
 核心實體關係：
 
@@ -119,10 +119,10 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 - **P95 < 500ms 只有部分達成**：500 併發搶 50 張、0% 超賣在 k6 實測中全數達成。下單 P95 經兩輪優化，暖機後兩種票種都在 500ms 內（數量票約 370–415ms、座位票約 241ms）；但驗收規則要求「api 重建後第一次執行（冷啟動）也要通過」，數量票冷啟動約 918ms，**判定未達成**；座位票正式流程沒有在冷啟動下驗收，以量測組態補測冷啟動，5 次中有 4 次 ≥ 500ms。冷啟動多出的時間大半花在開資料庫連線（推測與 JIT、從零建立連線有關，未驗證）。候選解法是 Redis 預扣閘門（售完後的請求不進資料庫），但需要重新驗證超賣保證，收尾時決定暫緩。完整數據見 [`docs/load-test/p95-phase2-report.md`](docs/load-test/p95-phase2-report.md)
 - **量測環境是本機 Docker Compose**（WSL2），不是正式部署環境；數字只代表相對改善幅度
 - **金流、Email 都是 Mock 實作**，沒有串接真實第三方服務；只提供電子票券，不處理活動取消／退款（範疇決策見 [`docs/project-scope.md`](docs/project-scope.md) 第 2 節 Won't）
-- **前端 UI 審視的 P2 項目與買家探索頁改版暫緩**，見 [`docs/ui-ux-review-2026-10-08.md`](docs/ui-ux-review-2026-10-08.md) 第 6 節
+- **前端 UI 審視的 P2 項目與買家探索頁改版暫緩**，見 [`docs/archive/2026-10-08-ui-ux-review.md`](docs/archive/2026-10-08-ui-ux-review.md) 第 6 節
 - **部分平台管理功能只有後端**：會員停用／啟用、主辦方停權只有 API，沒有前端入口；平台 Admin 帳號只能由開發用的 `DevelopmentDataSeeder` 建立，沒有正式環境的建立機制
 - **商業模式中的買家服務費不實作**：僅為範疇規劃時的示意，與高併發／防黃牛主軸無關，已列入 Won't
-- 以上缺口與架構偏差的完整盤點見 [`docs/project-review-2026-10-16.md`](docs/project-review-2026-10-16.md)
+- 以上缺口與架構偏差的完整盤點見 [`docs/archive/2026-10-16-project-review.md`](docs/archive/2026-10-16-project-review.md)
 
 ## 5. 本機執行
 
@@ -257,7 +257,10 @@ openspec/
 loadtest/                   # k6 壓測腳本
 docs/
   project-scope.md          # 專案宏觀範疇盤點
-  project-review-2026-10-16.md  # 專案整體審視（完整度、架構偏差、待決事項）
+  api-conventions.md        # 跨模組共用慣例（認證、錯誤格式、資料命名、列表分頁）
+  architecture-guide/       # 架構導覽（單一 HTML，瀏覽器直接開 index.html）
+  todo/                     # 進行中、尚未完成的待辦與前置條件文件
+  archive/                  # 已完成或封存的審視與報告（檔名含建立日期）
   load-test/                # 壓測與 P95 優化報告
 .github/workflows/ci.yml    # GitHub Actions：後端測試 + 前端 lint／測試／build
 .claude/agents/             # spec-reviewer / design-hardener / strict-reviewer 審查規則定義
