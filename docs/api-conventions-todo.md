@@ -67,7 +67,7 @@
 
 - [x] 決策：統一請求參數與回應包裝（`page`、`pageSize`、`items`、`totalCount`；offset 分頁），見 `order-list-pagination` design.md 並已寫入 `api-conventions.md` §3
 - [x] 先套用在 `GET /api/orders`、`GET /api/admin/orders` 驗證（`order-list-pagination`）
-- [ ] 遷移其餘端點：`GET /api/admin/events`（`admin-event-list-pagination`）、`GET /api/events`（公開、整份快取，需獨立設計快取鍵）各一個後續 change
+- [ ] 遷移其餘端點：~~`GET /api/admin/events`（`admin-event-list-pagination`）~~ 已完成；`GET /api/events`（公開、整份快取，需獨立設計快取鍵）為後續 change
 - [x] 上限保護：`pageSize` 最大 100、`page` 最大 10000，避免被當作資料匯出
 - [x] `venues`、`organizers/mine`、`admin/organizers` 判定不做分頁（理由見 `api-conventions.md` §3）
 

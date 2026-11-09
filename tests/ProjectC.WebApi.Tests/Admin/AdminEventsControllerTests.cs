@@ -6,6 +6,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Events.GetEventSeats;
@@ -109,8 +110,8 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
             new CreateEventRequest(title, DateTime.UtcNow.AddDays(30), venueId, seatMapId));
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        var listResponse = await organizerClient.GetAsync("/api/admin/events");
-        var events = await listResponse.Content.ReadFromJsonAsync<List<AdminEventSummaryDto>>();
+        var listResponse = await organizerClient.GetAsync("/api/admin/events?pageSize=100");
+        var events = (await listResponse.Content.ReadFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>())!.Items;
         events.Should().NotContain(e => e.Title == title);
     }
 
@@ -220,9 +221,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var (venueId, seatMapId) = await CreateVenueWithSeatMapAsync(organizerClient);
         var eventId = await CreateEventAsync(organizerClient, venueId, seatMapId);
 
-        var response = await organizerClient.GetAsync("/api/admin/events");
+        var response = await organizerClient.GetAsync("/api/admin/events?pageSize=100");
 
-        var events = await response.Content.ReadFromJsonAsync<List<AdminEventSummaryDto>>();
+        var events = (await response.Content.ReadFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>())!.Items;
         events.Should().ContainSingle(e => e.Id == eventId && e.CreatedByMemberId == memberId);
     }
 
@@ -237,9 +238,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var (otherVenueId, otherSeatMapId) = await CreateVenueWithSeatMapAsync(otherOrganizerClient);
         await CreateEventAsync(otherOrganizerClient, otherVenueId, otherSeatMapId);
 
-        var response = await ownerClient.GetAsync("/api/admin/events");
+        var response = await ownerClient.GetAsync("/api/admin/events?pageSize=100");
 
-        var events = await response.Content.ReadFromJsonAsync<List<AdminEventSummaryDto>>();
+        var events = (await response.Content.ReadFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>())!.Items;
         events.Should().ContainSingle(e => e.Id == ownEventId);
     }
 
@@ -655,7 +656,7 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var realNameEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true);
         var plainEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: false);
 
-        var events = await organizerClient.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+        var events = (await organizerClient.GetFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>("/api/admin/events?pageSize=100"))!.Items;
 
         events!.Single(e => e.Id == realNameEvent.EventId).IsRealNameRequired.Should().BeTrue();
         events!.Single(e => e.Id == plainEvent.EventId).IsRealNameRequired.Should().BeFalse();
@@ -686,7 +687,7 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
 
     private static async Task<AdminEventSummaryDto> GetAdminEventAsync(HttpClient client, Guid eventId)
     {
-        var events = await client.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+        var events = (await client.GetFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>("/api/admin/events?pageSize=100"))!.Items;
         return events!.Single(e => e.Id == eventId);
     }
 
@@ -853,7 +854,7 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var withoutWindowId = await ReadCreatedIdAsync(await PostCreateEventJsonAsync(organizerClient,
             CreateEventJson(venueId, seatMapId, ToUtcJson(Today.AddDays(30)))));
 
-        var events = await organizerClient.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+        var events = (await organizerClient.GetFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>("/api/admin/events?pageSize=100"))!.Items;
 
         var withWindow = events!.Single(e => e.Id == withWindowId);
         (withWindow.SalesStartAtUtc, withWindow.SalesEndAtUtc).Should().Be((salesStartAtUtc, salesEndAtUtc));
@@ -960,11 +961,12 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
     }
 
     // 讀原始 JSON 字串而非反序列化成 DateTime：反序列化會吞掉「缺 Z」的差異，前端看到的正是這個字串。
-    private static async Task<string> ReadStartAtUtcJsonAsync(HttpResponseMessage response, Guid eventId)
+    private static async Task<string> ReadStartAtUtcJsonAsync(HttpResponseMessage response, Guid eventId, bool isPaged = false)
     {
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return document.RootElement.EnumerateArray()
+        var list = isPaged ? document.RootElement.GetProperty("items") : document.RootElement;
+        return list.EnumerateArray()
             .Single(e => e.GetProperty("id").GetGuid() == eventId)
             .GetProperty("startAtUtc").GetString()!;
     }
@@ -984,11 +986,11 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
 
         var publicListResponse = await publicClient.GetAsync("/api/events");
         var seatsResponse = await publicClient.GetAsync($"/api/events/{eventId}/seats");
-        var adminListResponse = await organizerClient.GetAsync("/api/admin/events");
+        var adminListResponse = await organizerClient.GetAsync("/api/admin/events?pageSize=100");
 
         (await ReadStartAtUtcJsonAsync(publicListResponse, eventId)).Should().Be(startAtJson);
         seatsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await ReadStartAtUtcJsonAsync(adminListResponse, eventId)).Should().Be(startAtJson);
+        (await ReadStartAtUtcJsonAsync(adminListResponse, eventId, isPaged: true)).Should().Be(startAtJson);
     }
 
     // ---- 每筆訂單限購張數不得超過系統上限（place-order-request-limits EVT-LIMIT-*）----
@@ -1021,11 +1023,12 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         (await GetAdminEventAsync(organizerClient, await ReadCreatedIdAsync(response))).MaxTicketsPerOrder.Should().Be(50);
     }
 
-    private static async Task<int?> ReadMaxTicketsPerOrderJsonAsync(HttpResponseMessage response, Guid eventId)
+    private static async Task<int?> ReadMaxTicketsPerOrderJsonAsync(HttpResponseMessage response, Guid eventId, bool isPaged = false)
     {
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return document.RootElement.EnumerateArray()
+        var list = isPaged ? document.RootElement.GetProperty("items") : document.RootElement;
+        return list.EnumerateArray()
             .Single(e => e.GetProperty("id").GetGuid() == eventId)
             .GetProperty("maxTicketsPerOrder").GetInt32();
     }
@@ -1045,9 +1048,9 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         }
 
         var publicListResponse = await _factory.CreateClient().GetAsync("/api/events");
-        var adminListResponse = await organizerClient.GetAsync("/api/admin/events");
+        var adminListResponse = await organizerClient.GetAsync("/api/admin/events?pageSize=100");
 
         (await ReadMaxTicketsPerOrderJsonAsync(publicListResponse, eventId)).Should().Be(100);
-        (await ReadMaxTicketsPerOrderJsonAsync(adminListResponse, eventId)).Should().Be(100);
+        (await ReadMaxTicketsPerOrderJsonAsync(adminListResponse, eventId, isPaged: true)).Should().Be(100);
     }
 }

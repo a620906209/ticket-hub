@@ -37,8 +37,8 @@ public sealed class CountingEventRepository : IEventRepository
         return _inner.GetAllAsync(cancellationToken);
     }
 
-    public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-        => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+    public Task<EventPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken)
+        => _inner.GetPageByOrganizerIdAsync(organizerId, skip, take, cancellationToken);
 
     public Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken)
         => _inner.GetByIdsAsync(eventIds, cancellationToken);

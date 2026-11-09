@@ -42,8 +42,23 @@ public sealed class FakeEventRepository : IEventRepository
         return Task.FromResult<IReadOnlyList<Event>>(Data.Where(e => eventIds.Contains(e.Id)).ToList());
     }
 
-    public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<Event>>(Data.Where(e => e.OrganizerId == organizerId).ToList());
+    public Task<EventPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken)
+    {
+        var scoped = Data.Where(e => e.OrganizerId == organizerId).ToList();
+        var items = scoped
+            .OrderBy(e => e.CreatedAtUtc == null)
+            .ThenByDescending(e => e.CreatedAtUtc)
+            .ThenBy(e => e.Id)
+            .Skip(skip)
+            .Take(take)
+            .ToList();
+        LastGetPageToken = cancellationToken;
+        GetPageCallCount++;
+        return Task.FromResult(new EventPage(items, scoped.Count));
+    }
+
+    public int GetPageCallCount { get; private set; }
+    public CancellationToken? LastGetPageToken { get; private set; }
 
     public void Add(Event @event) => Data.Add(@event);
 

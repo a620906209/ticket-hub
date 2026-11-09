@@ -12,8 +12,15 @@ public sealed class FakeEventSeatRepository : IEventSeatRepository
     public Task<IReadOnlyList<EventSeat>> GetByEventIdAsync(Guid eventId, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<EventSeat>>(Data.Where(es => es.EventId == eventId).ToList());
 
+    public int GetByEventIdsCallCount { get; private set; }
+    public IReadOnlyList<Guid>? LastGetByEventIdsIds { get; private set; }
+
     public Task<IReadOnlyList<EventSeat>> GetByEventIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken)
-        => Task.FromResult<IReadOnlyList<EventSeat>>(Data.Where(es => eventIds.Contains(es.EventId)).ToList());
+    {
+        GetByEventIdsCallCount++;
+        LastGetByEventIdsIds = eventIds.ToList();
+        return Task.FromResult<IReadOnlyList<EventSeat>>(Data.Where(es => eventIds.Contains(es.EventId)).ToList());
+    }
 
     public int GetByIdsCallCount { get; private set; }
     public IReadOnlyList<Guid>? LastGetByIdsIds { get; private set; }

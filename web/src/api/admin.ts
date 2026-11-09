@@ -79,8 +79,8 @@ export function getSeatMapById(venueId: string, seatMapId: string): Promise<Seat
   return authorizedRequest(`/admin/venues/${venueId}/seat-maps/${seatMapId}`)
 }
 
-export function getAdminEvents(): Promise<AdminEventSummary[]> {
-  return authorizedRequest('/admin/events')
+export function getAdminEvents(page = 1): Promise<PagedResult<AdminEventSummary>> {
+  return authorizedRequest(`/admin/events?page=${page}`)
 }
 
 export function getEventSalesReport(eventId: string): Promise<SalesReport> {

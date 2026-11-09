@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Common;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Organizers.SwitchOrganizerContext;
 using ProjectC.Domain.Venues;
@@ -64,7 +65,7 @@ public class EventOrganizerBackfillEndToEndTests : IClassFixture<CustomWebApplic
 
         var adminClient = _factory.CreateClient();
         adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", switchedAccessToken);
-        var events = await adminClient.GetFromJsonAsync<List<AdminEventSummaryDto>>("/api/admin/events");
+        var events = (await adminClient.GetFromJsonAsync<PagedResultDto<AdminEventSummaryDto>>("/api/admin/events?pageSize=100"))!.Items;
         events.Should().ContainSingle(e => e.Id == legacyEventId);
     }
 

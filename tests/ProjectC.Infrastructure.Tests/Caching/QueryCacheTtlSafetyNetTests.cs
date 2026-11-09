@@ -41,7 +41,7 @@ public class QueryCacheTtlSafetyNetTests
     {
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
         public Task<IReadOnlyList<Event>> GetAllAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("MUST NOT query the database on a cache hit.");
-        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<EventPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken) => throw new NotSupportedException();
         public void Add(Event @event) => throw new NotSupportedException();
         public void Update(Event @event) => throw new NotSupportedException();
@@ -748,7 +748,7 @@ public class QueryCacheTtlSafetyNetTests
 
         public Task<Event?> GetByIdAsync(Guid id, CancellationToken cancellationToken) => _inner.GetByIdAsync(id, cancellationToken);
         public Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken) => _inner.GetByIdsAsync(eventIds, cancellationToken);
-        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken) => _inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+        public Task<EventPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken) => _inner.GetPageByOrganizerIdAsync(organizerId, skip, take, cancellationToken);
         public void Add(Event @event) => _inner.Add(@event);
         public void Update(Event @event) => _inner.Update(@event);
         public Task<Event?> GetForUpdateAsync(Guid eventId, CancellationToken cancellationToken) => _inner.GetForUpdateAsync(eventId, cancellationToken);

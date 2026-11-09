@@ -29,8 +29,21 @@ public class EventRepository : IEventRepository
         return await _dbContext.Events.AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-        => await _dbContext.Events.Where(e => e.OrganizerId == organizerId).ToListAsync(cancellationToken);
+    public async Task<EventPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken)
+    {
+        var scopedEvents = _dbContext.Events.AsNoTracking().Where(e => e.OrganizerId == organizerId);
+
+        var totalCount = await scopedEvents.CountAsync(cancellationToken);
+        var items = await scopedEvents
+            .OrderBy(e => e.CreatedAtUtc == null)
+            .ThenByDescending(e => e.CreatedAtUtc)
+            .ThenBy(e => e.Id)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
+        return new EventPage(items, totalCount);
+    }
 
     public void Add(Event @event) => _dbContext.Events.Add(@event);
 

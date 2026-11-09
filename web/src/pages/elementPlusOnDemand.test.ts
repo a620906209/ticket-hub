@@ -5,7 +5,7 @@ import AdminEventListPage from './admin/EventListPage.vue'
 import BuyerEventListPage from './buyer/EventListPage.vue'
 import * as adminApi from '../api/admin'
 import * as eventsApi from '../api/events'
-import type { AdminEventSummary, EventSummary } from '../types/apiResponses'
+import type { AdminEventSummary, EventSummary, PagedResult } from '../types/apiResponses'
 
 vi.mock('../api/admin')
 vi.mock('../api/events')
@@ -76,14 +76,14 @@ describe('[BS-012] 不安裝 Element Plus 全域 plugin 時頁面仍能解析所
   })
 
   it('後台活動列表：載入中顯示 loading mask，載入後渲染表格、表單元件與實名標籤', async () => {
-    const deferred = createDeferred<AdminEventSummary[]>()
+    const deferred = createDeferred<PagedResult<AdminEventSummary>>()
     vi.mocked(adminApi.getAdminEvents).mockReturnValue(deferred.promise)
     const wrapper = mountWithoutElementPlus(AdminEventListPage)
     await flushPromises()
 
     expect.soft(wrapper.find('.el-loading-mask').exists()).toBe(true)
 
-    deferred.resolve([buildAdminEvent()])
+    deferred.resolve({ items: [buildAdminEvent()], page: 1, pageSize: 20, totalCount: 1 })
     await flushPromises()
 
     for (const selector of ['.el-table', '.el-select', '.el-switch', '.el-input', '.el-input-number', '.el-form', '.el-button', '.el-tag']) {

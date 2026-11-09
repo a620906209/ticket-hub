@@ -1,4 +1,6 @@
 using FluentAssertions;
+using ProjectC.Application.Common;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetAdminEvents;
 using ProjectC.Application.Tests.TestSupport;
 using ProjectC.Domain.Events;
@@ -18,7 +20,14 @@ public class GetAdminEventsHandlerTests
 
     public GetAdminEventsHandlerTests()
     {
-        _handler = new GetAdminEventsHandler(_eventRepository, _dbContext, _eventSeatRepository, _dateTimeProvider);
+        _handler = new GetAdminEventsHandler(_eventRepository, _dbContext, _eventSeatRepository, _dateTimeProvider, new PageRequestValidator());
+    }
+
+    private async Task<IReadOnlyList<AdminEventSummaryDto>> ListAsync(PageRequest? pageRequest = null)
+    {
+        var result = await _handler.HandleAsync(OrganizerId, pageRequest ?? new PageRequest(1, 100), CancellationToken.None);
+        result.IsSuccess.Should().BeTrue();
+        return result.Value!.Items;
     }
 
     private (Event Event, SeatMap SeatMap) SeedEvent(Guid? createdByMemberId = null, Guid? organizerId = null)
@@ -38,7 +47,7 @@ public class GetAdminEventsHandlerTests
         _dbContext.MemberData.Add(member);
         SeedEvent(createdByMemberId: member.Id);
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         result.Single().CreatedByDisplayName.Should().Be("Admin One");
     }
@@ -48,7 +57,7 @@ public class GetAdminEventsHandlerTests
     {
         SeedEvent(createdByMemberId: null);
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         result.Single().CreatedByDisplayName.Should().BeNull();
     }
@@ -58,7 +67,7 @@ public class GetAdminEventsHandlerTests
     {
         SeedEvent(createdByMemberId: Guid.NewGuid());
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         result.Single().CreatedByDisplayName.Should().BeNull();
     }
@@ -79,7 +88,7 @@ public class GetAdminEventsHandlerTests
         soldEventSeat.ConfirmSold(soldOrderId, now);
         _eventSeatRepository.Data.AddRange(eventSeats);
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         var summary = result.Single();
         summary.AvailableSeatCount.Should().Be(1);
@@ -97,7 +106,7 @@ public class GetAdminEventsHandlerTests
         eventSeats.Single(s => s.SeatId == seat.Id).Hold(Guid.NewGuid(), now.AddMinutes(-1), now.AddMinutes(-10));
         _eventSeatRepository.Data.AddRange(eventSeats);
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         var summary = result.Single();
         summary.AvailableSeatCount.Should().Be(1);
@@ -109,7 +118,7 @@ public class GetAdminEventsHandlerTests
     {
         SeedEvent();
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         var summary = result.Single();
         summary.AvailableSeatCount.Should().Be(0);
@@ -132,7 +141,7 @@ public class GetAdminEventsHandlerTests
         eventSeatsB[0].Hold(Guid.NewGuid(), now.AddMinutes(10), now);
         _eventSeatRepository.Data.AddRange(eventSeatsB);
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         result.Single(e => e.Id == eventA.Id).AvailableSeatCount.Should().Be(1);
         result.Single(e => e.Id == eventA.Id).HeldSeatCount.Should().Be(0);
@@ -143,7 +152,7 @@ public class GetAdminEventsHandlerTests
     [Fact]
     public async Task HandleAsync_WithNoEvents_ReturnsEmptyList()
     {
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         result.Should().BeEmpty();
     }
@@ -155,7 +164,7 @@ public class GetAdminEventsHandlerTests
         var (ownEvent, _) = SeedEvent(organizerId: OrganizerId);
         SeedEvent(organizerId: Guid.NewGuid());
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         result.Should().ContainSingle(e => e.Id == ownEvent.Id);
     }
@@ -172,7 +181,7 @@ public class GetAdminEventsHandlerTests
         _eventRepository.Data.Add(withWindow);
         var (withoutWindow, _) = SeedEvent();
 
-        var result = await _handler.HandleAsync(OrganizerId, CancellationToken.None);
+        var result = await ListAsync();
 
         var withWindowDto = result.Single(e => e.Id == withWindow.Id);
         withWindowDto.SalesStartAtUtc.Should().Be(salesStart);
@@ -180,5 +189,95 @@ public class GetAdminEventsHandlerTests
         var withoutWindowDto = result.Single(e => e.Id == withoutWindow.Id);
         withoutWindowDto.SalesStartAtUtc.Should().BeNull();
         withoutWindowDto.SalesEndAtUtc.Should().BeNull();
+    }
+
+    // [LP-VALID] 越界回 Validation，Repository 未被呼叫。
+    [Theory]
+    [InlineData(1, 101, new[] { "PageSize" })]
+    [InlineData(0, 20, new[] { "Page" })]
+    [InlineData(10001, 20, new[] { "Page" })]
+    [InlineData(0, 101, new[] { "Page", "PageSize" })]
+    public async Task HandleAsync_WhenPageRequestOutOfRange_ReturnsValidationErrorWithoutQueryingRepository(int page, int pageSize, string[] expectedFields)
+    {
+        var result = await _handler.HandleAsync(OrganizerId, new PageRequest(page, pageSize), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.Error!.Type.Should().Be(ErrorType.Validation);
+        result.Error.FieldErrors!.Keys.Should().BeEquivalentTo(expectedFields);
+        _eventRepository.GetPageCallCount.Should().Be(0);
+        _eventSeatRepository.GetByEventIdsCallCount.Should().Be(0);
+    }
+
+    // [EVT-LIST-006] envelope 欄位、最後一頁不足、totalCount 為該 Organizer 的實際總數。
+    [Fact]
+    public async Task HandleAsync_OnLastPartialPage_ReturnsEnvelopeWithRemainingItemsAndTotalCount()
+    {
+        for (var i = 0; i < 5; i++) SeedEventCreatedAt(_dateTimeProvider.UtcNow.AddMinutes(i));
+        SeedEvent(organizerId: Guid.NewGuid());
+
+        var result = await _handler.HandleAsync(OrganizerId, new PageRequest(3, 2), CancellationToken.None);
+
+        var page = result.Value!;
+        page.Page.Should().Be(3);
+        page.PageSize.Should().Be(2);
+        page.TotalCount.Should().Be(5);
+        page.Items.Should().HaveCount(1);
+    }
+
+    // [EVT-LIST-006] 超過最後一頁：空 items 與實際 totalCount，不查座位。
+    [Fact]
+    public async Task HandleAsync_WhenPageBeyondLast_ReturnsEmptyItemsWithActualTotalCount()
+    {
+        SeedEvent();
+        SeedEvent();
+
+        var result = await _handler.HandleAsync(OrganizerId, new PageRequest(5, 20), CancellationToken.None);
+
+        result.Value!.Items.Should().BeEmpty();
+        result.Value.TotalCount.Should().Be(2);
+        _eventSeatRepository.LastGetByEventIdsIds.Should().BeNullOrEmpty();
+    }
+
+    // [EVT-LIST-009] 座位批次查詢只收到當頁活動的 Id。
+    [Fact]
+    public async Task HandleAsync_OnSecondPage_QueriesSeatsOnlyForEventsOnThatPage()
+    {
+        var now = _dateTimeProvider.UtcNow;
+        var events = Enumerable.Range(0, 5).Select(i => SeedEventCreatedAt(now.AddMinutes(i))).ToList();
+        // 新到舊：events[4], [3] | [2], [1] | [0]
+        var result = await _handler.HandleAsync(OrganizerId, new PageRequest(2, 2), CancellationToken.None);
+
+        result.Value!.Items.Select(i => i.Id).Should().Equal(events[2].Id, events[1].Id);
+        _eventSeatRepository.LastGetByEventIdsIds.Should().BeEquivalentTo(new[] { events[2].Id, events[1].Id });
+    }
+
+    // [EVT-LIST-009] 當頁為空時座位查詢收到空集合（不帶任何活動 Id）。
+    [Fact]
+    public async Task HandleAsync_WhenPageIsEmpty_PassesNoEventIdsToSeatQuery()
+    {
+        var result = await _handler.HandleAsync(OrganizerId, new PageRequest(1, 20), CancellationToken.None);
+
+        result.Value!.Items.Should().BeEmpty();
+        _eventSeatRepository.LastGetByEventIdsIds.Should().BeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task HandleAsync_PassesCancellationTokenToRepository()
+    {
+        using var cts = new CancellationTokenSource();
+        SeedEvent();
+
+        await _handler.HandleAsync(OrganizerId, new PageRequest(1, 20), cts.Token);
+
+        _eventRepository.LastGetPageToken.Should().Be(cts.Token);
+    }
+
+    private Event SeedEventCreatedAt(DateTime createdAtUtc)
+    {
+        var @event = new Event(
+            Guid.NewGuid(), "Concert", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), OrganizerId,
+            createdByMemberId: Guid.NewGuid(), createdAtUtc: createdAtUtc);
+        _eventRepository.Data.Add(@event);
+        return @event;
     }
 }

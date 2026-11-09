@@ -82,8 +82,8 @@ public sealed class OrganizerScopingFaultInjectionWebApplicationFactory : Custom
         public async Task<IReadOnlyList<Event>> GetByIdsAsync(IReadOnlyList<Guid> eventIds, CancellationToken cancellationToken)
             => (await inner.GetByIdsAsync(eventIds, cancellationToken)).Where(e => !missingEventIds.ContainsKey(e.Id)).ToList();
 
-        public Task<IReadOnlyList<Event>> GetByOrganizerIdAsync(Guid organizerId, CancellationToken cancellationToken)
-            => inner.GetByOrganizerIdAsync(organizerId, cancellationToken);
+        public Task<EventPage> GetPageByOrganizerIdAsync(Guid organizerId, int skip, int take, CancellationToken cancellationToken)
+            => inner.GetPageByOrganizerIdAsync(organizerId, skip, take, cancellationToken);
 
         public void Add(Event @event) => inner.Add(@event);
 
