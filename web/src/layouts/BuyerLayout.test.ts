@@ -71,7 +71,7 @@ function readSwitcherLabels(popper: HTMLElement): string[] {
 describe('BuyerLayout 會員下拉選單與區域切換選單', { timeout: 30_000 }, () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    vi.mocked(eventsApi.getEvents).mockReset().mockResolvedValue([])
+    vi.mocked(eventsApi.getEvents).mockReset().mockResolvedValue({ items: [], page: 1, pageSize: 20, totalCount: 0 })
     vi.mocked(membersApi.getMyProfile).mockReset().mockResolvedValue({
       id: '1', email: 'user@example.com', displayName: '會員選單', role: 'Member', isActive: true,
       hasRegisteredRealName: false, realName: null, nationalIdLast4Masked: null,

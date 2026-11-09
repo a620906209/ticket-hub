@@ -68,7 +68,7 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 
 #### Scenario: 瀏覽活動列表
 - **WHEN** 使用者開啟活動列表頁
-- **THEN** 系統以卡片格線顯示目前所有活動的基本資訊；此資訊可能是 `query-caching` 能力的快取內容，落後時間不超過該能力定義的 TTL 上限
+- **THEN** 系統以卡片格線顯示當頁活動（依 `event-catalog` 能力的排序，每頁 20 筆）的基本資訊；此資訊可能是 `query-caching` 能力的快取內容，落後時間不超過該能力定義的 TTL 上限
 
 #### Scenario: 查看活動座位狀態
 - **WHEN** 使用者點選某活動進入詳情頁
@@ -983,3 +983,38 @@ TBD - created by archiving change ticketing-web-ui. Update Purpose after archive
 #### Scenario: BW-DETAIL-005 活動載入成功但座位或票種載入失敗
 - **WHEN** `GET /api/events/{id}` 回 `200`，但座位或票種查詢發生非 `404` 的失敗（例如 `500`）
 - **THEN** 頁面頂端顯示載入失敗的錯誤訊息（ApiError 顯示回應本身的訊息，其他例外顯示「載入活動資訊失敗」），不顯示「找不到這個活動」
+
+### Requirement: 買家活動列表支援分頁
+系統 SHALL 在買家活動列表頁以分頁元件顯示活動，每頁筆數固定為預設值（不提供每頁筆數選擇器），分頁元件 SHALL 顯示 `totalCount` 與頁碼；換頁時系統 SHALL 以新的 `page` 重新呼叫 `event-catalog` 能力的 `GET /api/events`，並以回應的 `items` 取代列表內容，前端不重新排序。頁碼只保存在頁面元件內，MUST NOT 寫入網址；重新進入列表頁從第 1 頁開始。活動總筆數不超過一頁時 MUST NOT 顯示分頁元件；活動總筆數為 0 時顯示「目前沒有活動」。
+
+#### Scenario: BW-LIST-PAGE-001 活動超過一頁時可換頁
+- **WHEN** 使用者開啟活動列表頁，活動總數超過一頁，並點選第 2 頁
+- **THEN** 分頁元件顯示活動總筆數，系統以 `page` 為 2 重新呼叫 `GET /api/events`，列表改為顯示第 2 頁的活動，載入期間列表顯示載入中狀態
+
+#### Scenario: BW-LIST-PAGE-002 活動未超過一頁時不顯示分頁元件
+- **WHEN** 使用者開啟活動列表頁，活動總數不超過一頁
+- **THEN** 頁面只顯示活動卡片，不顯示分頁元件
+
+#### Scenario: BW-LIST-PAGE-003 沒有活動
+- **WHEN** 使用者開啟活動列表頁，`totalCount` 為 0
+- **THEN** 頁面顯示「目前沒有活動」，不顯示分頁元件
+
+#### Scenario: BW-LIST-PAGE-004 空頁時只重試一次改請求最後一頁
+- **WHEN** 使用者請求某頁，回應 `items` 為空但 `totalCount` 大於 0
+- **THEN** 系統只重試一次，改請求最後一頁並同步分頁元件顯示該頁；重試的回應仍為空時不再重試
+
+#### Scenario: BW-LIST-PAGE-005 換頁請求失敗時退回前一頁
+- **WHEN** 使用者停在第 1 頁並點選第 2 頁，但第 2 頁的請求回應錯誤
+- **THEN** 分頁元件回到第 1 頁，列表保留第 1 頁的活動並顯示錯誤提示，不顯示與頁碼不符的內容
+
+#### Scenario: BW-LIST-PAGE-006 首次載入失敗
+- **WHEN** 使用者開啟活動列表頁，第 1 頁的請求回應錯誤
+- **THEN** 頁面顯示「載入活動列表失敗」等錯誤提示（ApiError 顯示回應本身的訊息），不顯示分頁元件與「目前沒有活動」
+
+#### Scenario: BW-LIST-PAGE-007 快速連續換頁時丟棄過期回應
+- **WHEN** 使用者快速依序點選第 2 頁與第 3 頁，第 3 頁的回應先到、第 2 頁的回應後到
+- **THEN** 列表顯示第 3 頁的活動，第 2 頁的回應被丟棄
+
+#### Scenario: BW-LIST-PAGE-008 頁碼不進網址
+- **WHEN** 使用者換到第 2 頁
+- **THEN** 網址不含頁碼參數；使用者點選活動進入詳情頁再返回列表頁，列表從第 1 頁開始

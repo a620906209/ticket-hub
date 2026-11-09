@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketTypes;
@@ -22,9 +23,10 @@ namespace ProjectC.WebApi.Tests.Events;
 // Redis，會被其他測試方法的殘留快取內容污染（見 CustomWebApplicationFactory 的 Redis 隔離註解）。
 public class QueryCachingComponentTests
 {
-    // 以字面值鎖定 v2 契約，不引用 GetEventsHandler.CacheKey：常數被改回舊值時測試必須失敗（event-sales-window tasks 5.4／5.5）。
-    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    // 以字面值鎖定 v3 契約，不引用 GetEventsHandler.CacheKey：常數被改回舊值時測試必須失敗（event-sales-window tasks 5.4／5.5）。
+    private const string EventListCacheKeyV3 = "query-cache:events:list:v3";
     private const string LegacyEventListCacheKey = "query-cache:events:list";
+    private const string PreviousEventListCacheKeyV2 = "query-cache:events:list:v2";
 
     private static async Task<Guid> ReadCreatedIdAsync(HttpResponseMessage response)
     {
@@ -69,13 +71,13 @@ public class QueryCachingComponentTests
 
             var firstResponse = await client.GetAsync("/api/events");
             firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            var firstEvents = await firstResponse.Content.ReadFromJsonAsync<List<EventDto>>();
+            var firstEvents = (await firstResponse.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())?.Items;
             firstEvents.Should().Contain(e => e.Id == eventId);
-            (await GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue();
+            (await GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV3)).Should().BeTrue();
 
             var secondResponse = await client.GetAsync("/api/events");
             secondResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            var secondEvents = await secondResponse.Content.ReadFromJsonAsync<List<EventDto>>();
+            var secondEvents = (await secondResponse.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())?.Items;
 
             secondEvents.Should().BeEquivalentTo(firstEvents, options => options.WithStrictOrdering());
             factory.EventRepositoryCallCounter.GetAllAsyncCallCount.Should().Be(1, "第二次呼叫應該命中快取，不再查詢資料庫");
@@ -120,7 +122,7 @@ public class QueryCachingComponentTests
         => factory.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase();
 
     private static Task<bool> EventListCacheKeyExistsAsync(CachingComponentTestWebApplicationFactory factory)
-        => GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV2);
+        => GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV3);
 
     private static async Task<bool> ReadIsQueueModeEnabledFromDatabaseAsync(CachingComponentTestWebApplicationFactory factory, Guid eventId)
     {
@@ -139,7 +141,7 @@ public class QueryCachingComponentTests
         {
             var (eventId, _, ownerClient) = await SeedEventAsync(factory);
             var anonymousClient = factory.CreateClient();
-            var cachedEvents = await anonymousClient.GetFromJsonAsync<List<EventDto>>("/api/events");
+            var cachedEvents = (await anonymousClient.GetFromJsonAsync<PagedResultDto<EventDto>>("/api/events"))?.Items;
             cachedEvents!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeFalse();
             (await EventListCacheKeyExistsAsync(factory)).Should().BeTrue();
 
@@ -147,7 +149,7 @@ public class QueryCachingComponentTests
 
             response.StatusCode.Should().Be(HttpStatusCode.NoContent);
             (await EventListCacheKeyExistsAsync(factory)).Should().BeFalse();
-            var refreshedEvents = await anonymousClient.GetFromJsonAsync<List<EventDto>>("/api/events");
+            var refreshedEvents = (await anonymousClient.GetFromJsonAsync<PagedResultDto<EventDto>>("/api/events"))?.Items;
             refreshedEvents!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeTrue();
         }
         finally
@@ -166,7 +168,7 @@ public class QueryCachingComponentTests
         {
             var (eventId, _, _) = await SeedEventAsync(factory);
             var anonymousClient = factory.CreateClient();
-            var cachedEvents = await anonymousClient.GetFromJsonAsync<List<EventDto>>("/api/events");
+            var cachedEvents = (await anonymousClient.GetFromJsonAsync<PagedResultDto<EventDto>>("/api/events"))?.Items;
             cachedEvents!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeFalse();
             (await EventListCacheKeyExistsAsync(factory)).Should().BeTrue();
             var (otherOrganizerClient, _) = await AuthTestHelper.CreateAuthenticatedApprovedOrganizerClientAsync(factory);
@@ -185,9 +187,9 @@ public class QueryCachingComponentTests
 
     // ---- 活動列表快取 key 版本化（event-sales-window QC-EVT-VER-*）----
 
-    // QC-EVT-VER-001：滾動部署期間舊版本寫入的舊形狀內容不含販售期間，新版本若讀到會把有販售期間的活動誤顯示為無限制。
+    // QC-EVT-VER-001：滾動部署期間舊版本寫入的舊 key（list、list:v2）內容未排序，新版本若讀到會回傳錯誤順序或缺少販售期間。
     [Fact]
-    public async Task GetEvents_WhenOnlyLegacyKeyExists_IgnoresItAndWritesV2()
+    public async Task GetEvents_WhenOnlyOlderKeysExist_IgnoresThemAndWritesSortedV3()
     {
         var factory = new CachingComponentTestWebApplicationFactory();
         await factory.InitializeAsync();
@@ -195,24 +197,30 @@ public class QueryCachingComponentTests
         {
             var salesStartAtUtc = DateTime.UtcNow.Date.AddDays(1);
             var salesEndAtUtc = DateTime.UtcNow.Date.AddDays(20);
-            var (eventId, venueId, _) = await SeedEventAsync(factory, salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
+            var (olderEventId, venueId, _) = await SeedEventAsync(factory, salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
+            var (newerEventId, _, _) = await SeedEventAsync(factory, salesStartAtUtc: salesStartAtUtc, salesEndAtUtc: salesEndAtUtc);
             var redis = GetRedisDatabase(factory);
-            var legacyValue = JsonSerializer.Serialize(new[]
+            string BuildUnsortedOlderValue() => JsonSerializer.Serialize(new[] { olderEventId, newerEventId }.Select(id => new
             {
-                new { Id = eventId, Title = "Concert", StartAtUtc = DateTime.UtcNow.AddDays(30), VenueId = venueId, SeatMapId = Guid.NewGuid(),
-                    Description = (string?)null, PosterUrl = (string?)null, MaxTicketsPerOrder = (int?)null, IsQueueModeEnabled = false, IsRealNameRequired = false },
-            });
+                Id = id, Title = "Concert", StartAtUtc = DateTime.UtcNow.AddDays(30), VenueId = venueId, SeatMapId = Guid.NewGuid(),
+                Description = (string?)null, PosterUrl = (string?)null, MaxTicketsPerOrder = (int?)null, IsQueueModeEnabled = false, IsRealNameRequired = false,
+            }));
+            var legacyValue = BuildUnsortedOlderValue();
+            var previousV2Value = BuildUnsortedOlderValue();
             await redis.StringSetAsync(LegacyEventListCacheKey, legacyValue);
-            (await redis.KeyExistsAsync(EventListCacheKeyV2)).Should().BeFalse();
+            await redis.StringSetAsync(PreviousEventListCacheKeyV2, previousV2Value);
+            (await redis.KeyExistsAsync(EventListCacheKeyV3)).Should().BeFalse();
 
             var response = await factory.CreateClient().GetAsync("/api/events");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK);
-            var events = await response.Content.ReadFromJsonAsync<List<EventDto>>();
-            var listedEvent = events!.Single(e => e.Id == eventId);
-            (listedEvent.SalesStartAtUtc, listedEvent.SalesEndAtUtc).Should().Be((salesStartAtUtc, salesEndAtUtc));
-            (await redis.KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue();
+            var events = (await response.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())?.Items;
+            events!.Select(e => e.Id).Should().Equal(newerEventId, olderEventId);
+            events.Should().OnlyContain(e => e.SalesStartAtUtc == salesStartAtUtc && e.SalesEndAtUtc == salesEndAtUtc);
+            using var document = JsonDocument.Parse((string)(await redis.StringGetAsync(EventListCacheKeyV3))!);
+            document.RootElement.EnumerateArray().Select(e => e.GetProperty("Id").GetGuid()).Should().Equal(newerEventId, olderEventId);
             ((string?)await redis.StringGetAsync(LegacyEventListCacheKey)).Should().Be(legacyValue);
+            ((string?)await redis.StringGetAsync(PreviousEventListCacheKeyV2)).Should().Be(previousV2Value);
         }
         finally
         {
@@ -220,9 +228,9 @@ public class QueryCachingComponentTests
         }
     }
 
-    // QC-EVT-VER-004：v2 讀取時不檢查形狀，正確性依賴「寫入一定是完整形狀」；序列化設定若改成省略 null 屬性，本測試失敗。
+    // QC-EVT-VER-004：v3 讀取時不檢查形狀，正確性依賴「寫入一定是完整形狀」；序列化設定若改成省略 null 屬性，本測試失敗。
     [Fact]
-    public async Task GetEvents_OnCacheMiss_WritesV2WithBothSalesWindowPropertiesEvenWhenNull()
+    public async Task GetEvents_OnCacheMiss_WritesV3WithBothSalesWindowPropertiesEvenWhenNull()
     {
         var factory = new CachingComponentTestWebApplicationFactory();
         await factory.InitializeAsync();
@@ -241,12 +249,12 @@ public class QueryCachingComponentTests
                     .SetProperty(e => e.SalesEndAtUtc, (DateTime?)null));
             }
             var redis = GetRedisDatabase(factory);
-            await redis.KeyDeleteAsync(EventListCacheKeyV2);
+            await redis.KeyDeleteAsync(EventListCacheKeyV3);
 
             var response = await factory.CreateClient().GetAsync("/api/events");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK);
-            var rawValue = (string?)await redis.StringGetAsync(EventListCacheKeyV2);
+            var rawValue = (string?)await redis.StringGetAsync(EventListCacheKeyV3);
             rawValue.Should().NotBeNull();
             using var document = JsonDocument.Parse(rawValue!);
             var elements = document.RootElement.EnumerateArray().ToList();
@@ -262,6 +270,7 @@ public class QueryCachingComponentTests
             eventY.GetProperty("SalesStartAtUtc").ValueKind.Should().Be(JsonValueKind.Null);
             eventY.GetProperty("SalesEndAtUtc").ValueKind.Should().Be(JsonValueKind.Null);
             (await redis.KeyExistsAsync(LegacyEventListCacheKey)).Should().BeFalse();
+            (await redis.KeyExistsAsync(PreviousEventListCacheKeyV2)).Should().BeFalse();
         }
         finally
         {
@@ -269,9 +278,9 @@ public class QueryCachingComponentTests
         }
     }
 
-    // QC-EVT-VER-002：新版本只清除 v2；舊 key 屬於仍在執行的舊版本，由舊版本自行失效或 TTL 到期。
+    // QC-EVT-VER-002：新版本只清除 v3；舊 key（list、list:v2）屬於仍在執行的舊版本，由舊版本自行失效或 TTL 到期。
     [Fact]
-    public async Task CreateEvent_WhenBothV1AndV2KeysExist_RemovesOnlyV2Key()
+    public async Task CreateEvent_WhenOlderKeysExist_RemovesOnlyV3Key()
     {
         var factory = new CachingComponentTestWebApplicationFactory();
         await factory.InitializeAsync();
@@ -279,13 +288,16 @@ public class QueryCachingComponentTests
         {
             var redis = GetRedisDatabase(factory);
             var legacyValue = $"legacy-{Guid.NewGuid():N}";
+            var previousV2Value = $"v2-{Guid.NewGuid():N}";
             await redis.StringSetAsync(LegacyEventListCacheKey, legacyValue);
-            await redis.StringSetAsync(EventListCacheKeyV2, $"v2-{Guid.NewGuid():N}");
+            await redis.StringSetAsync(PreviousEventListCacheKeyV2, previousV2Value);
+            await redis.StringSetAsync(EventListCacheKeyV3, $"v3-{Guid.NewGuid():N}");
 
             await SeedEventAsync(factory);
 
-            (await redis.KeyExistsAsync(EventListCacheKeyV2)).Should().BeFalse();
+            (await redis.KeyExistsAsync(EventListCacheKeyV3)).Should().BeFalse();
             ((string?)await redis.StringGetAsync(LegacyEventListCacheKey)).Should().Be(legacyValue);
+            ((string?)await redis.StringGetAsync(PreviousEventListCacheKeyV2)).Should().Be(previousV2Value);
         }
         finally
         {
@@ -295,7 +307,7 @@ public class QueryCachingComponentTests
 
     // QC-EVT-VER-002
     [Fact]
-    public async Task SetEventQueueMode_WhenBothV1AndV2KeysExist_RemovesOnlyV2Key()
+    public async Task SetEventQueueMode_WhenOlderKeysExist_RemovesOnlyV3Key()
     {
         var factory = new CachingComponentTestWebApplicationFactory();
         await factory.InitializeAsync();
@@ -304,17 +316,20 @@ public class QueryCachingComponentTests
             var (eventId, _, ownerClient) = await SeedEventAsync(factory);
             var redis = GetRedisDatabase(factory);
             var legacyValue = $"legacy-{Guid.NewGuid():N}";
+            var previousV2Value = $"v2-{Guid.NewGuid():N}";
             await redis.StringSetAsync(LegacyEventListCacheKey, legacyValue);
-            await redis.StringSetAsync(EventListCacheKeyV2, $"v2-{Guid.NewGuid():N}");
+            await redis.StringSetAsync(PreviousEventListCacheKeyV2, previousV2Value);
+            await redis.StringSetAsync(EventListCacheKeyV3, $"v3-{Guid.NewGuid():N}");
             (await redis.KeyExistsAsync(LegacyEventListCacheKey)).Should().BeTrue();
-            (await redis.KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue();
+            (await redis.KeyExistsAsync(EventListCacheKeyV3)).Should().BeTrue();
 
             var response = await ownerClient.PatchAsJsonAsync($"/api/admin/events/{eventId}/queue-mode", new { enabled = true });
 
             response.IsSuccessStatusCode.Should().BeTrue();
-            (await redis.KeyExistsAsync(EventListCacheKeyV2)).Should().BeFalse();
+            (await redis.KeyExistsAsync(EventListCacheKeyV3)).Should().BeFalse();
             (await redis.KeyExistsAsync(LegacyEventListCacheKey)).Should().BeTrue();
             ((string?)await redis.StringGetAsync(LegacyEventListCacheKey)).Should().Be(legacyValue);
+            ((string?)await redis.StringGetAsync(PreviousEventListCacheKeyV2)).Should().Be(previousV2Value);
         }
         finally
         {
@@ -322,9 +337,9 @@ public class QueryCachingComponentTests
         }
     }
 
-    // QC-EVT-VER-003：新版本在任何讀取、寫入、失效路徑上都不得碰觸舊 key，否則回滾後舊版本會讀到新形狀或被意外清除。
+    // QC-EVT-VER-003：新版本在任何讀取、寫入、失效路徑上都不得碰觸舊 key（list、list:v2），否則回滾後舊版本會讀到新形狀或被意外清除。
     [Fact]
-    public async Task NewVersion_SequenceNeverReadsOrWritesLegacyEventListKey()
+    public async Task NewVersion_SequenceNeverReadsOrWritesOlderEventListKeys()
     {
         var factory = new CachingComponentTestWebApplicationFactory();
         await factory.InitializeAsync();
@@ -333,7 +348,10 @@ public class QueryCachingComponentTests
             var redis = GetRedisDatabase(factory);
             var anonymousClient = factory.CreateClient();
             async Task AssertLegacyKeyAbsentAsync(string step)
-                => (await redis.KeyExistsAsync(LegacyEventListCacheKey)).Should().BeFalse($"步驟「{step}」之後舊 key 不得存在");
+            {
+                (await redis.KeyExistsAsync(LegacyEventListCacheKey)).Should().BeFalse($"步驟「{step}」之後舊 key 不得存在");
+                (await redis.KeyExistsAsync(PreviousEventListCacheKeyV2)).Should().BeFalse($"步驟「{step}」之後 v2 key 不得存在");
+            }
 
             await AssertLegacyKeyAbsentAsync("初始");
             (await anonymousClient.GetAsync("/api/events")).EnsureSuccessStatusCode();
@@ -348,6 +366,57 @@ public class QueryCachingComponentTests
             await AssertLegacyKeyAbsentAsync("關閉熱門搶購模式");
             (await anonymousClient.GetAsync("/api/events")).EnsureSuccessStatusCode();
             await AssertLegacyKeyAbsentAsync("再次 GET");
+        }
+        finally
+        {
+            await ((IAsyncLifetime)factory).DisposeAsync();
+        }
+    }
+
+    // QC-EVT-VER-005：只請求第 2 頁（pageSize=1）後，v3 仍存放全部活動且已排序，快取內容與請求的分頁無關。
+    [Fact]
+    public async Task GetEvents_WhenRequestingSecondPage_StoresWholeSortedListInV3()
+    {
+        var factory = new CachingComponentTestWebApplicationFactory();
+        await factory.InitializeAsync();
+        try
+        {
+            var (olderEventId, _, _) = await SeedEventAsync(factory);
+            var (newerEventId, _, _) = await SeedEventAsync(factory);
+            var redis = GetRedisDatabase(factory);
+
+            var response = await factory.CreateClient().GetAsync("/api/events?page=2&pageSize=1");
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            var page = await response.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>();
+            page!.Items.Select(e => e.Id).Should().Equal(olderEventId);
+            using var document = JsonDocument.Parse((string)(await redis.StringGetAsync(EventListCacheKeyV3))!);
+            document.RootElement.EnumerateArray().Select(e => e.GetProperty("Id").GetGuid()).Should().Equal(newerEventId, olderEventId);
+        }
+        finally
+        {
+            await ((IAsyncLifetime)factory).DisposeAsync();
+        }
+    }
+
+    // 不同 page／pageSize 共用同一個 v3 key：之後的請求（不同分頁參數）命中快取，不再查詢資料庫。
+    [Fact]
+    public async Task GetEvents_WithDifferentPagingParameters_SharesSingleCacheEntry()
+    {
+        var factory = new CachingComponentTestWebApplicationFactory();
+        await factory.InitializeAsync();
+        try
+        {
+            await SeedEventAsync(factory);
+            await SeedEventAsync(factory);
+            var client = factory.CreateClient();
+            var callCountBefore = factory.EventRepositoryCallCounter.GetAllAsyncCallCount;
+
+            (await client.GetAsync("/api/events?page=1&pageSize=1")).EnsureSuccessStatusCode();
+            (await client.GetAsync("/api/events?page=2&pageSize=1")).EnsureSuccessStatusCode();
+            (await client.GetAsync("/api/events?page=1&pageSize=100")).EnsureSuccessStatusCode();
+
+            factory.EventRepositoryCallCounter.GetAllAsyncCallCount.Should().Be(callCountBefore + 1, "三種分頁參數共用同一份快取，只有第一次查詢資料庫");
         }
         finally
         {

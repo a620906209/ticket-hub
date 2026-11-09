@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.WebApi.Tests.TestSupport;
 using StackExchange.Redis;
@@ -16,7 +17,7 @@ namespace ProjectC.WebApi.Tests.Events;
 public class RealNameEventListCacheTests
 {
     // 以字面值而非引用正式常數（event-sales-window tasks.md 5.5／5.9）。
-    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    private const string EventListCacheKeyV3 = "query-cache:events:list:v3";
     private const string IsRealNameRequiredProperty = nameof(EventDto.IsRealNameRequired);
 
     private static async Task RewriteCachedEventListAsync(CustomWebApplicationFactory factory, Action<JsonObject> rewriteEvent)
@@ -25,12 +26,12 @@ public class RealNameEventListCacheTests
         warmUpResponse.EnsureSuccessStatusCode();
 
         var database = factory.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase();
-        var cached = await database.StringGetAsync(EventListCacheKeyV2);
+        var cached = await database.StringGetAsync(EventListCacheKeyV3);
         cached.HasValue.Should().BeTrue("暖機請求應已寫入活動列表快取，否則以下改寫沒有意義");
         var events = JsonNode.Parse((string)cached!)!.AsArray();
         events.Should().NotBeEmpty();
         foreach (var eventNode in events) rewriteEvent(eventNode!.AsObject());
-        await database.StringSetAsync(EventListCacheKeyV2, events.ToJsonString());
+        await database.StringSetAsync(EventListCacheKeyV3, events.ToJsonString());
     }
 
     private static async Task RunWithIsolatedFactoryAsync(Func<CustomWebApplicationFactory, Task> test)
@@ -58,7 +59,7 @@ public class RealNameEventListCacheTests
             var unregisteredMember = await RealNameTestData.CreateMemberAsync(factory);
             await RewriteCachedEventListAsync(factory, eventNode => eventNode[IsRealNameRequiredProperty] = false);
 
-            var events = await factory.CreateClient().GetFromJsonAsync<List<EventDto>>("/api/events");
+            var events = (await factory.CreateClient().GetFromJsonAsync<PagedResultDto<EventDto>>("/api/events"))?.Items;
             events!.Single(e => e.Id == seededEvent.EventId).IsRealNameRequired.Should().BeFalse("確認列表確實命中了被改寫的快取");
 
             var orderResponse = await RealNameTestData.PlaceOrderAsync(unregisteredMember.Client, seededEvent);

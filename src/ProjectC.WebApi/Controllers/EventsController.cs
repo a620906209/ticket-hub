@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetEventById;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Events.GetEvents;
@@ -29,10 +30,13 @@ public class EventsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetEvents(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetEvents(
+        CancellationToken cancellationToken,
+        [FromQuery] int page = PageRequest.DefaultPage,
+        [FromQuery] int pageSize = PageRequest.DefaultPageSize)
     {
-        var events = await _getEventsHandler.HandleAsync(cancellationToken);
-        return Ok(events);
+        var result = await _getEventsHandler.HandleAsync(new PageRequest(page, pageSize), cancellationToken);
+        return result.ToActionResult(Ok);
     }
 
     [HttpGet("{id:guid}")]

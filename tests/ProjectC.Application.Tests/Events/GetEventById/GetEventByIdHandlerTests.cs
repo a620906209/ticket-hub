@@ -1,5 +1,6 @@
 using FluentAssertions;
 using ProjectC.Application.Common;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetEventById;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Tests.TestSupport;
@@ -11,7 +12,7 @@ namespace ProjectC.Application.Tests.Events.GetEventById;
 public class GetEventByIdHandlerTests
 {
     // 以字面值鎖定列表快取 key：單筆查詢必須與列表共用同一份快取。
-    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    private const string EventListCacheKeyV3 = "query-cache:events:list:v3";
 
     private readonly FakeEventRepository _eventRepository = new();
     private readonly FakeQueryCache _queryCache = new();
@@ -21,7 +22,7 @@ public class GetEventByIdHandlerTests
 
     public GetEventByIdHandlerTests()
     {
-        _getEventsHandler = new GetEventsHandler(_eventRepository, _queryCache, _options);
+        _getEventsHandler = new GetEventsHandler(_eventRepository, _queryCache, _options, new PageRequestValidator());
         _handler = new GetEventByIdHandler(_getEventsHandler);
     }
 
@@ -38,7 +39,7 @@ public class GetEventByIdHandlerTests
 
         var result = await _handler.HandleAsync(target.Id, CancellationToken.None);
 
-        var listEntry = (await _getEventsHandler.HandleAsync(CancellationToken.None)).Single(e => e.Id == target.Id);
+        var listEntry = (await _getEventsHandler.GetAllOrderedAsync(CancellationToken.None)).Single(e => e.Id == target.Id);
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().Be(listEntry);
         result.Value!.Title.Should().Be("Target");
@@ -72,7 +73,7 @@ public class GetEventByIdHandlerTests
     public async Task HandleAsync_WhenListCacheHits_DoesNotCallAnyRepositoryMethod()
     {
         var cachedDto = new EventDto(Guid.NewGuid(), "Cached", DateTime.UtcNow.AddDays(2), Guid.NewGuid(), Guid.NewGuid(), null, null, null, false, false, null, null);
-        _queryCache.Seed(EventListCacheKeyV2, (IReadOnlyList<EventDto>)[cachedDto]);
+        _queryCache.Seed(EventListCacheKeyV3, (IReadOnlyList<EventDto>)[cachedDto]);
 
         var result = await _handler.HandleAsync(cachedDto.Id, CancellationToken.None);
 
@@ -97,7 +98,7 @@ public class GetEventByIdHandlerTests
         _eventRepository.GetAllCallCount.Should().Be(1);
         _eventRepository.GetByIdCallCount.Should().Be(0);
         _queryCache.SetCalls.Should().ContainSingle();
-        _queryCache.SetCalls[0].Key.Should().Be(EventListCacheKeyV2);
+        _queryCache.SetCalls[0].Key.Should().Be(EventListCacheKeyV3);
         _queryCache.SetCalls[0].Value.Should().BeAssignableTo<IReadOnlyList<EventDto>>()
             .Subject.Should().ContainSingle(e => e.Id == target.Id);
     }
@@ -112,7 +113,7 @@ public class GetEventByIdHandlerTests
         before.Value!.IsQueueModeEnabled.Should().BeFalse();
 
         target.EnableQueueMode();
-        await _queryCache.RemoveAsync(EventListCacheKeyV2, CancellationToken.None);
+        await _queryCache.RemoveAsync(EventListCacheKeyV3, CancellationToken.None);
         var after = await _handler.HandleAsync(target.Id, CancellationToken.None);
 
         after.Value!.IsQueueModeEnabled.Should().BeTrue();
@@ -124,6 +125,25 @@ public class GetEventByIdHandlerTests
         var result = await _handler.HandleAsync(Guid.NewGuid(), CancellationToken.None);
 
         result.Error!.Type.Should().Be(ErrorType.NotFound);
+    }
+
+    // EVT-LIST-006：排在列表第 2 頁之後的活動，單一活動端點仍須找得到
+    [Fact]
+    public async Task HandleAsync_WhenEventIsBeyondFirstListPage_ReturnsSuccess()
+    {
+        var baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        for (var i = 1; i <= 24; i++)
+        {
+            _eventRepository.Data.Add(new Event(Guid.NewGuid(), $"Newer {i}", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), createdAtUtc: baseTime.AddDays(i)));
+        }
+
+        var oldest = new Event(Guid.NewGuid(), "Oldest", DateTime.UtcNow.AddDays(1), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), createdAtUtc: baseTime);
+        _eventRepository.Data.Add(oldest);
+
+        var result = await _handler.HandleAsync(oldest.Id, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue("25 筆時最舊的活動排在第 2 頁，不得因列表分頁而查不到");
+        result.Value!.Title.Should().Be("Oldest");
     }
 
     [Fact]

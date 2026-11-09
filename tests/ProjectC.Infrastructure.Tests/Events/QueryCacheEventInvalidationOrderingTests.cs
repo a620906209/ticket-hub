@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using ProjectC.Application.Common;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Events.SetEventQueueMode;
@@ -20,7 +21,7 @@ namespace ProjectC.Infrastructure.Tests.Events;
 public class QueryCacheEventInvalidationOrderingTests
 {
     // 以字面值斷言而非引用正式常數：常數改值後，引用常數的測試無法證明契約是 v2（event-sales-window tasks.md 5.5）。
-    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    private const string EventListCacheKeyV3 = "query-cache:events:list:v3";
     private const string LegacyEventListCacheKey = "query-cache:events:list";
 
     private readonly PostgresFixture _fixture;
@@ -77,15 +78,15 @@ public class QueryCacheEventInvalidationOrderingTests
 
         await using (var readDbContext = _fixture.CreateDbContext())
         {
-            var getEventsHandler = new GetEventsHandler(new EventRepository(readDbContext), queryCache, Options);
-            await getEventsHandler.HandleAsync(CancellationToken.None);
+            var getEventsHandler = new GetEventsHandler(new EventRepository(readDbContext), queryCache, Options, new PageRequestValidator());
+            await getEventsHandler.GetAllOrderedAsync(CancellationToken.None);
         }
-        queryCache.ContainsKey(EventListCacheKeyV2).Should().BeTrue();
+        queryCache.ContainsKey(EventListCacheKeyV3).Should().BeTrue();
 
         Event? committedNewEventSeenDuringCallback = null;
         queryCache.OnRemoveAsync = async key =>
         {
-            if (key != EventListCacheKeyV2)
+            if (key != EventListCacheKeyV3)
             {
                 return;
             }
@@ -118,13 +119,13 @@ public class QueryCacheEventInvalidationOrderingTests
             newEventId = result.Value;
         }
 
-        queryCache.ContainsKey(EventListCacheKeyV2).Should().BeFalse();
-        queryCache.RemoveCalls.Should().Contain(EventListCacheKeyV2).And.NotContain(LegacyEventListCacheKey);
+        queryCache.ContainsKey(EventListCacheKeyV3).Should().BeFalse();
+        queryCache.RemoveCalls.Should().Contain(EventListCacheKeyV3).And.NotContain(LegacyEventListCacheKey);
         committedNewEventSeenDuringCallback.Should().NotBeNull("commit 必須先於 invalidation 發生，否則獨立連線在回呼當下查不到新活動");
 
         await using var verifyDbContext = _fixture.CreateDbContext();
-        var getEventsHandlerAgain = new GetEventsHandler(new EventRepository(verifyDbContext), queryCache, Options);
-        var events = await getEventsHandlerAgain.HandleAsync(CancellationToken.None);
+        var getEventsHandlerAgain = new GetEventsHandler(new EventRepository(verifyDbContext), queryCache, Options, new PageRequestValidator());
+        var events = await getEventsHandlerAgain.GetAllOrderedAsync(CancellationToken.None);
         events.Should().Contain(e => e.Id == newEventId);
     }
 
@@ -138,15 +139,15 @@ public class QueryCacheEventInvalidationOrderingTests
 
         await using (var readDbContext = _fixture.CreateDbContext())
         {
-            var getEventsHandler = new GetEventsHandler(new EventRepository(readDbContext), queryCache, Options);
-            var initialEvents = await getEventsHandler.HandleAsync(CancellationToken.None);
+            var getEventsHandler = new GetEventsHandler(new EventRepository(readDbContext), queryCache, Options, new PageRequestValidator());
+            var initialEvents = await getEventsHandler.GetAllOrderedAsync(CancellationToken.None);
             initialEvents.Should().ContainSingle(e => e.Id == eventId && !e.IsQueueModeEnabled);
         }
 
         bool? committedIsQueueModeEnabledSeenDuringCallback = null;
         queryCache.OnRemoveAsync = async key =>
         {
-            if (key != EventListCacheKeyV2)
+            if (key != EventListCacheKeyV3)
             {
                 return;
             }
@@ -165,13 +166,13 @@ public class QueryCacheEventInvalidationOrderingTests
             result.IsSuccess.Should().BeTrue();
         }
 
-        queryCache.ContainsKey(EventListCacheKeyV2).Should().BeFalse();
-        queryCache.RemoveCalls.Should().Contain(EventListCacheKeyV2).And.NotContain(LegacyEventListCacheKey);
+        queryCache.ContainsKey(EventListCacheKeyV3).Should().BeFalse();
+        queryCache.RemoveCalls.Should().Contain(EventListCacheKeyV3).And.NotContain(LegacyEventListCacheKey);
         committedIsQueueModeEnabledSeenDuringCallback.Should().BeTrue("commit 必須先於 invalidation 發生");
 
         await using var verifyDbContext = _fixture.CreateDbContext();
-        var getEventsHandlerAgain = new GetEventsHandler(new EventRepository(verifyDbContext), queryCache, Options);
-        var events = await getEventsHandlerAgain.HandleAsync(CancellationToken.None);
+        var getEventsHandlerAgain = new GetEventsHandler(new EventRepository(verifyDbContext), queryCache, Options, new PageRequestValidator());
+        var events = await getEventsHandlerAgain.GetAllOrderedAsync(CancellationToken.None);
         events.Should().ContainSingle(e => e.Id == eventId && e.IsQueueModeEnabled);
     }
 }

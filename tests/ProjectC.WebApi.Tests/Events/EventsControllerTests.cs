@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetEventSeats;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Events.CreateEvent;
@@ -59,10 +60,10 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         var eventId = await SeedEventWithSeatAndTicketTypeAsync();
         var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/api/events");
+        var response = await client.GetAsync("/api/events?pageSize=100");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var events = await response.Content.ReadFromJsonAsync<List<EventDto>>();
+        var events = (await response.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())!.Items;
         events.Should().Contain(e => e.Id == eventId);
         // TP-BROWSE-001：每筆活動附帶 IsQueueModeEnabled，新建立的活動預設關閉。
         events!.Single(e => e.Id == eventId).IsQueueModeEnabled.Should().BeFalse();
@@ -79,7 +80,7 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var detail = await response.Content.ReadFromJsonAsync<EventDto>();
-        var listEntry = (await client.GetFromJsonAsync<List<EventDto>>("/api/events"))!.Single(e => e.Id == eventId);
+        var listEntry = (await client.GetFromJsonAsync<PagedResultDto<EventDto>>("/api/events?pageSize=100"))!.Items.Single(e => e.Id == eventId);
         detail.Should().Be(listEntry);
         detail!.Title.Should().Be("Concert");
     }
@@ -201,11 +202,11 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         await SeedEventWithSeatAndTicketTypeAsync();
         var anonymousClient = _factory.CreateClient();
 
-        var response = await anonymousClient.GetAsync("/api/events");
+        var response = await anonymousClient.GetAsync("/api/events?pageSize=100");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var events = document.RootElement.EnumerateArray().ToList();
+        var events = document.RootElement.GetProperty("items").EnumerateArray().ToList();
         events.Should().HaveCountGreaterThanOrEqualTo(2);
 
         string[] adminOnlyFields =
@@ -232,10 +233,54 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         var realNameEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: true);
         var plainEvent = await RealNameTestData.SeedEventAsync(_factory, organizerClient, isRealNameRequired: false);
 
-        var events = await _factory.CreateClient().GetFromJsonAsync<List<EventDto>>("/api/events");
+        var events = (await _factory.CreateClient().GetFromJsonAsync<PagedResultDto<EventDto>>("/api/events?pageSize=100"))!.Items;
 
         events!.Single(e => e.Id == realNameEvent.EventId).IsRealNameRequired.Should().BeTrue();
         events!.Single(e => e.Id == plainEvent.EventId).IsRealNameRequired.Should().BeFalse();
+    }
+
+    public static TheoryData<string, string[]> InvalidPagingQueries => PaginationTestSupport.InvalidPagingQueries;
+
+    // EVT-LIST-005：越界、非整數、int 溢位一律 400 Validation，errors 鍵為小寫 page／pageSize；匿名即可呼叫。
+    [Theory]
+    [MemberData(nameof(InvalidPagingQueries))]
+    public async Task GetEvents_WithInvalidPagingParameters_Returns400ValidationWithFieldErrors(string query, string[] expectedErrorKeys)
+    {
+        var response = await _factory.CreateClient().GetAsync($"/api/events{query}");
+
+        await PaginationTestSupport.AssertValidationErrorAsync(response, expectedErrorKeys);
+    }
+
+    // EVT-LIST-005 邊界：pageSize=100、page=10000 合法（LP-VALID 上界），空頁回 200。
+    [Fact]
+    public async Task GetEvents_WithUpperBoundPagingParameters_Returns200WithEnvelope()
+    {
+        var client = _factory.CreateClient();
+
+        var maxPageSize = await client.GetFromJsonAsync<PagedResultDto<EventDto>>("/api/events?pageSize=100");
+        var maxPage = await client.GetFromJsonAsync<PagedResultDto<EventDto>>("/api/events?page=10000");
+
+        maxPageSize!.PageSize.Should().Be(100);
+        maxPage!.Page.Should().Be(10000);
+        maxPage.Items.Should().BeEmpty();
+    }
+
+    // EVT-LIST-001：回應固定為 { items, page, pageSize, totalCount }，不再是陣列。
+    [Fact]
+    public async Task GetEvents_WithoutPagingParameters_ReturnsEnvelopeWithDefaults()
+    {
+        await SeedEventWithSeatAndTicketTypeAsync();
+
+        var response = await _factory.CreateClient().GetAsync("/api/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.ValueKind.Should().Be(JsonValueKind.Object);
+        document.RootElement.EnumerateObject().Select(property => property.Name)
+            .Should().BeEquivalentTo(["items", "page", "pageSize", "totalCount"]);
+        document.RootElement.GetProperty("page").GetInt32().Should().Be(1);
+        document.RootElement.GetProperty("pageSize").GetInt32().Should().Be(20);
+        document.RootElement.GetProperty("totalCount").GetInt32().Should().BeGreaterThanOrEqualTo(1);
     }
 
     // TP-BROWSE-SALES-001：前台只帶原始值，販售狀態由前端依時間自行推導；屬性名集合鎖定，避免伺服器端推導的狀態欄位
@@ -255,10 +300,10 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
         var withoutWindowId = await ReadCreatedIdAsync(await adminClient.PostAsJsonAsync("/api/admin/events",
             new CreateEventRequest("Without Window", startAtUtc, venueId, seatMapId)));
 
-        var response = await _factory.CreateClient().GetAsync("/api/events");
+        var response = await _factory.CreateClient().GetAsync("/api/events?pageSize=100");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var events = await response.Content.ReadFromJsonAsync<List<EventDto>>();
+        var events = (await response.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())!.Items;
         var withWindow = events!.Single(e => e.Id == withWindowId);
         (withWindow.SalesStartAtUtc, withWindow.SalesEndAtUtc).Should().Be((salesStartAtUtc, salesEndAtUtc));
         var withoutWindow = events!.Single(e => e.Id == withoutWindowId);
@@ -270,7 +315,7 @@ public class EventsControllerTests : IClassFixture<CustomWebApplicationFactory>
             "id", "title", "startAtUtc", "venueId", "seatMapId", "description", "posterUrl",
             "maxTicketsPerOrder", "isQueueModeEnabled", "isRealNameRequired", "salesStartAtUtc", "salesEndAtUtc",
         ];
-        foreach (var element in document.RootElement.EnumerateArray())
+        foreach (var element in document.RootElement.GetProperty("items").EnumerateArray())
         {
             element.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(expectedPropertyNames);
         }

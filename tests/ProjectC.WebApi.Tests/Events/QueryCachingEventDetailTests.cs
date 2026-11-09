@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Venues.CreateSeatMap;
 using ProjectC.Application.Venues.CreateVenue;
@@ -16,7 +17,7 @@ namespace ProjectC.WebApi.Tests.Events;
 public class QueryCachingEventDetailTests
 {
     // 以字面值鎖定列表快取 key，不引用正式常數。
-    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    private const string EventListCacheKeyV3 = "query-cache:events:list:v3";
 
     private static async Task<Guid> ReadCreatedIdAsync(HttpResponseMessage response)
     {
@@ -53,7 +54,7 @@ public class QueryCachingEventDetailTests
             response.StatusCode.Should().Be(HttpStatusCode.NotFound);
             factory.EventRepositoryCallCounter.GetAllAsyncCallCount.Should().Be(0);
             factory.EventRepositoryCallCounter.GetByIdAsyncCallCount.Should().Be(0);
-            (await GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV2)).Should().BeFalse("請求未進入 Handler，不應寫入列表快取");
+            (await GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV3)).Should().BeFalse("請求未進入 Handler，不應寫入列表快取");
         }
         finally
         {
@@ -97,19 +98,19 @@ public class QueryCachingEventDetailTests
         {
             var eventId = await SeedEventAsync(factory);
             var client = factory.CreateClient();
-            (await GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV2)).Should().BeFalse("前置：建立活動後列表快取為冷");
+            (await GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV3)).Should().BeFalse("前置：建立活動後列表快取為冷");
 
             var response = await client.GetAsync($"/api/events/{eventId}");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK);
             factory.EventRepositoryCallCounter.GetAllAsyncCallCount.Should().Be(1);
             factory.EventRepositoryCallCounter.GetByIdAsyncCallCount.Should().Be(0);
-            (await GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue();
+            (await GetRedisDatabase(factory).KeyExistsAsync(EventListCacheKeyV3)).Should().BeTrue();
 
             var listResponse = await client.GetAsync("/api/events");
 
             listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            (await listResponse.Content.ReadFromJsonAsync<List<EventDto>>()).Should().Contain(e => e.Id == eventId);
+            ((await listResponse.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())?.Items).Should().Contain(e => e.Id == eventId);
             factory.EventRepositoryCallCounter.GetAllAsyncCallCount.Should().Be(1, "列表請求命中單筆查詢寫入的快取");
         }
         finally

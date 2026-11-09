@@ -14,6 +14,10 @@ public sealed class FakeQueryCache : IQueryCache
 
     public List<string> RemoveCalls { get; } = new();
 
+    public CancellationToken? LastGetToken { get; private set; }
+
+    public CancellationToken? LastSetToken { get; private set; }
+
     /// <summary>在 RemoveAsync 實際執行的當下觸發，供測試在回呼內用獨立連線查資料庫，驗證「commit 確實
     /// 先於 invalidation」（見 tasks.md 第 4、5 節開頭的回呼手法）。</summary>
     public Func<string, Task>? OnRemoveAsync { get; set; }
@@ -25,6 +29,7 @@ public sealed class FakeQueryCache : IQueryCache
     public Task<QueryCacheResult<T>> GetAsync<T>(string key, CancellationToken cancellationToken)
     {
         GetCalls.Add(key);
+        LastGetToken = cancellationToken;
         if (_store.TryGetValue(key, out var value) && value is T typed)
         {
             return Task.FromResult(QueryCacheResult<T>.Hit(typed));
@@ -36,6 +41,7 @@ public sealed class FakeQueryCache : IQueryCache
     public Task SetAsync<T>(string key, T value, TimeSpan ttl, CancellationToken cancellationToken)
     {
         SetCalls.Add((key, value, ttl));
+        LastSetToken = cancellationToken;
         _store[key] = value;
         return Task.CompletedTask;
     }

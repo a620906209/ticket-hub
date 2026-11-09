@@ -1,8 +1,8 @@
 import { authorizedRequest } from './httpClient'
-import type { EventSeat, EventSummary, TicketType } from '../types/apiResponses'
+import type { EventSeat, EventSummary, PagedResult, TicketType } from '../types/apiResponses'
 
-export function getEvents(): Promise<EventSummary[]> {
-  return authorizedRequest('/events')
+export function getEvents(page = 1): Promise<PagedResult<EventSummary>> {
+  return authorizedRequest(`/events?page=${page}`)
 }
 
 export function getEventSeats(eventId: string): Promise<EventSeat[]> {
