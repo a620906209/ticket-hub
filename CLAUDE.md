@@ -283,14 +283,14 @@
 1. **需求釐清與開分支**：`branch-and-propose`（先 Grill 取得共識，再從 master 開 `feature/<名稱>`）
 2. **提案**：`/opsx:propose` 產出 proposal / design / specs / tasks（tasks 依 `openspec/config.yaml` 的 TDD 規則撰寫）
 3. **規格審查**：`spec-reviewer` 修到 PASS，warning 不需要為了消除而再跑一輪；符合觸發條件時再跑 `design-hardener`。PASS 後暫停，等使用者交叉審查並明確指示才實作；每個階段轉換分開確認
-4. **實作**：`/opsx:apply` 逐 task 依「測試規範」的 TDD 執行（RED → GREEN → 重構），證據寫入 `tasks.md` 後才勾選
+4. **實作**：`/opsx:apply` 逐 task 依「測試規範」的 TDD 執行（RED → GREEN → 重構），證據寫入 `tasks.md` 後才勾選。可說「幫我實作目前的 change」觸發 `apply-in-pane` skill：另開 herdr pane 以新 session 執行 `/opsx:apply`，完成後銜接 `cross-review`；不自動 commit
 5. **防禦性最終檢查**：程式碼全部完成後套用 `hardener`（見「防禦性檢查規則」），結果記在 `tasks.md` 的「hardener 最終檢查」task
-6. **審查迴圈**：每輪依序跑 `strict-reviewer` 與一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前一輪結論），修正後重跑，直到兩者都沒有 blocking。理由：多次 change 中 strict-reviewer PASS 後仍由對抗式審查或人工找出真實 bug；依序跑是因為會執行容器的審查同時進行曾造成大量假失敗。例外：若 `git diff` 確認自上次雙方 PASS 後只改了 `tasks.md` 的證據紀錄，由一個 reviewer 核對紀錄即可，不需重跑全套測試；只要動到其他檔案，就回到完整流程。不設輪數上限：還有具體失敗情境的 blocking 就繼續
+6. **審查迴圈**：每輪依序跑 `strict-reviewer` 與一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前一輪結論），修正後重跑，直到兩者都沒有 blocking。理由：多次 change 中 strict-reviewer PASS 後仍由對抗式審查或人工找出真實 bug；依序跑是因為會執行容器的審查同時進行曾造成大量假失敗。例外：若 `git diff` 確認自上次雙方 PASS 後只改了 `tasks.md` 的證據紀錄，由一個 reviewer 核對紀錄即可，不需重跑全套測試；只要動到其他檔案，就回到完整流程。不設輪數上限：還有具體失敗情境的 blocking 就繼續。想省主 session token 時用 `cross-review` skill：外部（Claude Code Opus 或 Devin CLI，呼叫時詢問）審查迴圈中主 session 只修正不審，外部 PASS 後才在主 session 跑一次上述完整審查
 7. **前端真實瀏覽器驗證**（有前端變更時）：以 claude-in-chrome 實際操作受影響流程，數字與狀態以頁面文字或 DB 核對，不只依截圖判讀。理由：router、HMR、原生表單驗證、相機等問題只在真實瀏覽器出現
 8. **歸檔與合併**：`/opsx:archive`（含主 spec 同步）→ merge 回 master
 
 - 任何步驟都不自動 commit / push，等使用者明確指示
-- 另開工具（如 Devin）交叉審查時：prompt 只給 change 名稱、commit 與審查目標，不描述改了什麼或為什麼改；重審可附前輪 blocking 的編號與參考位置供回歸核對。程式有改動時以高階模型審完整 diff，只改證據紀錄時可用較輕的模型，每輪的模型與 commit 記入 `tasks.md`。透過 herdr 送出後，先確認 `agent_status` 變成 `working` 才等結果，否則可能讀到上一輪的 verdict；第一次送審的 prompt 結尾須要求 Devin 審完後用 herdr 把完整報告送回主 session 的 pane（pane id 以 `herdr agent list` 實際查到的為準），否則曾發生審查結束但主 session 沒收到結果
+- 另開工具（如 Devin）交叉審查時（流程已寫成 `cross-review` skill，以下為其依據規則）：prompt 只給 change 名稱、commit 與審查目標，不描述改了什麼或為什麼改；重審可附前輪 blocking 的編號與參考位置供回歸核對。程式有改動時以高階模型審完整 diff，只改證據紀錄時可用較輕的模型，每輪的模型與 commit 記入 `tasks.md`。透過 herdr 送出後，先確認 `agent_status` 變成 `working` 才等結果，否則可能讀到上一輪的 verdict；第一次送審的 prompt 結尾須要求 Devin 審完後用 herdr 把完整報告送回主 session 的 pane（pane id 以 `herdr agent list` 實際查到的為準），否則曾發生審查結束但主 session 沒收到結果
 - 緊急 hotfix 或無對應 spec 的小型改動（見「無 spec 時的處理」）略過 1–3 與 8，仍須走 4（TDD）、5–7
 
 ### Task 執行前
