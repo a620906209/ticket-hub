@@ -14,3 +14,8 @@
 - 規格審查輪數偏多、規格逐輪變複雜（exception-log-masking 的截斷政策改寫多次，最後 24 個 Scenario）。每輪發現的問題都成立，但越來越窄。下次規格審查時留意：邊界案例是否值得用規格逐條鎖定，還是改成設計中記錄為已知取捨。若再出現，再考慮限制輪數或在 CLAUDE.md 加收斂條件。
 - Devin 送審 prompt 須明確指示使用 subagent（2026-11-04 起；使用者已確認之後的審查都跑 subagent）。實際用過幾次、確認穩定後，再決定是否升級為 `CLAUDE.md` 正式規則。
 - `cross-review`、`apply-in-pane` skill 已建立（2026-11-10）並於 `reconcile-event-queue-complexity` 實跑一輪（三 pane 流程，外部審查用 Claude Code Opus）。已確認：`/opsx:apply` 經 `agent prompt` 可觸發，但 Git Bash 會把 `/` 開頭轉成路徑，須加 `MSYS_NO_PATHCONV=1`；預設模型在此環境不可用，實作 pane 須指定 Sonnet 5.5；`--permission-mode auto` 下沒有遇到待批准的對話框。**尚未驗證**：Devin 作為外部審查時 subagent 是否穩定（這次沒用 Devin）。再多跑幾次、確認穩定後，再評估是否把送審規則升級為 `CLAUDE.md` 正式規則。
+- Devin 冒煙測試（2026-11-10，對象 commit `462459b`，`devin --permission-mode smart`，prompt 明確要求 subagent、只審程式碼）：
+  - 有使用 `.agents/agents` 的 strict-reviewer subagent，結論 PASS、無 blocking，與已知結論一致；只列出「沒有獨立斷言驗證轉發」為非 blocking 建議，沒有發現新問題。
+  - 權限對話框問題**再現**：`agent_status` 顯示 `done`，實際卡在 `Allow／Deny — Exec(cat)`（送報告回主 pane 的指令），報告送不出來，須人工處理。送審後仍須 `agent read --source visible` 確認。
+  - Devin 把 prompt 的「唯讀、不要 commit」擴大解讀為「使用者明確禁止切換工作樹」，因此沒有執行該 commit 的測試，只做程式碼閱讀。要它跑測試時須在 prompt 寫明允許的容器指令與測試範圍。
+  - 只跑一次、素材很小，不足以判定穩定；仍須在真實 change 上再觀察 1～2 次。
