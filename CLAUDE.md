@@ -282,7 +282,7 @@
 
 1. **需求釐清與開分支**：`branch-and-propose`（先 Grill 取得共識，再從 master 開 `feature/<名稱>`）
 2. **提案**：`/opsx:propose` 產出 proposal / design / specs / tasks（tasks 依 `openspec/config.yaml` 的 TDD 規則撰寫）
-3. **規格審查**：`spec-reviewer` 修到 PASS，warning 不需要為了消除而再跑一輪；符合觸發條件時再跑 `design-hardener`。PASS 後暫停，等使用者交叉審查並明確指示才實作；每個階段轉換分開確認
+3. **規格審查**：`spec-reviewer` 修到 PASS，warning 不需要為了消除而再跑一輪；`spec-reviewer` PASS 後一律接著跑 `design-hardener`（不符合其觸發條件時它會自行回 PASS，不需另行判斷或詢問；blocking 修正後只重跑它，除非改動到 AC 或測試對應）。兩者都 PASS 後暫停，等使用者交叉審查並明確指示才實作；每個階段轉換分開確認
 4. **實作**：`/opsx:apply` 逐 task 依「測試規範」的 TDD 執行（RED → GREEN → 重構），證據寫入 `tasks.md` 後才勾選。可說「幫我實作目前的 change」觸發 `apply-in-pane` skill：另開 herdr pane 以新 session 執行 `/opsx:apply`，完成後銜接 `cross-review`；不自動 commit
 5. **防禦性最終檢查**：程式碼全部完成後套用 `hardener`（見「防禦性檢查規則」），結果記在 `tasks.md` 的「hardener 最終檢查」task
 6. **審查迴圈**：每輪依序跑 `strict-reviewer` 與一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前一輪結論），修正後重跑，直到兩者都沒有 blocking。理由：多次 change 中 strict-reviewer PASS 後仍由對抗式審查或人工找出真實 bug；依序跑是因為會執行容器的審查同時進行曾造成大量假失敗。例外：若 `git diff` 確認自上次雙方 PASS 後只改了 `tasks.md` 的證據紀錄，由一個 reviewer 核對紀錄即可，不需重跑全套測試；只要動到其他檔案，就回到完整流程。不設輪數上限：還有具體失敗情境的 blocking 就繼續。想省主 session token 時用 `cross-review` skill：外部（Claude Code Opus 或 Devin CLI，呼叫時詢問）審查迴圈中主 session 只修正不審，外部 PASS 後才在主 session 跑一次上述完整審查

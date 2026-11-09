@@ -16,7 +16,7 @@ description: 透過 herdr 另開 pane，以 Claude Code (Opus) 或 Devin CLI 跑
 ## 步驟 0：用 AskUserQuestion 問（一次問完）
 
 - 工具：Claude Code (Opus) ／ Devin CLI
-- 審查對象：spec-reviewer（規格階段）／ strict-reviewer（程式碼階段）
+- 審查對象：spec-reviewer（規格階段，PASS 後同一輪接著跑 design-hardener）／ strict-reviewer（程式碼階段）
 - change 名稱（能從對話推得就帶預設，不另問）
 - 若為重審：是否附上前輪 blocking 編號與位置
 
@@ -69,7 +69,7 @@ herdr agent prompt <name-or-pane> "<prompt>" --wait --timeout 1800000
 外部 reviewer 沒有 blocking 後，才在主 session 做一次：
 
 - 程式碼：`strict-reviewer`，**依序**再跑一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前輪結論；不要同時並跑，會執行容器的審查同時進行曾造成大量假失敗）。
-- 規格：`spec-reviewer`。
+- 規格：`spec-reviewer`，PASS 後接著 `design-hardener`。
 - 若這次又修改了程式，回步驟 2 讓外部再審；只改證據則核對即可。
 
 最後回報：輪數、每輪工具／模型／commit、blocking 處理結果、最後一次主 session 審查結果。
