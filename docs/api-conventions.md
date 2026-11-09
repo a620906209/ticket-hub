@@ -75,4 +75,5 @@
 - 新增 `ErrorType`、Policy、Claim 或路由前綴時。
 - 決定上方「待決定」項目時：先在對應 change 的 `design.md` 記錄決策，再回頭更新本文件。
 - 新增或改造列表端點的分頁（含 `GET /api/events`）時：更新第 3 節「列表分頁」列的「已套用」「後續 change」清單。
+- 提案偏離本文件任何一條，或導入新的跨模組慣例時：在該 change 的 `design.md`「跨模組慣例對照」小節記錄理由，並於同一 change 更新本文件。
 - 變更時間欄位後綴規則或其例外清單時：同步更新 `UtcSuffixNamingRuleTests` 與本文件第 3 節。

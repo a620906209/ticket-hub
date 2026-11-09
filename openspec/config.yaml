@@ -1,11 +1,16 @@
+# 使用的 OpenSpec 工作流程 schema：proposal → specs／design → tasks。
 schema: spec-driven
 
+# 各 artifact 的撰寫規則：建立該 artifact 時會一併提供給 AI。
 rules:
+  # tasks.md：TDD 計畫與證據紀錄欄位（對應 CLAUDE.md「測試規範」）。
   tasks:
+    # 1. 計畫：測試先行、預期 RED、最小實作、GREEN 驗證方式。
     - >-
       對涉及可觀察行為且適合自動化測試的 task，列明先新增或修改的測試、
       預期的 RED 失敗條件、最小實作步驟，以及 GREEN 與重構（若有）後的測試命令和通過條件。
       TDD 步驟可放在同一個 task，不要求拆成獨立 task。
+    # 2. 證據：預留 RED／GREEN／還原驗證紀錄欄位，提案階段只定義計畫，不假設證據已存在。
     - >-
       在 task 下預留完成紀錄，實作後簡要記下 RED、GREEN、重構（若有）後重跑的命令與結果；
       RED 紀錄須包含失敗的測試／斷言、實際失敗訊息原文摘錄（例如 Expected／Actual）及其目標行為原因，
@@ -13,25 +18,41 @@ rules:
       另預留還原驗證紀錄（正式程式碼變更暫時還原後測試失敗的命令與輸出）；
       各紀錄依 CLAUDE.md「證據貼原文」；適用 hardener 的變更另列「hardener 最終檢查」task；
       GREEN 與重構後紀錄須包含通過結果。提案階段只需定義計畫，不得假設測試檔或執行證據已存在。
+    # 3. 例外：純文件或無合理自動化測試的 task 可標 N/A，但只豁免 TDD 步驟。
     - >-
       純文件或沒有合理自動化行為測試的 task，標示 N/A 並說明原因；
       此 N/A 只豁免 TDD 步驟。若 task 對應 Acceptance Criteria，仍須提供測試，
       或依 design.md 中正式核准的範圍與方式採用替代驗證。
+  # 跨模組共用決策（認證、錯誤格式、資料命名、列表分頁）記錄在 docs/api-conventions.md。
+  # 此規則讓每個 change 在設計階段就對照該文件，不必事後再全面盤點；
+  # spec-reviewer 會檢查此小節，strict-reviewer 會檢查實作是否偏離。
+  design:
+    - >-
+      若 change 新增或修改 API 端點、錯誤回應、認證／授權、DTO 欄位命名或列表端點，
+      須包含「跨模組慣例對照」小節：先讀 docs/api-conventions.md，逐項寫明沿用哪一條，
+      或偏離的理由與影響範圍（偏離須同步更新該文件）；不涉及上述範圍時可寫「不適用」並說明原因。
 
+# 各操作（/opsx:*）的流程提醒，屬建議性指引，不取代 CLI 的狀態判斷。
 operations:
+  # /opsx:apply：實作階段。
   apply:
     guidance:
+      # 逐 task 走 RED → GREEN，證據寫入後才能勾選。
       - >-
         依 CLAUDE.md「TDD 預設」執行每個 task：先寫測試並取得 RED，再做最小實作取得 GREEN；
         證據寫入 tasks.md 該 task 下之後才可將 `- [ ]` 改為 `- [x]`，不得先勾選再補證據。
+      # 全部完成後先走審查流程，不直接進 archive。
       - >-
         全部 task 完成後不直接建議 archive；依 CLAUDE.md「開發流程總覽」先完成 hardener、
         strict-reviewer 與對抗式審查（前端另需真實瀏覽器驗證），全數通過後才進入 archive。
+  # /opsx:archive：歸檔階段。
   archive:
     guidance:
+      # 歸檔前閘門：strict-reviewer PASS 與使用者同意。
       - >-
         archive 前確認 strict-reviewer 最後一輪為 PASS，且使用者已明確同意 archive；
         未通過或未確認時停止並回報，不得先歸檔再補審查。
+      # 不自動 commit。
       - >-
         歸檔後依 CLAUDE.md 不自動 commit，等使用者明確指示。
 
