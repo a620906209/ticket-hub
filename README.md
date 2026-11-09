@@ -224,7 +224,7 @@ branch-and-propose → openspec-propose（產出 proposal/design/tasks/specs）
 | `spec-reviewer` | Subagent | **實作前**審查規格文件：需求完整性、邊界情況、安全與權限需求、AC 與測試任務雙向對應、與既有規格一致性 |
 | `design-hardener` | Subagent | spec-reviewer 通過後、實作前，依條件審查安全、容器 runtime、第三方相依性、加密與失效模式 |
 | `openspec-apply-change` | Skill | 依 tasks 清單逐項實作 |
-| `apply-in-pane` | Skill | 說「幫我實作目前的 change」時另開 herdr pane，以新 session 執行 `/opsx:apply`，完成後銜接 `cross-review` |
+| `apply-in-pane` | Skill | 說「幫我實作目前的 change」時另開 herdr pane，以新 session 執行 `/opsx:apply`，完成後銜接 `cross-review`（實作 pane 保留、自己跑 strict-reviewer 與 cross-review，reviewer pane 往下切；主 session 只下指令與核對） |
 | `cross-review` | Skill | 以 herdr 另開 pane，用 Claude Code (Opus) 或 Devin CLI 跑 spec-reviewer / strict-reviewer；主 session 只修正，外部 PASS 後才做最後一次審查 |
 | `hardener` | Skill | Application / Repository 層程式碼變更完成後，套用防禦性檢查清單（參數驗證、Entity 存在性、狀態機驗證、並發處理、`CancellationToken` 傳遞、例外邊界、日誌遮蔽） |
 | `strict-reviewer` | Subagent | **實作後**審查 git 變更：測試覆蓋、Clean Architecture 分層、EF Core 使用、安全性、命名慣例，並在容器內實際執行測試 |
