@@ -1065,6 +1065,9 @@ public class PurchaseQueueMirrorReconciliationTests : IClassFixture<CustomWebApp
             .Setup(d => d.SortedSetAddAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<double>(), It.IsAny<CommandFlags>()))
             .Returns<RedisKey, RedisValue, double, CommandFlags>((k, m, s, f) => realDatabase.SortedSetAddAsync(k, m, s, f));
         mockDatabase
+            .Setup(d => d.SortedSetAddAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<double>(), It.IsAny<SortedSetWhen>(), It.IsAny<CommandFlags>()))
+            .Returns<RedisKey, RedisValue, double, SortedSetWhen, CommandFlags>((k, m, s, w, f) => realDatabase.SortedSetAddAsync(k, m, s, w, f));
+        mockDatabase
             .Setup(d => d.SortedSetScoreAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<CommandFlags>()))
             .Returns<RedisKey, RedisValue, CommandFlags>((k, m, f) => realDatabase.SortedSetScoreAsync(k, m, f));
         mockDatabase
