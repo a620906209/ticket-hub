@@ -13,7 +13,18 @@ description: 透過 herdr 另開 pane，以 Claude Code (Opus) 或 Devin CLI 跑
 2. 送審的程式碼／文件必須已 commit（CLAUDE.md 規定；未 commit 先請使用者決定，**不自動 commit**）。記下 `git rev-parse --short HEAD`。
 3. 先用 `herdr agent list` 確認沒有同名殘留 agent。
 
-## 步驟 0：用 AskUserQuestion 問（一次問完）
+## 步驟 0：先判斷階段，再用 AskUserQuestion 問（一次問完）
+
+先從 repo 狀態推出審查對象的預設值（唯讀，不修改任何檔案）：
+
+1. `openspec list --json` 取得進行中的 change；沒有或有多個就不推論、直接問。
+2. 讀該 change 的 `tasks.md` 勾選狀態，並看 `git diff --stat master...HEAD` 與 `git status --short` 變更了哪些路徑：
+   - **規格階段**：`tasks.md` 沒有任何 `- [x]`，且變更只在 `openspec/`（或文件）。
+   - **實作階段**：`tasks.md` 已有 `- [x]`，或變更含 `src/`、`tests/`。
+   - 兩種訊號並存或都不符：視為無法判斷，不給預設。
+3. 把推論結果列為第一個選項並標 (Recommended)，同時說明依據（例如「tasks.md 無勾選、變更只在 openspec/」），讓使用者一鍵確認或改選。**不得不問就直接開跑。**
+
+問題內容：
 
 - 工具：Claude Code (Opus) ／ Devin CLI
 - 審查對象：spec-reviewer（規格階段，PASS 後同一輪接著跑 design-hardener）／ strict-reviewer（程式碼階段）
