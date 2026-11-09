@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using ProjectC.Application.Events.CreateEvent;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Tickets.CreateTicketType;
 using ProjectC.Application.Tickets.GetTicketTypes;
@@ -19,7 +20,7 @@ namespace ProjectC.WebApi.Tests.Events;
 public class QueryCachingAccessScopeTests
 {
     // 以字面值斷言而非引用正式常數：常數改值後，引用常數的測試無法證明契約是 v2（event-sales-window tasks.md 5.5）。
-    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    private const string EventListCacheKeyV3 = "query-cache:events:list:v3";
     private const string LegacyEventListCacheKey = "query-cache:events:list";
     private const string TicketTypesCacheKeyPattern = "query-cache:ticket-types:event:*";
 
@@ -67,9 +68,9 @@ public class QueryCachingAccessScopeTests
             var eventsResponse = await anonymousClient.GetAsync("/api/events");
 
             eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            var events = await eventsResponse.Content.ReadFromJsonAsync<List<EventDto>>();
+            var events = (await eventsResponse.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())?.Items;
             events.Should().ContainSingle(e => e.Id == eventId && e.Title == "Concert");
-            (await GetRedisConnection(factory).GetDatabase().KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue("匿名請求同樣寫入 v2 key");
+            (await GetRedisConnection(factory).GetDatabase().KeyExistsAsync(EventListCacheKeyV3)).Should().BeTrue("匿名請求同樣寫入 v3 key");
         }
         finally
         {
@@ -143,14 +144,14 @@ public class QueryCachingAccessScopeTests
             var buyerResponse = await buyerClient.GetAsync("/api/events");
             var adminResponse = await adminClient.GetAsync("/api/events");
 
-            var anonymousEvents = await anonymousResponse.Content.ReadFromJsonAsync<List<EventDto>>();
-            var buyerEvents = await buyerResponse.Content.ReadFromJsonAsync<List<EventDto>>();
-            var adminEvents = await adminResponse.Content.ReadFromJsonAsync<List<EventDto>>();
+            var anonymousEvents = (await anonymousResponse.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())?.Items;
+            var buyerEvents = (await buyerResponse.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())?.Items;
+            var adminEvents = (await adminResponse.Content.ReadFromJsonAsync<PagedResultDto<EventDto>>())?.Items;
 
             buyerEvents.Should().BeEquivalentTo(anonymousEvents, options => options.WithStrictOrdering());
             adminEvents.Should().BeEquivalentTo(anonymousEvents, options => options.WithStrictOrdering());
             factory.EventRepositoryCallCounter.GetAllAsyncCallCount.Should().Be(1, "三種身份應共用同一份快取內容，只有第一次真正查詢資料庫");
-            (await ScanKeysAsync(factory, "query-cache:events:list*")).Should().Equal(new[] { EventListCacheKeyV2 }, "活動列表只有 v2 一個 key，無依呼叫者區分的變體");
+            (await ScanKeysAsync(factory, "query-cache:events:list*")).Should().Equal(new[] { EventListCacheKeyV3 }, "活動列表只有 v2 一個 key，無依呼叫者區分的變體");
             (await GetRedisConnection(factory).GetDatabase().KeyExistsAsync(LegacyEventListCacheKey)).Should().BeFalse();
         }
         finally
@@ -212,14 +213,14 @@ public class QueryCachingAccessScopeTests
             var client = factory.CreateClient();
             (await client.GetAsync("/api/events")).EnsureSuccessStatusCode();
             var database = GetRedisConnection(factory).GetDatabase();
-            var eventListBefore = await database.StringGetAsync(EventListCacheKeyV2);
-            eventListBefore.HasValue.Should().BeTrue("前置的活動列表請求應已寫入 v2 key");
+            var eventListBefore = await database.StringGetAsync(EventListCacheKeyV3);
+            eventListBefore.HasValue.Should().BeTrue("前置的活動列表請求應已寫入 v3 key");
 
             var response = await client.GetAsync("/api/events/abc/ticket-types");
 
             response.StatusCode.Should().Be(HttpStatusCode.NotFound);
             (await ScanKeysAsync(factory, TicketTypesCacheKeyPattern)).Should().BeEmpty("請求未進入 GetTicketTypesHandler，不應寫入票種快取");
-            ((string?)await database.StringGetAsync(EventListCacheKeyV2)).Should().Be((string?)eventListBefore, "路由拒絕不影響 v2 key");
+            ((string?)await database.StringGetAsync(EventListCacheKeyV3)).Should().Be((string?)eventListBefore, "路由拒絕不影響 v3 key");
         }
         finally
         {

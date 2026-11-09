@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics;
 using ProjectC.Application.Common;
+using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.Events.GetEvents;
 using ProjectC.Application.Tickets.CreateTicketType;
@@ -28,7 +29,7 @@ namespace ProjectC.Infrastructure.Tests.Caching;
 public class QueryCacheTtlSafetyNetTests
 {
     // 以字面值斷言而非引用正式常數：常數改值後，引用常數的測試無法證明契約是 v2（event-sales-window tasks.md 5.5）。
-    private const string EventListCacheKeyV2 = "query-cache:events:list:v2";
+    private const string EventListCacheKeyV3 = "query-cache:events:list:v3";
 
     private readonly PostgresFixture _postgresFixture;
 
@@ -120,22 +121,22 @@ public class QueryCacheTtlSafetyNetTests
 
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
-                await new GetEventsHandler(new EventRepository(dbContext), queryCache, options).HandleAsync(CancellationToken.None);
+                await new GetEventsHandler(new EventRepository(dbContext), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
             }
 
             var (venueId, seatMapId) = await SeedVenueAndSeatMapAsync();
             var newEventId = await SeedEventAsync(venueId, seatMapId);
 
-            await WaitUntilKeyExpiredAsync(connection, EventListCacheKeyV2, TimeSpan.FromSeconds(options.EventListTtlSeconds));
+            await WaitUntilKeyExpiredAsync(connection, EventListCacheKeyV3, TimeSpan.FromSeconds(options.EventListTtlSeconds));
 
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
-                var events = await new GetEventsHandler(new EventRepository(dbContext), queryCache, options).HandleAsync(CancellationToken.None);
+                var events = await new GetEventsHandler(new EventRepository(dbContext), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
                 events.Should().Contain(e => e.Id == newEventId, "TTL 已過期，第二次呼叫應重新查詢資料庫並看到剛新增的活動");
             }
-            (await connection.GetDatabase().KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue("重新查詢後應重新寫入 v2 key");
+            (await connection.GetDatabase().KeyExistsAsync(EventListCacheKeyV3)).Should().BeTrue("重新查詢後應重新寫入 v3 key");
 
-            var eventsFromCache = await new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options).HandleAsync(CancellationToken.None);
+            var eventsFromCache = await new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
             eventsFromCache.Should().Contain(e => e.Id == newEventId, "第二次呼叫應已重新寫入快取，第三次呼叫應直接命中，不查詢資料庫");
         }
         finally
@@ -217,7 +218,7 @@ public class QueryCacheTtlSafetyNetTests
             IReadOnlyList<EventDto> firstResult;
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
-                firstResult = await new GetEventsHandler(new EventRepository(dbContext), queryCache, options).HandleAsync(CancellationToken.None);
+                firstResult = await new GetEventsHandler(new EventRepository(dbContext), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
             }
 
             var (venueId, seatMapId) = await SeedVenueAndSeatMapAsync();
@@ -225,11 +226,11 @@ public class QueryCacheTtlSafetyNetTests
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 
-            var secondResult = await new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options).HandleAsync(CancellationToken.None);
+            var secondResult = await new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
 
             secondResult.Should().BeEquivalentTo(firstResult, options => options.WithStrictOrdering(), "TTL 未到期前應持續命中快取，不因時間流逝而提前失效");
             secondResult.Should().NotContain(e => e.Id == newEventId, "第二次呼叫回傳的仍是異動前的舊內容");
-            (await connection.GetDatabase().KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue("TTL 內 v2 key 應仍存在");
+            (await connection.GetDatabase().KeyExistsAsync(EventListCacheKeyV3)).Should().BeTrue("TTL 內 v3 key 應仍存在");
         }
         finally
         {
@@ -237,7 +238,7 @@ public class QueryCacheTtlSafetyNetTests
         }
     }
 
-    // QC-TTL-003：活動列表 v2 key，TTL 前後。
+    // QC-TTL-003：活動列表 v3 key，TTL 前後。
     // TTL 邊界（tasks.md 6.2d）：不要求精確命中「剛好等於 TTL」，只要求「明顯小於 TTL 持續命中」與
     // 「明顯大於 TTL、在合理容忍範圍內必定失效」。
     [Fact]
@@ -253,20 +254,20 @@ public class QueryCacheTtlSafetyNetTests
 
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
-                await new GetEventsHandler(new EventRepository(dbContext), queryCache, options).HandleAsync(CancellationToken.None);
+                await new GetEventsHandler(new EventRepository(dbContext), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(0.5));
-            var actBeforeExpiry = () => new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options).HandleAsync(CancellationToken.None);
+            var actBeforeExpiry = () => new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
             await actBeforeExpiry.Should().NotThrowAsync("明顯小於 TTL（0.5 秒 < 2 秒）應仍命中快取，不查詢資料庫");
-            (await connection.GetDatabase().KeyExistsAsync(EventListCacheKeyV2)).Should().BeTrue("明顯小於 TTL 時 v2 key 應仍存在");
+            (await connection.GetDatabase().KeyExistsAsync(EventListCacheKeyV3)).Should().BeTrue("明顯小於 TTL 時 v3 key 應仍存在");
 
             // 「合理容忍範圍」以累計等待時間計（WaitUntilKeyExpiredAsync 上限為 TTL + 時鐘回跳餘裕），而非固定 Task.Delay：
             // Redis 以牆上時鐘計算到期，WSL2 時鐘回跳 2–3 秒時固定等待可能不足。
-            await WaitUntilKeyExpiredAsync(connection, EventListCacheKeyV2, TimeSpan.FromSeconds(options.EventListTtlSeconds));
+            await WaitUntilKeyExpiredAsync(connection, EventListCacheKeyV3, TimeSpan.FromSeconds(options.EventListTtlSeconds));
             // 用 AlwaysThrowingEventRepository 證明真的回到資料庫查詢；改前使用真正的 Repository，
             // 命中與未命中都不會拋例外，這個斷言無法失敗。
-            var actAfterExpiry = () => new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options).HandleAsync(CancellationToken.None);
+            var actAfterExpiry = () => new GetEventsHandler(new AlwaysThrowingEventRepository(), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
             await actAfterExpiry.Should().ThrowAsync<InvalidOperationException>("超過 TTL 後快取已淘汰，應重新查詢資料庫");
         }
         finally
@@ -292,13 +293,13 @@ public class QueryCacheTtlSafetyNetTests
 
             await using (var dbContext = _postgresFixture.CreateDbContext())
             {
-                await new GetEventsHandler(new EventRepository(dbContext), queryCache, options).HandleAsync(CancellationToken.None);
+                await new GetEventsHandler(new EventRepository(dbContext), queryCache, options, new PageRequestValidator()).GetAllOrderedAsync(CancellationToken.None);
                 await new GetTicketTypesHandler(new EventRepository(dbContext), new TicketTypeRepository(dbContext), queryCache, options)
                     .HandleAsync(eventId, CancellationToken.None);
             }
 
             var database = connection.GetDatabase();
-            var eventListTtl = await database.KeyTimeToLiveAsync(EventListCacheKeyV2);
+            var eventListTtl = await database.KeyTimeToLiveAsync(EventListCacheKeyV3);
             eventListTtl.Should().NotBeNull();
             eventListTtl!.Value.Should().BePositive().And.BeLessThanOrEqualTo(TimeSpan.FromSeconds(30));
             var ticketTypesTtl = await database.KeyTimeToLiveAsync(BuildTicketTypesCacheKey(eventId));
@@ -384,7 +385,7 @@ public class QueryCacheTtlSafetyNetTests
             var recordingQueryCache = new RecordingQueryCache(
                 new RedisQueryCache(connection, NullLogger<RedisQueryCache>.Instance),
                 connection,
-                EventListCacheKeyV2,
+                EventListCacheKeyV3,
                 async cancellationToken =>
                 {
                     await using var probeDbContext = _postgresFixture.CreateDbContext();
@@ -395,10 +396,10 @@ public class QueryCacheTtlSafetyNetTests
             var releaseSyncPoint = new TaskCompletionSource();
             await using var rDbContext = _postgresFixture.CreateDbContext();
             var handlerR = new GetEventsHandler(
-                new SlowEventRepository(new EventRepository(rDbContext), reachedSyncPoint, releaseSyncPoint), recordingQueryCache, options);
+                new SlowEventRepository(new EventRepository(rDbContext), reachedSyncPoint, releaseSyncPoint), recordingQueryCache, options, new PageRequestValidator());
 
             // (1) R 讀完舊資料後停在同步點。
-            var taskR = handlerR.HandleAsync(CancellationToken.None);
+            var taskR = handlerR.GetAllOrderedAsync(CancellationToken.None);
             await reachedSyncPoint.Task;
 
             // (2) 寫入方提交並失效；以失效完成訊號確認，不以固定等待推測。
@@ -429,12 +430,12 @@ public class QueryCacheTtlSafetyNetTests
             await AssertStaleWriteResurrectedThenExpiresWithinTtlAsync(
                 recordingQueryCache,
                 connection,
-                EventListCacheKeyV2,
+                EventListCacheKeyV3,
                 async () =>
                 {
                     await using var queryDbContext = _postgresFixture.CreateDbContext();
-                    var events = await new GetEventsHandler(new EventRepository(queryDbContext), recordingQueryCache, options)
-                        .HandleAsync(CancellationToken.None);
+                    var events = await new GetEventsHandler(new EventRepository(queryDbContext), recordingQueryCache, options, new PageRequestValidator())
+                        .GetAllOrderedAsync(CancellationToken.None);
                     return (events.Any(e => e.Title == existingTitle), events.Any(e => e.Title == newTitle));
                 });
         }

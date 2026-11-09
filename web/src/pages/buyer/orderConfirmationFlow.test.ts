@@ -208,7 +208,7 @@ describe('下單成功通知鏈：活動詳情頁確認訂單 → 活動列表�
       expect(pushMock.mock.calls).toEqual([[{ query: { step: 'confirm' } }]])
 
       detailPage.unmount()
-      vi.mocked(eventsApi.getEvents).mockResolvedValue([])
+      vi.mocked(eventsApi.getEvents).mockResolvedValue({ items: [], page: 1, pageSize: 20, totalCount: 0 })
       const listPage = mountWithSharedPinia(EventListPage)
       await flushPromises()
 

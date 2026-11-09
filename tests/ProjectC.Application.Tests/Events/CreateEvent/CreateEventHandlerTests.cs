@@ -213,7 +213,7 @@ public class CreateEventHandlerTests
         var result = await _handler.HandleAsync(AdminMemberId, OrganizerId, request, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        _queryCache.RemoveCalls.Should().ContainSingle(key => key == "query-cache:events:list:v2");
+        _queryCache.RemoveCalls.Should().ContainSingle(key => key == "query-cache:events:list:v3");
     }
 
     [Fact]

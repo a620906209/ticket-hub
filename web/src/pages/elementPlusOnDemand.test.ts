@@ -102,7 +102,7 @@ describe('[BS-012] 不安裝 Element Plus 全域 plugin 時頁面仍能解析所
   })
 
   it('買家首頁：載入中顯示 loading mask', async () => {
-    vi.mocked(eventsApi.getEvents).mockReturnValue(createDeferred<EventSummary[]>().promise)
+    vi.mocked(eventsApi.getEvents).mockReturnValue(createDeferred<PagedResult<EventSummary>>().promise)
     const wrapper = mountWithoutElementPlus(BuyerEventListPage)
     await flushPromises()
 
@@ -111,7 +111,7 @@ describe('[BS-012] 不安裝 Element Plus 全域 plugin 時頁面仍能解析所
   })
 
   it('買家首頁：沒有活動時顯示 el-empty', async () => {
-    vi.mocked(eventsApi.getEvents).mockResolvedValue([])
+    vi.mocked(eventsApi.getEvents).mockResolvedValue({ items: [], page: 1, pageSize: 20, totalCount: 0 })
     const wrapper = mountWithoutElementPlus(BuyerEventListPage)
     await flushPromises()
 

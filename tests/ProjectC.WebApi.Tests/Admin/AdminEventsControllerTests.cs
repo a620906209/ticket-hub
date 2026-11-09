@@ -988,7 +988,7 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var seatsResponse = await publicClient.GetAsync($"/api/events/{eventId}/seats");
         var adminListResponse = await organizerClient.GetAsync("/api/admin/events?pageSize=100");
 
-        (await ReadStartAtUtcJsonAsync(publicListResponse, eventId)).Should().Be(startAtJson);
+        (await ReadStartAtUtcJsonAsync(publicListResponse, eventId, isPaged: true)).Should().Be(startAtJson);
         seatsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         (await ReadStartAtUtcJsonAsync(adminListResponse, eventId, isPaged: true)).Should().Be(startAtJson);
     }
@@ -1050,7 +1050,7 @@ public class AdminEventsControllerTests : IClassFixture<CustomWebApplicationFact
         var publicListResponse = await _factory.CreateClient().GetAsync("/api/events");
         var adminListResponse = await organizerClient.GetAsync("/api/admin/events?pageSize=100");
 
-        (await ReadMaxTicketsPerOrderJsonAsync(publicListResponse, eventId)).Should().Be(100);
+        (await ReadMaxTicketsPerOrderJsonAsync(publicListResponse, eventId, isPaged: true)).Should().Be(100);
         (await ReadMaxTicketsPerOrderJsonAsync(adminListResponse, eventId, isPaged: true)).Should().Be(100);
     }
 }
