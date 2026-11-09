@@ -15,10 +15,10 @@
 
 ## 待辦
 
-- [ ] 確認使用舊 helper 的兩個測試（約第 1037、1104 行）是否依賴 ZADD 實際寫入；若是，補上 `SortedSetWhen` 多載的 mock 轉發。
-- [ ] 以 `scripts/verify-test-evidence.sh mutate` 證明補完後測試在行為被破壞時會失敗（缺口才補測試，證據貼原文）。
-- [ ] 評估兩個 helper 是否改為共用同一個「轉發至真實連線、只對特定呼叫注入失敗」的實作，避免手動轉發漏掉方法；改動量大時另開 change，須評估是否符合 CLAUDE.md「Change 顆粒度」。
-- [ ] 若有 change：依 CLAUDE.md 流程走 propose → spec-reviewer → design-hardener；純測試碼改動可標 `skip_specs: true`。
+- [x] 確認使用舊 helper 的兩個測試（約第 1037、1104 行）是否依賴 ZADD 實際寫入；已補上 `SortedSetWhen` 多載轉發（462459b）。實測服務呼叫的是 `SortedSetWhen` 多載，舊多載未被呼叫。
+- [x] 以 `mutate` 驗證：把新轉發改回 no-op 後 32 項仍通過（退出碼 1），結論是兩個測試本就不依賴 ZADD 寫入，沒有缺口需補測試；轉發僅為防止日後測試靜默失效。
+- [ ] ~~評估兩個 helper 合併為共用實作~~ 決定不做（2026-11-10）：風險低、改動量大。若日後因 helper 漏轉發方法出問題，再另開待辦。
+- [ ] ~~若有 change：走 propose 流程~~ 不適用：以無對應 spec 的小型改動直接處理。
 
 ## 備註
 
