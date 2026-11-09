@@ -18,11 +18,11 @@ description: 使用者說「幫我實作目前的 change」「開始實作」「
 
 ```bash
 herdr pane split --current --direction right --cwd "$PWD" --no-focus   # 讀 .result.pane.pane_id；窄／高 pane 改 down
-herdr pane run <pane> "claude --permission-mode auto"
+herdr pane run <pane> "claude --model claude-sonnet-5-5 --permission-mode auto"
 herdr agent list                                                         # 取名稱；等 herdr agent get <pane> 為 idle
 ```
 
-`agent start` 對 Git Bash pane 會失敗，一律 `pane run`。
+`agent start` 對 Git Bash pane 會失敗，一律 `pane run`。實作 pane 固定用 Sonnet 5.5；不帶 `--model` 時預設模型在此環境可能不可用（回 "issue with the selected model"，0 秒結束、沒有改任何檔案）。送出以 `/` 開頭的指令（`/opsx:apply`、`/cross-review`、`/model`）時，Git Bash 會把它當路徑轉換，命令前加 `MSYS_NO_PATHCONV=1`。
 
 ## 步驟 2：送實作 prompt
 
@@ -42,16 +42,20 @@ herdr agent prompt <pane> "/opsx:apply <change>。遵守 CLAUDE.md：依 TDD 逐
 
 實作期間主 session **不改檔、不跑會 build 的容器指令**（兩個 pane 共用同一工作目錄）。
 
-## 步驟 4：驗收並銜接審查
+## 步驟 4：驗收並銜接審查（三 pane 標準流程）
+
+主 session 只負責下指令、轉達使用者決定與核對，**不審查、不改檔**。實作 pane 實作完成後保留不關，由它自己接著審查、修正與送外部審查。
 
 1. 回報使用者：完成 task 數、測試結果、偏離 spec 之處、待決事項；用 `git status`／`git diff --stat` 核對實際變更與回報一致，不一致就直說。
 2. 實作 pane 的回報若有偏離 spec，先問使用者是否更新 spec，再往下。
-3. 詢問使用者是否 commit 實作；**commit 由使用者同意後才做**，不自動 commit／push。
-4. commit 後呼叫 `cross-review` skill（它會問用 Claude Code 或 Devin、審查對象），跑到外部 PASS，最後做一次主 session 審查。
-5. 有前端變更時，提醒審查後還需真實瀏覽器驗證；審查通過後再提示歸檔（`/opsx:archive`）與合併，各階段轉換分開確認。
+3. 請實作 pane 用 subagent 跑 `strict-reviewer`：有 blocking 就先自行驗證，成立才修，修到沒有 blocking；結果回報主 pane。證據不是原文（被過濾、截斷、以「其餘原文」帶過）也算 blocking。
+4. strict-reviewer PASS 後，詢問使用者是否 commit；**commit 由使用者同意後才做**，由實作 pane 執行（訊息繁體中文、結尾帶 Co-Authored-By），不 push。
+5. commit 後請實作 pane 執行 `/cross-review`。步驟 0 的答案由主 session 先寫進 prompt（工具、審查對象、change 名稱、第幾輪），不讓它用 AskUserQuestion 詢問；並指定：reviewer pane 從**實作 pane 自己**往下切（`herdr pane split --current --direction down --cwd "$PWD" --no-focus`，不往右、不改方向），報告送回實作 pane 而非主 pane。版面：主 session 在左欄，實作 pane 在右欄上方，reviewer pane 在右欄下方。
+6. 迴圈中實作 pane 修正後要 commit 前，先回報主 pane 並等使用者指示；需使用者決定的事一律回報、不自行決定。外部 PASS 後，實作 pane 不做 cross-review 步驟 5 的最後主 session 審查，直接把每輪結果（工具／模型、commit、blocking 處理、測試摘要行）回報主 pane；是否另跑主 session 最終審查由使用者決定。
+7. 有前端變更時，提醒審查後還需真實瀏覽器驗證；審查通過後再提示歸檔（`/opsx:archive`）與合併，各階段轉換分開確認。
 
 ## 注意
 
-- 不關閉自己沒建立的 pane；實作完成後問使用者是否關閉該 pane。
+- 不關閉自己沒建立的 pane；實作與審查結束後問使用者是否關閉實作 pane 與 reviewer pane。
 - 實作 session 若遇到需要使用者決定的分叉，應停下回報，不自行決定。
 - 絕不自動 commit／push。

@@ -15,6 +15,8 @@ description: 透過 herdr 另開 pane，以 Claude Code (Opus) 或 Devin CLI 跑
 
 ## 步驟 0：先判斷階段，再用 AskUserQuestion 問（一次問完）
 
+呼叫端（例如 `apply-in-pane` 的主 session）若已在 prompt 明確給出工具、審查對象、change 名稱與輪次，直接採用、不再提問，也不重新推論。以下為未給答案時的預設流程。
+
 先從 repo 狀態推出審查對象的預設值（唯讀，不修改任何檔案）：
 
 1. `openspec list --json` 取得進行中的 change；沒有或有多個就不推論、直接問。
@@ -43,6 +45,7 @@ herdr agent list                                                         # 取 a
 - `herdr agent start` 對 Git Bash pane 會失敗（agent_pane_busy／not an available shell），一律用 `pane run`。
 - 啟動後等 `herdr agent get <pane>` 為 `idle` 再送 prompt。
 - 同一輪迴圈沿用同一個 pane；重審時用全新的 prompt，不要求它沿用上輪結論。
+- 從 `apply-in-pane` 的實作 pane 執行時：一律 `--direction down`（reviewer 在實作 pane 正下方，右欄上下排列，不往右切），報告送回自己的 pane（`herdr pane current --current` 取得 id）；送出以 `/` 開頭的指令時加 `MSYS_NO_PATHCONV=1`。
 
 ## 步驟 2：送審 prompt
 
