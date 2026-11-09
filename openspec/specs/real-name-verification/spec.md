@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change real-name-verification. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: 已登入會員可登記一次實名資料，登記後不可修改
 系統 SHALL 提供已登入會員登記自己實名資料的端點 `PUT /api/members/me/real-name`。實名資料由真實姓名（`RealName`）與身分證末四碼（`NationalIdLast4`）組成；登記的會員身份 MUST 完全取自呼叫者的 JWT Claims，不接受請求內容指定其他會員。
 
@@ -157,7 +159,7 @@ TBD - created by archiving change real-name-verification. Update Purpose after a
 
 - **部署切換期間的保證範圍**（系統行為）：
   - 下單、加入排隊、核銷三個後端判斷 MUST 以資料庫中的 `IsRealNameRequired` 為準，MUST NOT 讀取公開活動列表快取。所以已建立且設定為需實名的活動，不會因快取或部署切換而被這三個判斷視為不需實名。
-  - 公開活動列表 API 的 `isRealNameRequired` 可能在快取 TTL 內落後資料庫（快取 key 已依 `query-caching`「活動列表快取 key 隨回應形狀版本化」改為只存完整形狀的 v2，不會讀到不含此欄位的項目）。這只影響列表與活動頁的標示。
+  - 公開活動列表 API 的 `isRealNameRequired` 可能在快取 TTL 內落後資料庫（快取 key 已依 `query-caching`「活動列表快取 key 隨回應形狀版本化」改為只存完整形狀的 v3，不會讀到不含此欄位的項目）。這只影響列表與活動頁的標示。
   - 部署順序與「不以多實例滾動部署」屬於營運規範，列在 design.md Migration Plan 的部署檢查清單，不是本 Requirement 的驗收情境。
 - **migration Down 的前置條件**：Down MUST 在執行時先檢查資料庫；有任何會員已登記實名，或有任何活動 `IsRealNameRequired = true` 時，Down MUST 失敗並中止，不刪除任何欄位或資料。只有兩者皆不存在時（此時刪除不會遺失任何實名資料，也不會讓任何已售票券失去實名要求），Down 才可執行。
 - **必須回滾但已有資料時**：優先只回滾程式碼、保留 schema。新增欄位舊版不讀不寫，保留是安全的。若真的必須移除 schema，須以人工程序先備份 `Members.RealName`、`Members.NationalIdLast4`、`Events.IsRealNameRequired`，清除後再執行 Down；重新升版時以備份還原這三個欄位後，才可重新對外服務。此人工程序不在本次自動化範圍內。
@@ -178,4 +180,3 @@ TBD - created by archiving change real-name-verification. Update Purpose after a
 #### Scenario: RNV-CACHE-001 列表快取顯示不需實名時，後端閘門仍以資料庫為準
 - **WHEN** 資料庫中活動 `IsRealNameRequired = true`，但公開活動列表快取中該活動的項目為 `isRealNameRequired = false`（以測試直接寫入快取模擬），未登記實名的會員對該活動下單，另一次加入排隊（加入排隊的情境中活動已開啟熱門搶購模式）
 - **THEN** 兩者都回傳 403、`Title = "RealNameRequired"`；公開活動列表此時仍回傳快取中的 false
-
