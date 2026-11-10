@@ -335,3 +335,8 @@
   - 修正：以 `mkdir` 互斥鎖（`$TMPDIR/verify-k8s-manifests.lock`，內含 pid；pid 已死則接管）禁止並行，鎖在守衛前取得、EXIT 時釋放；建立 Namespace 後記錄 UID，清理前核對 UID 相符才刪。
   - 驗證（docker-desktop）：背景啟動第一個執行個體，25 秒後啟動第二個 → `PRECONDITION: 另一個 verify-k8s-manifests 執行個體（pid 39337）仍在執行，拒絕並行。`、`exit=2`；第一個完成 `SUMMARY: 14 passed, 0 failed, 1 unverified`、`exit=3`，無殘留、鎖已釋放。預先放入死 pid（999999）的鎖 → 接管並完成 `14 passed, 0 failed, 1 unverified`、`exit=3`，無殘留。label 失敗 shim 仍 `exit=1`、無殘留。
   - 限制：UID 不符分支（Namespace 於執行期間被替換）未做實測，僅程式審閱。
+- 第 4 輪：Devin CLI（smart 模式），審 commit `8c4390e`，結果 FAIL。B-001：死 PID 鎖的「rm -rf 後 mkdir」接管非原子，兩個執行個體可同時取得鎖（成立）。B-002：Namespace UID 查詢失敗（空值）時 cleanup 因 UID guard 跳過，留下整組資源（成立）。
+  - 修正：移除自動接管，只用原子 `mkdir` 取鎖，鎖已存在一律 `exit 2` 並提示人工刪除（殘鎖只會在程序被 SIGKILL 時出現）；cleanup 只在 pid 檔內容等於自己的 `$$` 時才移除鎖；UID 為空時改依名稱刪除（旗標已證明是本次 create 的），UID 已知則須相符。
+  - 驗證（docker-desktop）：PATH shim 讓 `kubectl get ... metadata.uid` 失敗 → 完整 `SUMMARY: 14 passed, 0 failed, 1 unverified`、`exit=3`，Namespace 與鎖皆無殘留。預置死 pid（999999）的鎖 → `PRECONDITION: 互斥鎖 /tmp/verify-k8s-manifests.lock 已存在（持有者 pid 999999）…`、`exit=2`，鎖未被動到。背景執行第一個、20 秒後第二個 → 第二個 `exit=2`，第一個 `14 passed, 0 failed, 1 unverified`、`exit=3`，結束後無 Namespace 與鎖殘留。label 失敗 shim → `exit=1`，無殘留。
+  - 過程中發現並修正：以 JS `String.replace` 寫入 `$$` 被吃成 `$`，導致 cleanup 不釋放鎖；已改正並以上述「無鎖殘留」驗證。
+  - 限制：UID 不符分支仍未實測（僅程式審閱）；`TMPDIR` 不同時鎖不互斥（不支援的呼叫方式）。
