@@ -90,6 +90,7 @@
 - [api build context 為專案根目錄，會帶入 `web/` 內容使 context 變大] → 根目錄 `.dockerignore` 同時排除 `web/`（api 建置不需要）。
 - [`appsettings.Development.json` 被誤打進映像] → `.dockerignore` 排除，並在驗證腳本加斷言：runtime 映像內不存在該檔。
 - [web `npm ci` 的建置時間與 node 版本差異] → 沿用開發映像相同的 `node:22-alpine`，以 `package-lock.json` 鎖定相依。
+- [驗證腳本的 compose 專案名稱固定為 `projectc-verify`，若另有 `KEEP_UP=1` 保留的同名堆疊，再跑一般驗證會重用並以 `down -v` 清除它] → 已知取捨，不使用唯一 project name；用完 `KEEP_UP=1` 堆疊請先自行 down 再跑驗證。
 
 ## Migration Plan
 

@@ -64,6 +64,7 @@ View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux
 SUMMARY: 0 passed, 3 failed
 ```
     - 另：斷言 9 依 Devin 審查改用 `POST /api/auth/login`（匿名、讀 body、以 Content-Length 傳送）；斷言 5 改斷言 2xx。
+    - **第 1 輪外部審查（Devin，commit 9064470）B-001 處理：不採納。** 審查認為 2.1 的流程性 RED 不是行為 RED。design.md 決策 5 已明定本 change 採替代驗證例外（腳本先行的流程性 RED + 突變驗證），spec-reviewer 與 design-hardener 皆已接受；「目標行為失敗」的證據由 2.3 突變 a–e 提供（每個突變讓對應斷言失敗，還原後重跑通過）。
 - [x] 2.2 新增 `deploy/api.Dockerfile`（`build`／`runtime`／`migrator`）、`deploy/web.Dockerfile` 與 `deploy/nginx/default.conf`，內容依 design 決策 2、3。**GREEN**：`bash scripts/verify-production-images.sh` 全部斷言通過。另以真實瀏覽器（claude-in-chrome）對 web 容器對外 port 跑一次：註冊、登入、重新整理子路由；數字與狀態以頁面文字或 DB 核對。
   - 完成紀錄（2026-11-10）：
     - 首次 GREEN 嘗試失敗兩次並修正：(1) web `npm ci` ERESOLVE（openapi-typescript peer 為 TypeScript 5）→ Dockerfile 需一併 COPY `web/.npmrc`（`legacy-peer-deps=true`）；(2) Windows 原生 curl 讀不到 MSYS `/tmp` 路徑 → 腳本加 `cygpath -m`。
@@ -121,7 +122,7 @@ SUMMARY: 13 passed, 0 failed
     -USER $APP_UID
     +USER root
      ENTRYPOINT ["dotnet", "ProjectC.WebApi.dll"]
-     
+
      # 用法：migrator --connection "<連線字串>"。密碼會出現在命令列；K8s Job 日後應改由 Secret 以環境變數注入。
     $ bash scripts/verify-production-images.sh
     PASS [1] 建置 projectc-verify/api:test
@@ -144,13 +145,13 @@ SUMMARY: 13 passed, 0 failed
     exit=1
     $ cp <原檔備份> deploy/api.Dockerfile && cmp /tmp/orig.bak deploy/api.Dockerfile
     還原後與原檔位元組相同
-    
+
     ### 突變 (b)
     $ sed -i '/try_files \$uri \/index.html;/d' deploy/nginx/default.conf
     $ diff -u <原檔> deploy/nginx/default.conf
     @@ -19,7 +19,6 @@
          }
-     
+
          location / {
     -        try_files $uri /index.html;
              add_header Cache-Control "no-cache";
@@ -182,7 +183,7 @@ SUMMARY: 13 passed, 0 failed
     exit=1
     $ cp <原檔備份> deploy/nginx/default.conf && cmp /tmp/orig.bak deploy/nginx/default.conf
     還原後與原檔位元組相同
-    
+
     ### 突變 (c)
     $ sed -i '/^RUN dotnet ef migrations bundle/,/-o \/out\/efbundle/d' deploy/api.Dockerfile
     $ diff -u <原檔> deploy/api.Dockerfile
@@ -196,7 +197,7 @@ SUMMARY: 13 passed, 0 failed
     -    --configuration Release \
     -    --self-contained -r linux-x64 \
     -    -o /out/efbundle
-     
+
      FROM mcr.microsoft.com/dotnet/aspnet:10.0.14 AS runtime
      WORKDIR /app
     $ bash scripts/verify-production-images.sh
@@ -205,28 +206,28 @@ SUMMARY: 13 passed, 0 failed
     ---- 實際輸出 ----
     #11 [build  8/10] RUN dotnet restore src/ProjectC.WebApi/ProjectC.WebApi.csproj
     #11 CACHED
-    
+
     #12 [build  9/10] COPY src/ src/
     #12 CACHED
-    
+
     #13 [build  7/10] COPY src/ProjectC.WebApi/ProjectC.WebApi.csproj src/ProjectC.WebApi/
     #13 CACHED
-    
+
     #14 [build  3/10] COPY Directory.Packages.props ./
     #14 CACHED
-    
+
     #15 [build  2/10] WORKDIR /src
     #15 CACHED
-    
+
     #16 [build  4/10] COPY src/ProjectC.Domain/ProjectC.Domain.csproj src/ProjectC.Domain/
     #16 CACHED
-    
+
     #17 [bundle 1/1] RUN dotnet tool install --global dotnet-ef --version "10.*"
     #17 CACHED
-    
+
     #18 [migrator 2/3] WORKDIR /app
     #18 CACHED
-    
+
     #19 [migrator 3/3] COPY --from=bundle /out/efbundle .
     #19 ERROR: failed to calculate checksum of ref 1a7a855b-33bb-47db-900d-b9f50e07d360::cyikjfcuptsxdsrccgqokq8sy: "/out/efbundle": not found
     ------
@@ -241,7 +242,7 @@ SUMMARY: 13 passed, 0 failed
       43 |     ENV DOTNET_BUNDLE_EXTRACT_BASE_DIR=/tmp
     --------------------
     ERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 1a7a855b-33bb-47db-900d-b9f50e07d360::cyikjfcuptsxdsrccgqokq8sy: "/out/efbundle": not found
-    
+
     View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/yd1pfv0qzme2pc4tsamlu0o15
     ------------------
     PASS [1] 建置 projectc-verify/web:test
@@ -250,7 +251,7 @@ SUMMARY: 13 passed, 0 failed
     exit=1
     $ cp <原檔備份> deploy/api.Dockerfile && cmp /tmp/orig.bak deploy/api.Dockerfile
     還原後與原檔位元組相同
-    
+
     ### 突變 (d)
     $ sed -i '/appsettings.Development.json/d' .dockerignore
     $ diff -u <原檔> .dockerignore
@@ -305,7 +306,7 @@ SUMMARY: 13 passed, 0 failed
     exit=1
     $ cp <原檔備份> .dockerignore && cmp /tmp/orig.bak .dockerignore
     還原後與原檔位元組相同
-    
+
     ### 突變 (e)
     $ sed -i '/client_max_body_size 10m;/d' deploy/nginx/default.conf
     $ diff -u <原檔> deploy/nginx/default.conf
@@ -338,7 +339,7 @@ SUMMARY: 13 passed, 0 failed
     Content-Type: text/html
     Content-Length: 183
     Connection: close
-    
+
     <html>
     <head><title>413 Request Entity Too Large</title></head>
     <body>
