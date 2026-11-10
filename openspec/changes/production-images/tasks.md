@@ -31,7 +31,7 @@
 
 ## 3. 文件與收尾
 
-- [ ] 3.1 核對 1.2 文件：以腳本或 `grep` 列出 `docker-compose.yml` 的 `api` 環境變數鍵與 `.env.example` 鍵，逐項確認都在分類表中、沒有遺漏或重複；貼核對命令與結果。
+- [ ] 3.1 核對 1.2 文件：以腳本或 `grep` 列出 `docker-compose.yml` 全部服務（`db`、`seq`、`api`、`web` 等）的環境變數鍵、`${VAR}` 插值鍵與 `.env.example` 鍵，逐項確認都在分類表中、沒有遺漏或重複；貼核對命令與結果。
   - 完成紀錄：（待填）
 - [ ] 3.2 更新 `docs/todo/2026-10-28-k8s-todo.md`：標註「production-images」完成的項目與日期，保留 `k8s-local-manifests` 待辦；執行 `bash scripts/check-doc-paths.sh` 通過。
   - 完成紀錄：（待填）

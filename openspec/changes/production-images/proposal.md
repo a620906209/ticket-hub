@@ -26,4 +26,4 @@
 - 新增檔案：`docs/todo/2026-11-10-deployment-env-vars.md`、`deploy/api.Dockerfile`、`deploy/web.Dockerfile`、`deploy/nginx/default.conf`、`deploy/docker-compose.verify.yml`、`web/.dockerignore`、`scripts/verify-production-images.sh`。
 - 修改檔案：`.dockerignore`、`docs/todo/2026-10-28-k8s-todo.md`（標註進度）。
 - 套件／API／設定鍵：無變動。`docker-compose.yml` 的 `bin`／`obj` named volume 規則不受影響（未新增 .csproj）。
-- Change 顆粒度：0 個 capability、tasks 約 12 項（未達拆分門檻），不需拆分。
+- Change 顆粒度：0 個 capability、tasks 8 項（未達拆分門檻），不需拆分。
