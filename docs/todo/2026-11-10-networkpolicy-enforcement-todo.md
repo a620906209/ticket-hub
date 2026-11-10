@@ -25,3 +25,8 @@
 ## 解除條件
 
 上述驗證在可執行 NetworkPolicy 的環境通過後：更新 `docs/todo/2026-11-02-deployment-prerequisites.md` 第 1 項，並刪除本檔或移到 `docs/archive/`。
+
+## 外部審查遺留的非 blocking 建議（2026-11-11 使用者決定不處理）
+
+- NetworkPolicy selector 靜態檢查：驗證腳本目前不檢查 `60-networkpolicy.yaml` 的 podSelector／ingress selector 是否對得上各 Deployment 的 labels；selector 寫錯時在不執行 NetworkPolicy 的本機 CNI 上不會被任何斷言抓到。可在能執行 NetworkPolicy 的環境驗證時一併補靜態比對。
+- 斷言 8c「CNI 有執行」分支未驗證，且該分支使用的 `nc -z -w`（busybox 版本是否支援該選項）未在實機確認；第一次在可執行 NetworkPolicy 的環境跑時須一併確認。

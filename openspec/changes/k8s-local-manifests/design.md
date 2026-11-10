@@ -23,7 +23,7 @@
 - 資料庫：不新增查詢；migrator 沿用 EF bundle。N/A。
 - 權限：Secret 以 K8s Secret 注入；api 無對外 Service；`/health/*` 不經 web 轉發；NetworkPolicy 限制叢集內來源（本機是否執行見決策 7）。
 - 前端：無前端變更。N/A。
-- 暴露面：Docker Desktop 的 NodePort 可能綁定所有網路介面，區網內可嘗試登入 seeder Admin。manifest 與文件註明「僅限信任的本機網路」，`secret.example.yaml` 的佔位密碼不得使用可猜的值（例如 `password123`），改為明顯需替換的字串。
+- 暴露面：Docker Desktop 的 NodePort 可能綁定所有網路介面，區網內可嘗試登入 seeder Admin。manifest 與文件註明「僅限信任的本機網路」，`examples/secret.example.yaml` 的佔位密碼不得使用可猜的值（例如 `password123`），改為明顯需替換的字串。
 
 ## Goals / Non-Goals
 
@@ -47,7 +47,7 @@
 | --- | --- |
 | `00-namespace.yaml` | Namespace |
 | `10-configmap.yaml` | api 一般設定、db 的 `POSTGRES_USER`／`POSTGRES_DB` |
-| `secret.example.yaml` | Secret 範本（佔位值）；實際 `secret.yaml` 由使用者複製，列入 `.gitignore` |
+| `examples/secret.example.yaml` | Secret 範本（佔位值）；實際 `secret.yaml` 由使用者複製，列入 `.gitignore` |
 | `20-postgres.yaml` | PVC、Deployment（1 副本，`Recreate`）、Service `db` |
 | `21-redis.yaml` | Deployment、Service `redis` |
 | `22-seq.yaml` | Deployment、Service `seq`（只開 5341 ingestion 給 api；UI 用 `kubectl port-forward`） |

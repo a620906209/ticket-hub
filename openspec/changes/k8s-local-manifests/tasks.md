@@ -59,7 +59,7 @@
 
 ## 2. Manifest
 
-- [x] 2.1 新增 `k8s/00-namespace.yaml`、`k8s/10-configmap.yaml`、`k8s/secret.example.yaml`，並在 `.gitignore` 加入 `k8s/secret.yaml`。驗證：`kubectl apply --dry-run=server -f k8s/` 無錯；`git check-ignore k8s/secret.yaml` 命中；範本只含佔位值。
+- [x] 2.1 新增 `k8s/00-namespace.yaml`、`k8s/10-configmap.yaml`、`k8s/examples/secret.example.yaml`，並在 `.gitignore` 加入 `k8s/secret.yaml`。驗證：`kubectl apply --dry-run=server -f k8s/` 無錯；`git check-ignore k8s/secret.yaml` 命中；範本只含佔位值。
   - 完成紀錄：`git check-ignore -v k8s/secret.yaml` → `.gitignore:505:k8s/secret.yaml	k8s/secret.yaml`。`secret.example.yaml` 只含 `REPLACE_ME_*` 佔位值。`--dry-run=server -f k8s/` 無法整個目錄執行：Namespace 在 server dry-run 不會真的建立，其餘資源會報 `namespaces "projectc" not found`（`Error from server (NotFound): error when creating "k8s/10-configmap.yaml": namespaces "projectc" not found`），這是 dry-run 對「同批建立 Namespace」的已知限制，不是 manifest 錯誤；改為先真實建立渲染後的 Namespace（`projectc-verify`），再對全部渲染後的檔案逐一 `--dry-run=server`，輸出（無錯）：
     ```
     namespace/projectc-verify created
@@ -350,3 +350,13 @@
 - 第 7 輪：Devin CLI（smart 模式），審 commit `4bddacd`，結果 FAIL；UID 核對／delete 非原子依使用者裁定未列入。blocking：鎖路徑取決於呼叫端 `TMPDIR`，不同 TMPDIR 的一般呼叫各拿各的鎖，會把對方的 Namespace 當殘留刪除（成立，且是一般呼叫而非蓄意情境）。
   - 修正：鎖固定放 `/tmp/verify-k8s-manifests.lock`，不受 `TMPDIR` 影響（註解寫明原因）。
   - 驗證（docker-desktop）：背景啟動第一個（預設 TMPDIR），20 秒後以 `TMPDIR=/tmp/othertmp` 啟動第二個 → `PRECONDITION: 互斥鎖 /tmp/verify-k8s-manifests.lock 已存在（持有者 pid …` `exit=2`，未觸碰叢集；第一個 `SUMMARY: 14 passed, 0 failed, 1 unverified`、`exit=3`，無 Namespace 與鎖殘留。
+
+### 後續處理：非 blocking 建議 ③、①（2026-11-11，使用者核准，未 commit）
+
+- ③ `secret.example.yaml` 移到 `k8s/examples/`（`git mv`），避免 `kubectl apply -f k8s/` 套用佔位 Secret。同步：`.gitignore` 註解、腳本斷言 0 路徑與訊息、`10-configmap.yaml` 註解、範本內 cp 路徑與「不得直接 apply」說明、design／proposal／tasks 2.1／docs/todo 引用。上方第 52 行的 RED 原文為歷史輸出，不改。
+  - RED（搬移前）：`kubectl --context docker-desktop apply --dry-run=client -f k8s/ 2>&1 | grep -i -E 'secret|error'` → `secret/projectc-secrets created (dry run)`。
+  - GREEN（搬移後）：同一指令 `grep -ci secret` → `0`；`bash scripts/check-doc-paths.sh` → `OK: 所有 docs 路徑引用都存在`。
+- ① 斷言 7 加 `grep -q 'SigningKey'` 日誌檢查（避免因其他原因崩潰也 PASS）；失敗訊息註明需含 SigningKey。
+  - GREEN：全腳本（docker-desktop）`exit=3`，`PASS [7] 缺 Jwt__SigningKey 時 api 進入 CrashLoopBackOff，上次結束碼=139`，`SUMMARY: 14 passed, 0 failed, 1 unverified`，`UNVERIFIED: 8c`；無 projectc* namespace、無鎖殘留。日誌含 `DataAnnotation validation failed for 'JwtOptions' members: 'SigningKey' with the error: 'The SigningKey field is required.`
+  - 突變（grep 關鍵字暫改為 `NoSuchKeyXyz`，還原後 `diff` 與備份一致）：`exit=1`，`FAIL [7] 狀態=CrashLoopBackOff，上次結束碼=139，日誌需含 SigningKey（確認是缺設定而非其他原因崩潰）`，`SUMMARY: 13 passed, 1 failed, 1 unverified`。證明日誌檢查會使斷言在日誌不含關鍵字時失敗。
+- ④②⑤⑥ 不做，已記入 `docs/todo/2026-10-28-k8s-todo.md`（④⑤）與 `docs/todo/2026-11-10-networkpolicy-enforcement-todo.md`（②⑥）。

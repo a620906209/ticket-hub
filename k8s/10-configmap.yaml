@@ -1,4 +1,4 @@
-# 一般（非機敏）設定。機敏值一律放 Secret（見 secret.example.yaml），不得寫進這個檔案。
+# 一般（非機敏）設定。機敏值一律放 Secret（見 examples/secret.example.yaml），不得寫進這個檔案。
 apiVersion: v1
 kind: ConfigMap
 metadata:

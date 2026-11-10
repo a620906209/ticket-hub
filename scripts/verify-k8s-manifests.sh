@@ -67,7 +67,7 @@ missing=0
 for name in "${MANIFESTS[@]}"; do
   [ -f "$K8S_DIR/$name.yaml" ] || { echo "缺少 $K8S_DIR/$name.yaml"; missing=1; }
 done
-[ -f "$K8S_DIR/secret.example.yaml" ] || { echo "缺少 $K8S_DIR/secret.example.yaml"; missing=1; }
+[ -f "$K8S_DIR/examples/secret.example.yaml" ] || { echo "缺少 $K8S_DIR/examples/secret.example.yaml"; missing=1; }
 if [ "$missing" -ne 0 ]; then
   fail 0 "manifest 不完整，無法驗證（未對叢集做任何操作）"
   finish
@@ -365,11 +365,12 @@ while [ "$waited" -lt 180 ]; do
 done
 exit_code="$(kn get pods -l app=api-missing-config -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.exitCode}' 2>/dev/null)"
 missing_logs="$(kn logs -l app=api-missing-config --tail=20 2>&1)"
-if [ "$reason" = "CrashLoopBackOff" ] && [ -n "$exit_code" ] && [ "$exit_code" != "0" ]; then
+if [ "$reason" = "CrashLoopBackOff" ] && [ -n "$exit_code" ] && [ "$exit_code" != "0" ] \
+   && grep -q 'SigningKey' <<<"$missing_logs"; then
   pass 7 "缺 Jwt__SigningKey 時 api 進入 CrashLoopBackOff，上次結束碼=$exit_code"
   echo "---- 斷言 7 日誌（最後 20 行）----"; echo "$missing_logs"; echo "----------------------------------"
 else
-  fail 7 "狀態=$reason，上次結束碼=$exit_code" "$missing_logs"
+  fail 7 "狀態=$reason，上次結束碼=$exit_code，日誌需含 SigningKey（確認是缺設定而非其他原因崩潰）" "$missing_logs"
 fi
 kn delete deployment api-missing-config --ignore-not-found >/dev/null 2>&1
 

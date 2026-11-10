@@ -6,7 +6,7 @@
 
 ## What Changes
 
-- 新增 `k8s/`（純 YAML，不用 Kustomize／Helm）：Namespace `projectc`；db（PVC）、redis、seq（不掛 PVC）、api（2 副本）、web（1 副本）的 Deployment 與 Service；ConfigMap；Secret 範本 `secret.example.yaml`（實際 `secret.yaml` 加入 `.gitignore`）；migrator Job；探針與資源 requests／limits；NetworkPolicy。
+- 新增 `k8s/`（純 YAML，不用 Kustomize／Helm）：Namespace `projectc`；db（PVC）、redis、seq（不掛 PVC）、api（2 副本）、web（1 副本）的 Deployment 與 Service；ConfigMap；Secret 範本 `examples/secret.example.yaml`（實際 `secret.yaml` 加入 `.gitignore`）；migrator Job；探針與資源 requests／limits；NetworkPolicy。
 - 對外只有 web 的 NodePort（30080）；api、db、redis、seq 一律 ClusterIP。瀏覽器同源走 nginx 的 `/api`，不改 CORS 與前端 API 位址。
 - migrator Job 以 `args` 的 `$(ConnectionStrings__DefaultConnection)` 引用 Secret 注入的環境變數，密碼不出現在 manifest 與 `kubectl describe`；不改 migrator 程式。
 - `ASPNETCORE_ENVIRONMENT=Development`（ConfigMap 覆寫映像預設的 `Production`），讓 seeder 建立展示用 Admin 與 Organizer；只用 HTTP，不做 TLS。
