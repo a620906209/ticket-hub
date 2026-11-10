@@ -1,0 +1,54 @@
+# production 映像驗證專用（scripts/verify-production-images.sh 使用，compose 專案名稱 projectc-verify）。
+# 不共用開發環境 projectc_default 網路、volume 與固定 port；所有機敏值由腳本於執行時以環境變數傳入，
+# 不寫入任何檔案。對外 port 一律由 Docker 隨機配置，避免與開發環境或 Windows 排除範圍衝突。
+name: projectc-verify
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${VERIFY_POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${VERIFY_POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${VERIFY_POSTGRES_DB:?}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${VERIFY_POSTGRES_USER} -d ${VERIFY_POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+
+  migrator:
+    image: projectc-verify/migrator:test
+    profiles: ["migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+    # 連線字串走命令列是 design 決策 2 已記錄的取捨；密碼只存在於本次 verify 專案的環境變數。
+    command: ["--connection", "Host=db;Port=5432;Database=${VERIFY_POSTGRES_DB:?};Username=${VERIFY_POSTGRES_USER:?};Password=${VERIFY_POSTGRES_PASSWORD:?}"]
+
+  api:
+    image: projectc-verify/api:test
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${VERIFY_POSTGRES_DB:?};Username=${VERIFY_POSTGRES_USER:?};Password=${VERIFY_POSTGRES_PASSWORD:?}"
+      ConnectionStrings__Redis: "redis:6379"
+      Jwt__Issuer: verify-issuer
+      Jwt__Audience: verify-audience
+      Jwt__SigningKey: ${VERIFY_JWT_SIGNING_KEY:?}
+      TicketSigning__SigningKey: ${VERIFY_TICKET_SIGNING_KEY:?}
+    ports:
+      - "127.0.0.1::8080"
+
+  web:
+    image: projectc-verify/web:test
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "127.0.0.1::8080"
