@@ -1,0 +1,35 @@
+# 套用順序：db Ready 之後、api 之前。Job 的 spec.template 不可變，重跑須先
+# `kubectl -n projectc delete job migrator`。ttlSecondsAfterFinished 不設，保留供 `kubectl logs` 檢查。
+# 連線字串由 Secret 以環境變數注入，args 以 $(VAR) 引用（K8s 在容器啟動時展開），
+# manifest 與 `kubectl describe` 因此不含密碼；已知限制：容器內的行程參數是展開後的值。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrator
+  namespace: projectc
+  labels:
+    app: migrator
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: migrator
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrator
+          image: projectc/api-migrator:local
+          imagePullPolicy: IfNotPresent
+          args: ["--connection", "$(ConnectionStrings__DefaultConnection)"]
+          env:
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                secretKeyRef:
+                  name: projectc-secrets
+                  key: ConnectionStrings__DefaultConnection
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

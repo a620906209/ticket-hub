@@ -16,7 +16,7 @@
 
 注意事項：
 
-- migrator 映像目前以 `--connection "<連線字串>"` 命令列參數接收連線字串，密碼會出現在行程參數與 `kubectl describe`／容器 inspect 輸出。**日後在 K8s Job 應改由 Secret 以環境變數注入**（需調整 migrator 啟動方式，列入 `k8s-local-manifests` 範圍）。
+- migrator 映像目前以 `--connection "<連線字串>"` 命令列參數接收連線字串，密碼會出現在行程參數與 `kubectl describe`／容器 inspect 輸出。`k8s-local-manifests`（2026-11-10）的處理：不改 migrator，Job 以 `secretKeyRef` 把 `ConnectionStrings__DefaultConnection` 注入環境變數，`args` 寫 `["--connection", "$(ConnectionStrings__DefaultConnection)"]`（K8s 於容器啟動時展開 `$(VAR)`），密碼因此不出現在 manifest 與 `kubectl describe`。已知限制：容器內的行程參數是展開後的值，能進入該容器者可見；要消除須讓 migrator 直接讀環境變數（另開 change）。
 
 ## 二、一般設定（日後 K8s ConfigMap）
 

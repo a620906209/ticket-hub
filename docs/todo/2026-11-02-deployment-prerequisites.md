@@ -15,9 +15,14 @@
 - AC 須實測：探針來源可達且 Pod 能 Ready；維運來源可達；不可信 workload 與外部來源不可達。
 - 完成前，不得讓 api 暴露給不受信任的網路或工作負載。
 
+本機實測狀態（`k8s-local-manifests`，2026-11-10，Docker Desktop kubeadm）：
+
+- 已驗證：api 只有 ClusterIP，經 web NodePort 取不到 `/health/*`（nginx 只轉發 `/api/`），`kubectl port-forward` 可取得 `/health/live`，探針通過使 Pod Ready（`scripts/verify-k8s-manifests.sh` 斷言 8、9）。
+- **未驗證**：不可信 workload 不可達。Docker Desktop 的 CNI 不執行 NetworkPolicy（deny-all 保護的 Pod 仍可連通），`k8s/60-networkpolicy.yaml` 在本機只是宣告；待辦見 `docs/todo/2026-11-10-networkpolicy-enforcement-todo.md`。因此本項的上線 gate **仍未解除**，上述必要條件文字不變。
+
 實測時注意：
 
-- NetworkPolicy 是否生效取決於 CNI，Docker Desktop 尚未確認；規則也必須放行探針來源。
+- NetworkPolicy 是否生效取決於 CNI，Docker Desktop 已實測**不執行**；規則也必須放行探針來源。
 - K8s 的 `NodePort` 與 compose 未綁定 `127.0.0.1` 的 port 發布，都會繞過「僅內部可達」的假設。目前 `docker-compose.yml` 的 `API_HOST_PORT` 就沒有綁定，不符合此條件。
 - VPS 綁定 `127.0.0.1` 不能取代實測，反向代理若轉送這兩個路徑，外部來源仍可達。
 

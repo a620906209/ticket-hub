@@ -1,0 +1,82 @@
+# 限制叢集內的來源。注意：Docker Desktop 內建的 CNI 不執行 NetworkPolicy（task 1.1 實測），
+# 這些規則在本機只是宣告；是否真的生效須在有可執行 NetworkPolicy 的 CNI 驗證
+# （docs/todo/2026-11-10-networkpolicy-enforcement-todo.md）。kubelet 探針與 kubectl port-forward
+# 不經 NetworkPolicy，所以探針與維運存取不受影響。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-ingress
+  namespace: projectc
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: web
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-ingress
+  namespace: projectc
+spec:
+  podSelector:
+    matchLabels:
+      app: db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+        - podSelector:
+            matchLabels:
+              app: migrator
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+  namespace: projectc
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: seq-ingress
+  namespace: projectc
+spec:
+  podSelector:
+    matchLabels:
+      app: seq
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+      ports:
+        - protocol: TCP
+          port: 5341
