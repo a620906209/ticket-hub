@@ -1,0 +1,22 @@
+# 一般（非機敏）設定。機敏值一律放 Secret（見 secret.example.yaml），不得寫進這個檔案。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: projectc-config
+  namespace: projectc
+data:
+  # Development 只為了讓 seeder 建立展示用 Admin 與 Organizer（首位 Admin 的正式 bootstrap 仍是待辦）；
+  # 同時會啟用 OpenAPI／SwaggerUI。僅限本機展示，不得原樣帶到共享或對外環境。
+  ASPNETCORE_ENVIRONMENT: "Development"
+  ASPNETCORE_URLS: "http://+:8080"
+  Jwt__Issuer: "ProjectC.WebApi"
+  Jwt__Audience: "ProjectC.Client"
+  Jwt__AccessTokenExpirationMinutes: "30"
+  Auth__RefreshTokenExpirationDays: "14"
+  Auth__PasswordResetTokenExpirationMinutes: "15"
+  Seq__ServerUrl: "http://seq:5341"
+  ConnectionStrings__Redis: "redis:6379"
+  DevelopmentSeed__AdminEmail: "admin@local.dev"
+  DevelopmentSeed__OrganizerName: "Demo Organizer"
+  POSTGRES_USER: "projectc"
+  POSTGRES_DB: "projectc"

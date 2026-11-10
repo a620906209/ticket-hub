@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-data
+  namespace: projectc
+spec:
+  accessModes: ["ReadWriteOnce"]
+  # 不指定 storageClassName：使用 Docker Desktop 預設的 hostpath provisioner。
+  # 重設 Docker Desktop 叢集後資料會消失（學習用途可接受）。
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  namespace: projectc
+  labels:
+    app: db
+spec:
+  replicas: 1
+  # Recreate：避免滾動更新時兩個 Postgres 同時掛同一個 PVC。
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - name: db
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: projectc-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: projectc-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: projectc-secrets
+                  key: POSTGRES_PASSWORD
+            # 掛載點根目錄可能非空（lost+found 等），資料放子目錄避免初始化失敗。
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: projectc
+spec:
+  type: ClusterIP
+  selector:
+    app: db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

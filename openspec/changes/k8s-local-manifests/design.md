@@ -96,6 +96,7 @@ Job 以 `env` 的 `secretKeyRef` 取得 `ConnectionStrings__DefaultConnection`�
 - manifest：api 的 ingress 只允許 `app=web` 的 Pod 連 8080（nginx 只轉發 `/api/`）；db 只允許 `app=api` 與 migrator Job 連 5432；redis 只允許 `app=api` 連 6379；seq 只允許 `app=api` 連 5341。kubelet 探針從節點發出，一般 CNI 不對節點到 Pod 的探針套用 NetworkPolicy；維運用 `kubectl port-forward` 走 API server → kubelet → 容器，同樣不經 NetworkPolicy。
 - **可在本機驗證**（腳本斷言，不依賴 CNI）：api 沒有 NodePort／LoadBalancer；經 web 的 `/health/live`、`/health/ready`、`/api/health/*` 取不到 api 的健康檢查結果（回應本文不是 `Healthy`，且 `/health/live` 回的是 SPA `index.html`）；探針通過使 Pod Ready；`kubectl port-forward` 到 api 可取得 `/health/live`。
 - **可能無法在本機驗證**：不可信 workload（同叢集的任意 Pod）連 api 被擋。腳本先做對照實驗：在暫存 Namespace 套用 deny-all ingress 的 NetworkPolicy，從另一 Pod 連它；若連得通，判定本機 CNI 沒有執行 NetworkPolicy，「不可信 workload 不可達」斷言輸出 `UNVERIFIED`（不算 PASS、不算 FAIL、摘要行單獨列出，腳本以特定結束碼區分），並由 `docs/todo/2026-11-10-networkpolicy-enforcement-todo.md` 承接。若對照實驗顯示 CNI 有執行，該斷言轉為正式 PASS／FAIL 判定。
+- **task 1.1(c) 實測結論（2026-11-10）**：本機 CNI 不執行 NetworkPolicy。deny-all ingress 保護的 Pod 仍被另一 Pod 以 `redis-cli ping` 連通（回 `PONG`），因此「不可信 workload 不可達」斷言在本機固定為 `UNVERIFIED`（原文見 tasks.md 1.1）。
 - 因此「完成前不得讓 api 暴露給不受信任的網路」在本 change 的範圍是：本機叢集不開放對外與不可信 workload 的信任假設只限單人本機；`deployment-prerequisites` 的上線 gate 在有可執行 NetworkPolicy 的環境驗證前**仍未解除**，本 change 不修改該文件的「必要條件」文字，只更新實測狀態。
 
 替代方案：安裝 Calico 讓本機也能驗證。否決：改動 Docker Desktop 叢集的 CNI 風險高、超出本 change 範圍；列為待辦。

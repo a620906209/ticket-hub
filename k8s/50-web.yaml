@@ -1,0 +1,59 @@
+# 套用順序：api Service 存在之後（nginx 啟動時須能解析上游主機名 api，否則直接退出）。
+# 對外只有這個 NodePort；Docker Desktop 的 NodePort 可能綁定所有網路介面，僅限信任的本機網路。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: projectc
+  labels:
+    app: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: projectc/web:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: projectc
+spec:
+  type: NodePort
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30080

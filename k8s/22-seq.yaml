@@ -1,0 +1,60 @@
+# 不掛 PVC、不驗證 Seq 本身（僅限本機展示）。Service 只開 5341 ingestion 給 api；
+# Seq UI 用 `kubectl -n projectc port-forward deployment/seq 8081:80` 存取。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seq
+  namespace: projectc
+  labels:
+    app: seq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seq
+  template:
+    metadata:
+      labels:
+        app: seq
+    spec:
+      containers:
+        - name: seq
+          image: datalust/seq:2026.1.17114
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ACCEPT_EULA
+              value: "Y"
+            # 新版 Seq 第一次啟動必須二選一（見 docker-compose.yml seq 註解）；本機展示選擇免驗證。
+            - name: SEQ_FIRSTRUN_NOAUTHENTICATION
+              value: "True"
+          ports:
+            - name: ingestion
+              containerPort: 5341
+            - name: ui
+              containerPort: 80
+          readinessProbe:
+            tcpSocket:
+              port: ingestion
+            periodSeconds: 5
+            failureThreshold: 12
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seq
+  namespace: projectc
+spec:
+  type: ClusterIP
+  selector:
+    app: seq
+  ports:
+    - name: ingestion
+      port: 5341
+      targetPort: ingestion

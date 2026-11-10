@@ -9,6 +9,7 @@
 - 斷言 7 只要求「結束碼非零」且日誌含缺少 Jwt 設定的錯誤，所以通過；已在 `production-images` 的 tasks.md 記為偏差，使用者 2026-11-10 接受。
 - 根因**未查明**。可能方向（皆未驗證）：.NET runtime 崩潰處理時 segfault；Alpine／非 root（`USER $APP_UID`）環境差異；是否在 Debian 基底的 aspnet 映像上復現。
 - 對 Kubernetes 無實質影響：`CrashLoopBackOff` 只看是否非零結束。
+- K8s 實測（`k8s-local-manifests` 斷言 7，2026-11-10，Docker Desktop）：缺 `Jwt__SigningKey` 的 api Pod 進入 `CrashLoopBackOff`，`lastState.terminated.exitCode` 為 **139**，與 compose 驗證一致；`kubectl logs` 顯示 `Unhandled exception. Microsoft.Extensions.Options.OptionsValidationException: DataAnnotation validation failed for 'JwtOptions' members: 'SigningKey' with the error: 'The SigningKey field is required.'`。未做根因分析。
 
 ## 待辦
 

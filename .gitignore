@@ -500,3 +500,6 @@ web/public/__pfux-*
 graphify-out/
 .claude/settings.json.graphify-bak
 .claude/settings.local.json
+
+# Kubernetes 實際 Secret（由 k8s/secret.example.yaml 複製而來，含真實機敏值）
+k8s/secret.yaml

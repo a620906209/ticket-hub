@@ -1,0 +1,50 @@
+# 不掛 PVC：Redis 內容為過程性資料（鎖、佇列），重建可清空，比照 docker-compose.yml。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: projectc
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: projectc
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

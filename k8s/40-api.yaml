@@ -1,0 +1,91 @@
+# 套用順序：migrator Job Complete 之後（api 不在啟動時 migrate；/health/ready 只檢查 DB 連線、不檢查 schema，
+# 順序由套用流程保證，不靠探針）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: projectc
+  labels:
+    app: api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: projectc/api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: projectc-config
+            - secretRef:
+                name: projectc-secrets
+          # 探針路徑須與 /health/live、/health/ready 完全相同，結尾不加斜線。
+          # seeder 在監聽前同步執行，雙副本首次啟動還可能重啟一次，startupProbe 給足 150 秒。
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # /health/ready 在 DNS 無回應時實測可達 10～12 秒，timeoutSeconds 須高於此值。
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 15
+            failureThreshold: 3
+          # 讓 Service endpoint 移除先於行程收到 SIGTERM，滾動更新期間不丟請求。
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: projectc
+spec:
+  type: ClusterIP
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
