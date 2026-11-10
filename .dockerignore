@@ -6,3 +6,10 @@
 .gitignore
 openspec/
 *.md
+
+# production 映像（deploy/）：機敏與本機專用檔案不得進入 build context
+**/appsettings.Development.json
+**/.env*
+**/node_modules
+**/certs
+web/
