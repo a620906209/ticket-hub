@@ -51,7 +51,7 @@ herdr agent prompt <pane> "/opsx:apply <change>。遵守 CLAUDE.md：依 TDD 逐
 3. 請實作 pane 用 subagent 跑 `strict-reviewer`：有 blocking 就先自行驗證，成立才修，修到沒有 blocking；結果回報主 pane。證據不是原文（被過濾、截斷、以「其餘原文」帶過）也算 blocking。
 4. strict-reviewer PASS 後，詢問使用者是否 commit；**commit 由使用者同意後才做**，由實作 pane 執行（訊息繁體中文、結尾帶 Co-Authored-By），不 push。
 5. commit 後請實作 pane 執行 `/cross-review`。步驟 0 的答案由主 session 先寫進 prompt（工具、審查對象、change 名稱、第幾輪），不讓它用 AskUserQuestion 詢問；並指定：reviewer pane 從**實作 pane 自己**往下切（`herdr pane split --current --direction down --cwd "$PWD" --no-focus`，不往右、不改方向），報告送回實作 pane 而非主 pane。版面：主 session 在左欄，實作 pane 在右欄上方，reviewer pane 在右欄下方。
-6. 迴圈中實作 pane 修正後要 commit 前，先回報主 pane 並等使用者指示；需使用者決定的事一律回報、不自行決定。外部 PASS 後，實作 pane 不做 cross-review 步驟 5 的最後主 session 審查，直接把每輪結果（工具／模型、commit、blocking 處理、測試摘要行）回報主 pane；是否另跑主 session 最終審查由使用者決定。
+6. 迴圈中實作 pane 修正後要 commit 前，先回報主 pane 並等使用者指示；需使用者決定的事一律回報、不自行決定。外部審查迴圈中，實作 pane 收到 blocking 後只驗證並修正，不自行重跑 strict-reviewer；外部 PASS 後，由實作 pane 依序跑最後一次 `strict-reviewer` 與一個全新的對抗式 general-purpose subagent，修到都沒有 blocking，然後把每輪結果（工具／模型、commit、blocking 處理、最後審查結果與測試摘要行）回報主 pane。主 session 不做最終審查，只核對流程已走完。
 7. 有前端變更時，提醒審查後還需真實瀏覽器驗證；審查通過後再提示歸檔（`/opsx:archive`）與合併，各階段轉換分開確認。
 
 ## 注意
