@@ -46,6 +46,8 @@
 - **1.6 以 `ILogEventSink` 擷取日誌**：專案以 Serilog 取代預設 `ILoggerProvider`，一般 logger provider 擷取不到訊息，改用 DI 註冊的 `InMemoryLogEventSink`（同 `SerilogConfigurator`）。
 - **1.4(d) 改為移除 `[EnableRateLimiting("captcha")]`**：以移除該屬性取代「關閉 CaptchaRateLimiting」，使行為測試不受限流干擾。
 
+- **證據中被濾掉的建置 warning**：tasks.md 的測試命令輸出經 `scripts/verify-test-evidence.sh` 濾掉含 `: warning ` 的建置行（腳本設計，見 24cde0d）。實測 `dotnet build tests/ProjectC.WebApi.Tests --no-incremental` 的 warning 全為 MSB3277（`Microsoft.EntityFrameworkCore.Relational` 版本衝突），為既有警告，與 captcha 檔案無關（含 captcha 字樣者為 0）；測試結果、失敗名稱、stack trace、摘要行皆為原文。
+
 ## 已知技術債
 
 - `EventQueueControllerTests` 仍保留與 `CaptchaModeTestData` 相同的私有佇列活動 seed／會員 client helper，本 change 不處理，待日後統一抽共用。
