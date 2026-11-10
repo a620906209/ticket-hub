@@ -1,6 +1,6 @@
 ---
 name: cross-review
-description: 透過 herdr 另開 pane，以 Claude Code (Opus) 或 Devin CLI 跑 spec-reviewer / strict-reviewer 交叉審查；主 session 只負責修正，直到外部審查 PASS 才在主 session 做最後一次審查。使用者說「交叉審查」「送審」「cross-review」時使用。
+description: 透過 herdr 另開 pane，以 Claude Code (Opus) 或 Devin CLI 跑 spec-reviewer / strict-reviewer 交叉審查；主 session 只負責修正，直到外部審查 PASS 才由執行端 session 做最後一次審查（實作情境為實作 pane 跑 strict-reviewer，主 session 不審）。使用者說「交叉審查」「送審」「cross-review」時使用。
 ---
 
 # Cross-Review：herdr 外部交叉審查
@@ -79,15 +79,17 @@ herdr agent prompt <name-or-pane> "<prompt>" --wait --timeout 1800000
 - 每輪的工具／模型與 commit 記入 `tasks.md`（無 tasks.md 則記在回報中）。
 - 不設輪數上限：仍有具體失敗情境的 blocking 就繼續；warning 不需為了消除再跑一輪。
 
-## 步驟 5：外部 PASS 後的最後一次主 session 審查
+## 步驟 5：外部 PASS 後的最後一次審查
 
-外部 reviewer 沒有 blocking 後，才在主 session 做一次：
+外部 reviewer 沒有 blocking 後，由**執行本 skill 的 session** 做一次：
 
-- 程式碼：`strict-reviewer`，**依序**再跑一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前輪結論；不要同時並跑，會執行容器的審查同時進行曾造成大量假失敗）。
-- 規格：`spec-reviewer`，PASS 後接著 `design-hardener`。
+- 程式碼（實作 pane 執行時）：`strict-reviewer`，**依序**再跑一個全新的對抗式 general-purpose subagent（只給 change 名稱與審查目標，不給前輪結論；不要同時並跑，會執行容器的審查同時進行曾造成大量假失敗），都沒有 blocking 才算 PASS；不由主 session 另審。
+- 規格（主 session 執行時）：`spec-reviewer`，PASS 後接著 `design-hardener`。
 - 若這次又修改了程式，回步驟 2 讓外部再審；只改證據則核對即可。
 
-最後回報：輪數、每輪工具／模型／commit、blocking 處理結果、最後一次主 session 審查結果。
+外部審查迴圈中，收到外部 blocking 後只驗證並修正，**不在每輪修正後自行重跑 strict-reviewer**，等外部 PASS 才跑這一次。
+
+最後回報（程式碼情境回報主 pane）：輪數、每輪工具／模型／commit、blocking 處理結果、最後一次 strict-reviewer 與對抗式審查結果、測試摘要行。
 
 ## 注意
 
