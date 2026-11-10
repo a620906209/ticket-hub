@@ -98,12 +98,18 @@ for existing_ns in "$NS" "$NP_NS"; do
     exit 2
   fi
 done
+# 清理只依「本次執行 create 成功」的旗標，不依事後查詢 label：create 遇到既有 Namespace 會失敗（不會接管他人資源），
+# 標記失敗也不會讓已建立的 Namespace 殘留。
+ns_created=0
+np_ns_created=0
 cleanup() {
   stop_background
-  if [ "${KEEP_UP:-0}" != "1" ]; then
-    owns_namespace "$NS" && k delete namespace "$NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
+  if [ "${KEEP_UP:-0}" != "1" ] && [ "$ns_created" = "1" ]; then
+    k delete namespace "$NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
   fi
-  owns_namespace "$NP_NS" && k delete namespace "$NP_NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
+  if [ "$np_ns_created" = "1" ]; then
+    k delete namespace "$NP_NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
+  fi
   rm -rf "$work_dir"
 }
 trap cleanup EXIT
@@ -118,7 +124,9 @@ apply_manifest() { render "$1" | k apply -f - 2>&1; }
 
 # 殘留的驗證 Namespace 先清掉，確保從乾淨狀態開始。
 # 守衛已確認這些 Namespace 若存在必為本腳本建立。
-k delete namespace "$NS" "$NP_NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
+for stale_ns in "$NS" "$NP_NS"; do
+  owns_namespace "$stale_ns" && k delete namespace "$stale_ns" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
+done
 
 # ---- 前置斷言：覆寫結果正確（斷言 3、9 與突變 e 都依賴此變數） ----
 ns_render="$(render 00-namespace)"
@@ -132,7 +140,16 @@ grep -q "nodePort: ${VERIFY_NODEPORT}" <<<"$web_render" || override_problems+="w
 if [ -z "$override_problems" ]; then pass 0 "manifest 覆寫為 Namespace $NS、NodePort $VERIFY_NODEPORT"; else fail 0 "覆寫結果不符：$override_problems"; finish; fi
 
 # ---- 斷言 1：依序套用並等待就緒 ----
-apply_out="$(apply_manifest 00-namespace)"; k label namespace "$NS" "$OWNER_LABEL" --overwrite >/dev/null 2>&1; apply_out+=$'\n'"$(apply_manifest 10-configmap)"
+if ! apply_out="$(render 00-namespace | k create -f - 2>&1)"; then
+  fail 1 "建立 Namespace $NS 失敗（已存在或權限不足；不接管既有 Namespace）" "$apply_out"
+  finish
+fi
+ns_created=1
+if ! label_out="$(k label namespace "$NS" "$OWNER_LABEL" 2>&1)"; then
+  fail 1 "標記 Namespace $NS 失敗" "$label_out"
+  finish
+fi
+apply_out+=$'\n'"$(apply_manifest 10-configmap)"
 pg_user="$(kn get configmap projectc-config -o jsonpath='{.data.POSTGRES_USER}' 2>/dev/null)"
 pg_db="$(kn get configmap projectc-config -o jsonpath='{.data.POSTGRES_DB}' 2>/dev/null)"
 if [ -z "$pg_user" ] || [ -z "$pg_db" ]; then
@@ -362,7 +379,11 @@ if [ "$pf_body" = "Healthy" ]; then pass 8b "kubectl port-forward 到 api 可取
 tcp_reachable() { # tcp_reachable <namespace> <pod> <host> <port>
   k -n "$1" exec "$2" -- nc -z -w 3 "$3" "$4" >/dev/null 2>&1
 }
-k create namespace "$NP_NS" >/dev/null 2>&1; k label namespace "$NP_NS" "$OWNER_LABEL" --overwrite >/dev/null 2>&1
+if np_create_out="$(k create namespace "$NP_NS" 2>&1)"; then np_ns_created=1; fi
+if [ "$np_ns_created" != "1" ] || ! np_create_out="$(k label namespace "$NP_NS" "$OWNER_LABEL" 2>&1)"; then
+  fail 8c "建立或標記 NetworkPolicy 測試 Namespace $NP_NS 失敗" "$np_create_out"
+  finish
+fi
 k -n "$NP_NS" run srv --image=redis:7-alpine --image-pull-policy=IfNotPresent --labels=app=srv >/dev/null 2>&1
 k -n "$NP_NS" run cli --image=redis:7-alpine --image-pull-policy=IfNotPresent --command -- sleep 600 >/dev/null 2>&1
 k -n "$NP_NS" wait --for=condition=Ready pod/srv pod/cli --timeout=120s >/dev/null 2>&1
