@@ -37,7 +37,7 @@
   - RED（A）：
   - mutation（B）：
   - GREEN：
-- [ ] 1.4 整合測試（`AcceptAny`，非 Production）：(a) login、register、join purchase queue 以未曾產生的 token 與任意非空答案通過核對（login 以正確帳密回 200，register 與 queue 不回 `CaptchaInvalid`）；(b) `GET /api/captcha` 仍回新 token 與 base64 圖片，Redis 寫入帶 TTL 的雜湊；(c) token 空白或超過 64 字元、答案空白或超過 16 字元仍回 400 `Validation`（含逐欄位 `errors`）；(d) 超過 `CaptchaRateLimiting` 額度仍回 429。
+- [ ] 1.4 整合測試（`AcceptAny`，非 Production）：(a) login、register、join purchase queue 以未曾產生的 token 與任意非空答案通過核對。三個流程的其餘欄位 MUST 使 Validator 通過（Handler 先跑 Validator 才呼叫 `VerifyAsync`，Validator 失敗時回 `Validation`，不含 `CaptchaInvalid` 但也未證明核對通過），並斷言驗證碼核對之後的成功結果，不得只斷言「不是 `CaptchaInvalid`」：login 以正確帳密回 200；register 以未使用的有效 Email、顯示名稱與合規密碼註冊成功，且 DB 可查到該會員；join purchase queue 以有效會員、已開啟佇列模式的有效活動／票種送出，成功建立排隊項目且 DB 可查到。同一組請求在 `Enforced` 下以同樣的錯誤 token 呼叫會回 400 `CaptchaInvalid`，作為對照以證明差異來自模式；(b) `GET /api/captcha` 仍回新 token 與 base64 圖片，Redis 寫入帶 TTL 的雜湊，其剩餘 TTL 大於 0 且不超過 `Captcha:TtlSeconds`；(c) token 空白或超過 64 字元、答案空白或超過 16 字元仍回 400 `Validation`（含逐欄位 `errors`）；(d) 同一來源 IP 連續請求 `GET /api/captcha`，前 N 次（N 為 `CaptchaRateLimiting:PermitLimit`）回 200，第 N+1 次回 429（以測試設定縮小額度與視窗）。
   - 預期 RED（只針對 (a)）：在 1.3 完成後、`AcceptAnyCaptchaService` 尚未被工廠選用前，(a) 預期不回 `CaptchaInvalid`、實際回 400 `CaptchaInvalid`。
   - (b)(c)(d) 的 RED：N/A——它們保護的是既有行為，在 `AcceptAny` 接線前即通過，沒有「目標行為缺失」的失敗；但須先於 `AcceptAny` 接線前加入並執行，記錄基線通過的命令與輸出（證明測試對既有行為有效），GREEN 接線後重跑仍通過。
   - 否證驗證（額外 mutation，`bash scripts/verify-test-evidence.sh mutate`，一次一個改動，還原後重跑）：(b) 讓 `GetCaptchaHandler` 不寫 Redis 雜湊 → 預期 (b) 因「Redis 無對應 key」失敗；(c) 暫時移除 token 長度上限規則 → 預期 (c) 因「預期 400 `Validation`、實際非 400」失敗；(d) 暫時關閉 `CaptchaRateLimiting` → 預期 (d) 因「預期 429、實際 200」失敗。各項命令與失敗輸出記錄於下。
