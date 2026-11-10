@@ -17,6 +17,14 @@
 
 不適用：不新增或修改 API 端點、錯誤回應、認證／授權、DTO 欄位或列表端點（純部署產物）。
 
+### 安全確認（CLAUDE.md 觸發條件對照）
+
+- 外部輸入：無新增輸入點；對外只有 web NodePort，沿用既有 API 驗證。N/A。
+- 資料庫：不新增查詢；migrator 沿用 EF bundle。N/A。
+- 權限：Secret 以 K8s Secret 注入；api 無對外 Service；`/health/*` 不經 web 轉發；NetworkPolicy 限制叢集內來源（本機是否執行見決策 7）。
+- 前端：無前端變更。N/A。
+- 暴露面：Docker Desktop 的 NodePort 可能綁定所有網路介面，區網內可嘗試登入 seeder Admin。manifest 與文件註明「僅限信任的本機網路」，`secret.example.yaml` 的佔位密碼不得使用可猜的值（例如 `password123`），改為明顯需替換的字串。
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -74,7 +82,7 @@ Job 以 `env` 的 `secretKeyRef` 取得 `ConnectionStrings__DefaultConnection`�
 ### 決策 6：api 副本、探針、滾動更新與資源
 
 - api 2 副本，`strategy: RollingUpdate`、`maxUnavailable: 0`、`maxSurge: 1`；web、db、redis、seq 各 1 副本（db 用 `Recreate`，避免兩個 Postgres 同時掛同一 PVC）。api 多副本與 Redis leader election 的設計相容（purchase-queue-leader-election）。
-- 探針（路徑須與 `/health/live`、`/health/ready` 完全相同，結尾不加斜線，`deployment-prerequisites` 第 3 項）：`livenessProbe` 打 `/health/live`；`readinessProbe` 打 `/health/ready`，`timeoutSeconds` 設 15（高於實測 DNS 無回應的 10～12 秒），`failureThreshold` 3；`startupProbe` 打 `/health/live`，給 migrate 之後的啟動時間。web 的 readiness 打 `/`。
+- 探針（路徑須與 `/health/live`、`/health/ready` 完全相同，結尾不加斜線，`deployment-prerequisites` 第 3 項）：`livenessProbe` 打 `/health/live`；`readinessProbe` 打 `/health/ready`，`timeoutSeconds` 設 15（高於實測 DNS 無回應的 10～12 秒），`failureThreshold` 3；`startupProbe` 打 `/health/live`，`periodSeconds: 5`、`failureThreshold` 不低於 24（至少 120 秒；seeder 在監聽前同步執行，雙副本首次啟動還可能重啟一次）。web 的 readiness 打 `/`。
 - 優雅關閉：api 加 `preStop` `sleep 5` 並設 `terminationGracePeriodSeconds: 30`，讓 Service endpoint 移除先於行程收到 SIGTERM，滾動更新期間不丟請求；實測不達標才調整數值。
 - 資源（初值，task 2.x 以實測 `kubectl top` 或 OOMKilled 結果調整並記錄）：api requests 100m／192Mi、limits 500m／512Mi；web 10m／16Mi／limits 100m／64Mi；db 100m／128Mi／limits 500m／512Mi；redis 20m／32Mi／limits 200m／128Mi；seq 100m／256Mi／limits 500m／1Gi。數值是起點，不是承諾。
 - securityContext：api、web、migrator 設 `runAsNonRoot: true`、`allowPrivilegeEscalation: false`、`capabilities.drop: [ALL]`（映像已是非 root，`runAsNonRoot` 讓非 root 被改壞時由 K8s 直接拒絕啟動，腳本加斷言）；db、redis、seq 沿用映像預設。api 以 `envFrom.secretRef` 取得整個 Secret（含不需要的 `POSTGRES_PASSWORD`），本機展示可接受。
@@ -99,18 +107,18 @@ manifest 沒有適合 xUnit 的行為，依 CLAUDE.md「Task 執行前」第 2 �
 - **適用範圍**：本 change 全部驗收項目（無 spec AC）。
 - **偏離理由**：驗證對象是叢集中的資源狀態與跨 Pod 行為，沒有單元測試可觸及的邊界；Testcontainers 無法替代 kubeadm 叢集。
 - **替代內容**：腳本只在 `kubectl config current-context` 為 `docker-desktop` 時執行（否則立即非 0 結束，避免對錯誤叢集動手）；使用獨立的 Namespace（`projectc-verify`，以 `sed`／`kubectl -n` 指定，不改 manifest 中的 `projectc`），機敏值於執行時隨機產生；不使用 `set -x`、不把機敏值寫入 repo；`trap` 清理 Namespace。斷言（任一 FAIL 即非 0 結束，印出失敗項目與實際輸出）：
-  1. 全部 Deployment／Pod Ready，migrator Job `Complete`，`__EFMigrationsHistory` 筆數等於 `src/ProjectC.Infrastructure/Persistence/Migrations/` 內 `*.Designer.cs` 的檔案數。
+  1. 全部 Deployment／Pod Ready，migrator Job `Complete`，`__EFMigrationsHistory` 筆數等於 `src/ProjectC.Infrastructure/Persistence/Migrations/` 內 `*.Designer.cs` 的檔案數；容許 api 重啟至多一次（restartCount ≤ 1），摘要行輸出實際值。
   2. 探針設定存在且路徑與 `/health/live`、`/health/ready` 完全相同；api 在 DB 不可用時 readiness 轉為 NotReady：以 `kubectl scale deployment/db --replicas=0` 停 db，輪詢 api Service 的 endpoints 變空，逾時 90 秒（readiness `periodSeconds: 10`、`timeoutSeconds: 15`、`failureThreshold: 3`，最長約 75 秒），再 scale 回 1，須在逾時內回到 Ready。
-  3. 經 NodePort 30080 的 `/` 回 200、`/api/events` 回 2xx 且非 3xx。
+  3. 經 NodePort（腳本以變數 `VERIFY_NODEPORT`＝30081 覆寫 manifest 的 30080，並先斷言覆寫結果確為該值與 Namespace 為 `projectc-verify`；以下斷言 3、9、突變 e 一律使用此變數）的 `/` 回 200、`/api/events` 回 2xx 且非 3xx。
   4. 刪除一個 api Pod 後，期間對 `/api/events` 持續請求無非 2xx，且 Pod 在逾時內重建為 Ready。
   5. `kubectl rollout restart deployment/api` 期間，以背景迴圈持續請求 `/api/events`，非 2xx 次數必須為 0。
   6. 隨機產生的 Secret 值（含 JWT 簽章金鑰、DB 密碼）不出現在：api／migrator／db 的 `kubectl logs`、`kubectl describe` 輸出、以及 `k8s/*.yaml` 與 `git ls-files`；另斷言 Secret 的鍵名（`Jwt__SigningKey`、`TicketSigning__SigningKey`、`ConnectionStrings__DefaultConnection`、`POSTGRES_PASSWORD`、`DevelopmentSeed__AdminPassword`）不出現在 `k8s/10-configmap.yaml`（突變 c 由此斷言偵測）。
-  7. 缺設定演練：以暫存 Deployment 複製 api 規格、僅從 Secret 注入來源移除 `Jwt__SigningKey`（其餘必填設定齊全），須進入 `CrashLoopBackOff`，記錄 `kubectl describe` 的結束碼與日誌（承接 `api-missing-config-exit-code-139` 待辦，不做根因分析，結論寫回該待辦）。
+  7. 缺設定演練：以暫存 Deployment 複製 api 規格、僅從 Secret 注入來源移除 `Jwt__SigningKey`（其餘必填設定齊全），另做一份少了該鍵的 Secret 副本，暫存 Deployment 使用不同標籤（`app=api-missing-config`，不得帶 `app=api`，以免被 Service 選到而干擾斷言 4、5；NetworkPolicy 對它的涵蓋與否須在腳本註解寫明）。須進入 `CrashLoopBackOff`，記錄 `kubectl describe` 的結束碼與日誌（承接 `api-missing-config-exit-code-139` 待辦，不做根因分析，結論寫回該待辦）。
   8. `/health/*` 來源限制的可本機驗證部分（決策 7）；「不可信 workload 不可達」依對照實驗輸出 PASS／FAIL／`UNVERIFIED`。
-  9. api 沒有 NodePort／LoadBalancer；只有 web Service 為 NodePort；api、web、migrator 的 Pod spec 含 `runAsNonRoot: true`；經 NodePort 取 `/swagger`、`/openapi/v1.json`、`/api/openapi/v1.json` 得不到 OpenAPI 文件（Development 暴露面）。
+  9. api 沒有 NodePort／LoadBalancer；只有 web Service 為 NodePort；api、web、migrator 的 Pod spec 含 `runAsNonRoot: true`；經 NodePort 取 `/swagger`、`/openapi/v1.json`、`/api/openapi/v1.json` 得不到 OpenAPI 文件（Development 暴露面）；判定看回應本文：nginx 的 `try_files` 會讓 `/swagger` 回 200 與 SPA `index.html`，故條件是本文既不是 OpenAPI JSON 也不是 SwaggerUI，不能只看狀態碼。
 
   腳本產生的隨機密碼與金鑰只用英數字（hex），避免 `;`、`=`、`$(` 破壞連線字串解析或 `$(VAR)` 展開；金鑰長度須通過 api 的啟動驗證（至少 32 字元）。
-- **失敗情境可證明**：以手動暫時改動各做一次（`scripts/verify-test-evidence.sh mutate` 以 `dotnet test` 摘要行判定，不適用本腳本，不呼叫它），腳本須失敗並還原後重跑通過，原文記錄於 tasks.md。預期失敗斷言：(a) 拿掉 api 的 `readinessProbe` → 斷言 2；(b) api 副本改為 1 → 斷言 4；(c) 把 `Jwt__SigningKey` 放進 ConfigMap → 斷言 6 的 ConfigMap 鍵名檢查；(d) 讓 nginx 多一個 `location /health/` 轉發到 api → 斷言 8（須改 `deploy/nginx/default.conf` 並重建 `projectc/web:local`，還原後也要重建）；(e) 把 api Service 改為 NodePort → 斷言 9。
+- **失敗情境可證明**：以手動暫時改動各做一次（`scripts/verify-test-evidence.sh mutate` 以 `dotnet test` 摘要行判定，不適用本腳本，不呼叫它），腳本須失敗並還原後重跑通過，原文記錄於 tasks.md。預期失敗斷言：(a) 拿掉 api 的 `readinessProbe` → 斷言 2；(b) api 副本改為 1 → 斷言 4；(c) 把 `Jwt__SigningKey` 放進 ConfigMap → 斷言 6 的 ConfigMap 鍵名檢查；(d) 讓 nginx 多一個 `location /health/` 轉發到 api → 斷言 8（須改 `deploy/nginx/default.conf` 並重建 `projectc/web:local`，還原後也要重建；`git status` 乾淨不能證明映像已還原，還原證據是還原並重建後斷言 8 全過）；(e) 把 api Service 改為 NodePort → 斷言 9。
 - **RED 證據與時序豁免**：本例外豁免 RED 先於實作的時序（manifest 與腳本在同一 task 內先後撰寫，manifest 不存在時腳本本身只能因「資源不存在」而失敗）；RED 證據 = 流程性 RED（manifest 不存在時腳本的原文輸出）+ 突變 a–e 的行為 RED。比照 `production-images` 的既有做法，**需使用者核准**。
 - **解除條件**：日後 CI 能起叢集（kind／k3d）並執行同一支腳本，此例外改由 CI 取代。
 - 另以 claude-in-chrome 對 NodePort 30080 做一次真實瀏覽器流程（Admin 建活動 → 一般會員登入 → 瀏覽 → 下單 → 付款），數字與狀態以頁面文字或 DB 核對，不只依截圖。
