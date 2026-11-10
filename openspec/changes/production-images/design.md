@@ -76,7 +76,7 @@
   8. runtime 映像內不存在 `appsettings.Development.json`。`appsettings.Development.json` 被 `.gitignore` 排除，乾淨 checkout 上本來就不存在，直接檢查會 vacuously 通過；因此腳本建置前先在 `src/ProjectC.WebApi/` 放一個 dummy 同名檔（內容無意義），以 `trap` 還原（原檔已存在者不覆寫、不刪除），並在斷言前確認該檔確實存在於 build context，確保 `.dockerignore` 排除規則真的被測到。
   9. 經 nginx 對公開端點送恰好 10,485,760 bytes（= `RequestBodyLimits.CreateSeatMapBytes`，大於 API 全域 1 MiB）的 POST body，回應必須來自 API 而非 nginx：判定為回應 Body 為 ProblemDetails 且 `title` 為 `PayloadTooLarge`（API 全域 1MB 上限的 413，見 `GlobalExceptionHandler`），nginx 自己的 413 是 HTML 頁面、不符。nginx 上限若低於 10,485,760 bytes（含 `9.6m` 這類略低的值）會回 HTML 413 而失敗，故此斷言實證 nginx 上限不低於 API 最大值；突變 (e)（移除設定回到預設 1m）承擔「設定確實生效」。10 MiB 座位圖端點本身需 Admin 認證，不在腳本涵蓋範圍。
 - **失敗情境可證明**：以 `scripts/verify-test-evidence.sh mutate` 風格的暫時改動（改成 `USER root`、移除 `try_files`、移除 migrator 步驟）各做一次，腳本須失敗，記錄於 tasks.md。
-- **RED 證據**：流程性 RED（Dockerfile 尚不存在時腳本因建置失敗而非 0 結束）+ 行為 RED（以暫時的錯誤 Dockerfile／nginx 設定／`.dockerignore` 執行腳本，取得斷言層級失敗，改動隨即還原）+ 突變 a–e（逐一破壞後腳本須失敗、還原後通過），三者合併作為本例外的 RED 證據。
+- **RED 證據與時序豁免**：本例外豁免 RED 先於實作的時序（Dockerfile 與驗證腳本於同一 task 內先後撰寫，映像在實作前無法執行）；RED 證據 = 流程性 RED + 行為 RED（暫時錯誤映像）+ 突變 a–e。使用者於 2026-11-10 核准此例外。
 - **解除條件**：日後若 CI 能建置映像並執行同一支腳本，此例外改由 CI 取代；或本專案新增 `k8s-local-manifests` 後以 cluster 內驗證補強。
 - 另以 claude-in-chrome 對 web 容器的對外 port 做一次真實瀏覽器流程（註冊、登入、重新整理子路由），數字與狀態以頁面文字或 DB 核對。
 

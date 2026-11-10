@@ -236,6 +236,13 @@ SUMMARY: 13 passed, 0 failed
       3. 使用者登入後導向 `/`，頁面文字「活動列表／目前沒有活動」。
       4. 直接 navigate 子路由 `/events/1`（等同重新整理）：導覽列仍顯示「我的訂單」「VerifyProd」（登入狀態保留），main 文字為「找不到這個活動」（SPA fallback 正確、無 nginx 404）。
       驗證完已關閉分頁，並移除 `projectc-verify` 容器／volume／網路。
+    - **重構：N/A**：本 task 為新增 Dockerfile／nginx 設定，GREEN 後沒有重構步驟。
+    - **行為 RED 還原所用命令**（2.1 行為 RED 當時以 `/tmp/redrun.sh` 執行，備份於 `/tmp/redbak/`，未逐檔記錄 `cmp`；原文輸出只留最終 `git status --short`／`git diff --stat`，皆無輸出）：
+      ```
+      F="deploy/api.Dockerfile deploy/nginx/default.conf .dockerignore"
+      mkdir -p /tmp/redbak; for f in $F; do cp $f /tmp/redbak/$(echo $f | tr / _); done   # 改動前備份
+      for f in $F; do cp /tmp/redbak/$(echo $f | tr / _) $f; done                          # 還原
+      ```
 - [x] 2.3 突變驗證（腳本須失敗；一次一個改動，還原後重跑通過）：(a) `runtime` stage 改 `USER root`；(b) 移除 nginx `try_files`；(c) 移除 `migrator` 的 `ef migrations bundle` 步驟；(d) 在 `.dockerignore` 移除 `**/appsettings.Development.json`（腳本已於 build context 放 dummy 檔，見 design 斷言 8，否則此突變不產生差異）；(e) 移除 nginx `/api/` 的 `client_max_body_size 10m`。每個突變貼失敗斷言名稱與輸出原文。
   - 完成紀錄（2026-11-10；每次只改一個、以 `cp` 備份還原並以 `cmp` 證明位元組相同；還原後重跑通過見 2.2 的 GREEN）。以下為單次執行的完整原文輸出，含每個突變的 sed 命令、`diff -u`、腳本全部 PASS／FAIL 行、結束碼與還原證明：
     ```
