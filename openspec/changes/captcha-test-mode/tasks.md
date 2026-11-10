@@ -28,6 +28,7 @@
   - GREEN：`VerifyAsync` 恆回通過；`GenerateAsync` 委派內部服務；`Infrastructure.Tests` 過濾 `AcceptAnyCaptchaServiceTests` 全數通過。
   - RED：
   - GREEN：
+- [ ] 1.0 測試基礎：新增 `CaptchaModeTestWebApplicationFactory`（`tests/ProjectC.WebApi.Tests/TestSupport`）。既有 `CustomWebApplicationFactory` 預設以 `FakeCaptchaService` 覆寫 `ICaptchaService`，`CaptchaComponentTestWebApplicationFactory` 則強制註冊 `RedisCaptchaService`，兩者都會繞過依模式選實作的工廠，不得用於 1.3(B)、1.4 與 1.2 以外的模式相關整合測試（否則測到的是替身，不是模式選擇）。新工廠 MUST 保留 `AddCaptcha` 的工廠註冊（移除 Fake 後以同一個註冊方法重新註冊，必要時把該註冊抽成共用擴充方法），並以 `UseSetting("Captcha:VerificationMode", …)` 控制模式。此 task 為測試基礎設施，TDD N/A（無獨立可觀察行為），由 1.3、1.4 的測試使用並驗證。
 - [ ] 1.3 `AddCaptcha` 以工廠依模式選實作。兩組測試：
   - (A) 選擇行為（RED 來源）：`CaptchaServiceSelectionTests`，以 `ServiceCollection` 加 `AddCaptcha` 後建立 scope 解析 `ICaptchaService`：`VerificationMode=AcceptAny` 預期為 `AcceptAnyCaptchaService`（其 `GenerateAsync` 的委派行為由 1.2(b) 與 1.4(b) 驗證）；`Enforced` 與設定缺漏預期為 `RedisCaptchaService`。
   - (B) Enforced 回歸保護：整合測試（Testing 環境，真實 Redis 容器）針對 **login、register、join purchase queue 三個流程各一**，設定缺漏與顯式 `Enforced` 時，以不存在的 token 或錯誤答案呼叫，預期 400 `CaptchaInvalid`，且 Redis 對應 key 已被 `GETDEL` 刪除（先寫入 token、用錯誤答案呼叫、事後該 key 不存在為斷言）。
