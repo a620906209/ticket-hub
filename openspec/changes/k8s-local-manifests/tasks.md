@@ -340,3 +340,7 @@
   - 驗證（docker-desktop）：PATH shim 讓 `kubectl get ... metadata.uid` 失敗 → 完整 `SUMMARY: 14 passed, 0 failed, 1 unverified`、`exit=3`，Namespace 與鎖皆無殘留。預置死 pid（999999）的鎖 → `PRECONDITION: 互斥鎖 /tmp/verify-k8s-manifests.lock 已存在（持有者 pid 999999）…`、`exit=2`，鎖未被動到。背景執行第一個、20 秒後第二個 → 第二個 `exit=2`，第一個 `14 passed, 0 failed, 1 unverified`、`exit=3`，結束後無 Namespace 與鎖殘留。label 失敗 shim → `exit=1`，無殘留。
   - 過程中發現並修正：以 JS `String.replace` 寫入 `$$` 被吃成 `$`，導致 cleanup 不釋放鎖；已改正並以上述「無鎖殘留」驗證。
   - 限制：UID 不符分支仍未實測（僅程式審閱）；`TMPDIR` 不同時鎖不互斥（不支援的呼叫方式）。
+- 第 5 輪：Devin CLI（smart 模式），審 commit `d08cbf5`，結果 FAIL（strict-reviewer subagent 判 PASS，主審判 FAIL）。前輪 B-001、B-002 確認解決。新 B-001：create 後另以 `get` 取 UID，兩次呼叫間若 Namespace 被換成同名資源，UID 會綁到別人的物件；UID 為空時依名稱刪除亦可能誤刪。判斷：需要有權限的操作者在毫秒級窗口內刪除並重建同名 Namespace，實際機率極低，但修法簡單，採納。另採納可用性建議：守衛 `exit 2` 前釋放鎖。
+  - 修正：UID 直接取自 `kubectl create -o jsonpath='{.metadata.uid}'` 的回應（同一次 API 呼叫）；拿不到 UID 視為建立失敗、不記為本次建立；移除「UID 為空依名稱刪除」的 fallback，cleanup 一律須 UID 非空且相符才刪；守衛拒絕時先釋放鎖。
+  - 驗證（docker-desktop）：完整重跑 `SUMMARY: 14 passed, 0 failed, 1 unverified`、`exit=3`，Namespace 與鎖無殘留。PATH shim 讓含 `metadata.uid` 的 kubectl 呼叫失敗 → `FAIL [1] 建立 Namespace projectc-verify 失敗（已存在、權限不足或回應無 UID；不接管既有 Namespace）`、輸出 `connection refused`、`exit=1`，無殘留。label 失敗 shim `exit=1`、無殘留。無 label 的既有 Namespace → `exit=2`、`foreign` ConfigMap 仍在、鎖已釋放。並行第二個 `exit=2`，第一個 `14 passed, 0 failed, 1 unverified`、`exit=3`，無殘留。
+  - 限制：若 create 實際已在伺服器端成功、但回應遺失（網路中斷），該 Namespace 不會被清理（不依名稱刪除未知身分的物件，寧可殘留不誤刪）；UID 不符分支仍僅程式審閱。

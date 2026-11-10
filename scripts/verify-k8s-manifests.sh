@@ -106,6 +106,7 @@ holds_lock=1
 for existing_ns in "$NS" "$NP_NS"; do
   if k get namespace "$existing_ns" >/dev/null 2>&1 && ! owns_namespace "$existing_ns"; then
     echo "PRECONDITION: Namespace $existing_ns 已存在且不是本腳本建立（缺 label $OWNER_LABEL），拒絕執行以免刪除既有資源；請改名或自行處理。" >&2
+    rm -rf "$lock_dir"
     exit 2
   fi
 done
@@ -116,10 +117,10 @@ np_ns_created=0
 ns_uid=""
 np_ns_uid=""
 namespace_uid() { k get namespace "$1" -o jsonpath='{.metadata.uid}' 2>/dev/null; }
-# 刪除前核對 UID：Namespace 若在執行期間被換成同名的別人資源，UID 不符就不刪。
+# UID 直接取自 create 的回應（與建立同一次 API 呼叫），拿不到就視為建立失敗、不記為「本次建立」；
+# 刪除前核對 UID，Namespace 若在執行期間被換成同名的別人資源，UID 不符就不刪。
 delete_created_namespace() { # delete_created_namespace <name> <uid>
-  # UID 查詢失敗（空值）時，旗標已證明是本次 create 的，改依名稱刪除，避免殘留；UID 已知則須相符。
-  { [ -z "$2" ] || [ "$(namespace_uid "$1")" = "$2" ]; } && k delete namespace "$1" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
+  [ -n "$2" ] && [ "$(namespace_uid "$1")" = "$2" ] && k delete namespace "$1" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
 }
 cleanup() {
   stop_background
@@ -156,11 +157,14 @@ grep -q "nodePort: ${VERIFY_NODEPORT}" <<<"$web_render" || override_problems+="w
 if [ -z "$override_problems" ]; then pass 0 "manifest 覆寫為 Namespace $NS、NodePort $VERIFY_NODEPORT"; else fail 0 "覆寫結果不符：$override_problems"; finish; fi
 
 # ---- 斷言 1：依序套用並等待就緒 ----
-if ! apply_out="$(render 00-namespace | k create -f - 2>&1)"; then
-  fail 1 "建立 Namespace $NS 失敗（已存在或權限不足；不接管既有 Namespace）" "$apply_out"
+if ns_uid="$(render 00-namespace | k create -f - -o jsonpath='{.metadata.uid}' 2>&1)" && [ -n "$ns_uid" ]; then
+  ns_created=1
+  apply_out="namespace/$NS created"
+else
+  fail 1 "建立 Namespace $NS 失敗（已存在、權限不足或回應無 UID；不接管既有 Namespace）" "$ns_uid"
+  ns_uid=""
   finish
 fi
-ns_created=1; ns_uid="$(namespace_uid "$NS")"
 if ! label_out="$(k label namespace "$NS" "$OWNER_LABEL" 2>&1)"; then
   fail 1 "標記 Namespace $NS 失敗" "$label_out"
   finish
@@ -395,7 +399,7 @@ if [ "$pf_body" = "Healthy" ]; then pass 8b "kubectl port-forward 到 api 可取
 tcp_reachable() { # tcp_reachable <namespace> <pod> <host> <port>
   k -n "$1" exec "$2" -- nc -z -w 3 "$3" "$4" >/dev/null 2>&1
 }
-if np_create_out="$(k create namespace "$NP_NS" 2>&1)"; then np_ns_created=1; np_ns_uid="$(namespace_uid "$NP_NS")"; fi
+if np_ns_uid="$(k create namespace "$NP_NS" -o jsonpath='{.metadata.uid}' 2>&1)" && [ -n "$np_ns_uid" ]; then np_ns_created=1; else np_create_out="$np_ns_uid"; np_ns_uid=""; fi
 if [ "$np_ns_created" != "1" ] || ! np_create_out="$(k label namespace "$NP_NS" "$OWNER_LABEL" 2>&1)"; then
   fail 8c "建立或標記 NetworkPolicy 測試 Namespace $NP_NS 失敗" "$np_create_out"
   finish
