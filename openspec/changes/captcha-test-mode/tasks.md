@@ -702,3 +702,10 @@
     Passed!  - Failed:     0, Passed:   842, Skipped:     0, Total:   842, Duration: 4 m 30 s - ProjectC.WebApi.Tests.dll (net10.0)
     ```
 - [x] 2.6 `graphify update .`。
+
+## 外部交叉審查紀錄
+
+- 第 1 輪：Devin CLI（smart，GPT-6 Luna）審 c4d05f8 → FAIL，B-001（證據濾掉建置 warning）。自行驗證：濾除為 `verify-test-evidence.sh` 既有設計，被濾行僅 MSB3277（與 captcha 無關），無可重現的失敗情境，判定不成立；已於 design.md 記錄，commit cfe265f。
+- 第 2 輪：Devin CLI 審 cfe265f（附 B-001 核對結果）→ PASS，無 blocking。
+- 第 3 輪：Claude Code Opus（strict-reviewer）審 cfe265f → PASS，無 blocking；建議：Production 以外環境別名（如 Staging）可開 AcceptAny（design 已接受）、validator 白名單為可選 hardening（不採用，威脅模型外）。
+
