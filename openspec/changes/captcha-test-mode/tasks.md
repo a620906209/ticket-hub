@@ -1,4 +1,4 @@
-## 1. AC 與測試對應
+## AC 與測試對應
 
 | AC | 測試 task |
 |----|-----------|
@@ -12,7 +12,7 @@
 | CAPTCHA-MODE-008 無效值擋下 | 1.5 |
 | CAPTCHA-MODE-009 Enforced 不記 Warning | 1.6 |
 
-## 2. 實作（依 TDD：先 RED 再 GREEN，證據逐字記錄於各 task 下）
+## 1. 實作（依 TDD：先 RED 再 GREEN，證據逐字記錄於各 task 下）
 
 通則：RED 必須是目標行為不符的斷言失敗，不得是編譯、DI 或環境錯誤，也不得以刻意錯誤的預設值或偽造行為的空殼製造。新型別不存在而使測試無法編譯時，只先建立不含目標行為的最小契約宣告（見 1.1、1.2），測試在該宣告上因行為缺失而失敗。所有命令皆在容器內執行：`docker compose exec api dotnet test tests/<專案> --filter "<名稱>"`。
 
@@ -22,14 +22,14 @@
   - GREEN：屬性加上初始值 `Enforced`；`Application.Tests` 過濾 `CaptchaOptionsTests` 全數通過。
   - RED：
   - GREEN：
-- [ ] 1.2 新增 `AcceptAnyCaptchaService`（Infrastructure）；`AcceptAnyCaptchaServiceTests`：以任意 token 與任意答案呼叫 `VerifyAsync` 預期通過；另以 `IConnectionMultiplexer` mock 斷言完全沒有被呼叫。
-  - 契約宣告：先只建立實作 `ICaptchaService` 的類別，`VerifyAsync` 方法本體為 `throw new NotImplementedException()`（不偽造任何通過或失敗的行為）。
-  - 預期 RED：測試預期 `VerifyAsync` 回傳通過，實際拋出 `NotImplementedException`（目標行為「一律通過」尚未實作）。
-  - GREEN：`VerifyAsync` 恆回通過、不碰 Redis；`Infrastructure.Tests` 過濾 `AcceptAnyCaptchaServiceTests` 全數通過。
+- [ ] 1.2 新增 `AcceptAnyCaptchaService`（Infrastructure，建構子注入 `RedisCaptchaService`）；`AcceptAnyCaptchaServiceTests`（`RedisCaptchaService` 以 mock／fake 替身，或以其所依賴的 `IConnectionMultiplexer` mock 建構）：(a) `VerifyAsync` 以任意 token 與答案預期通過，且內部 `RedisCaptchaService` 與 `IConnectionMultiplexer` 皆未被呼叫（「不碰 Redis」只針對 `VerifyAsync`）；(b) `GenerateAsync` 回傳的 `CaptchaChallenge` 與內部服務產生的是同一個結果，且內部 `GenerateAsync` 恰被呼叫一次。
+  - 契約宣告：先只建立實作 `ICaptchaService` 的類別與建構子，`VerifyAsync`、`GenerateAsync` 方法本體皆為 `throw new NotImplementedException()`（不偽造任何行為）。
+  - 預期 RED：(a) 預期通過、實際拋出 `NotImplementedException`；(b) 預期回傳內部服務的結果、實際拋出 `NotImplementedException`（目標行為尚未實作）。
+  - GREEN：`VerifyAsync` 恆回通過；`GenerateAsync` 委派內部服務；`Infrastructure.Tests` 過濾 `AcceptAnyCaptchaServiceTests` 全數通過。
   - RED：
   - GREEN：
 - [ ] 1.3 `AddCaptcha` 以工廠依模式選實作。兩組測試：
-  - (A) 選擇行為（RED 來源）：`CaptchaServiceSelectionTests`，以 `ServiceCollection` 加 `AddCaptcha` 後建立 scope 解析 `ICaptchaService`：`VerificationMode=AcceptAny` 預期為 `AcceptAnyCaptchaService`；`Enforced` 與設定缺漏預期為 `RedisCaptchaService`。
+  - (A) 選擇行為（RED 來源）：`CaptchaServiceSelectionTests`，以 `ServiceCollection` 加 `AddCaptcha` 後建立 scope 解析 `ICaptchaService`：`VerificationMode=AcceptAny` 預期為 `AcceptAnyCaptchaService`（其 `GenerateAsync` 的委派行為由 1.2(b) 與 1.4(b) 驗證）；`Enforced` 與設定缺漏預期為 `RedisCaptchaService`。
   - (B) Enforced 回歸保護：整合測試（Testing 環境，真實 Redis 容器）針對 **login、register、join purchase queue 三個流程各一**，設定缺漏與顯式 `Enforced` 時，以不存在的 token 或錯誤答案呼叫，預期 400 `CaptchaInvalid`，且 Redis 對應 key 已被 `GETDEL` 刪除（先寫入 token、用錯誤答案呼叫、事後該 key 不存在為斷言）。
   - 預期 RED（只針對 A）：factory 尚未實作時 `AddCaptcha` 固定註冊 `RedisCaptchaService`，`AcceptAny` 案例預期型別 `AcceptAnyCaptchaService`、實際為 `RedisCaptchaService`（斷言失敗）。
   - B 的 RED：N/A——這些是既有 Enforced 行為的回歸保護，在 factory 實作前即通過，不存在「目標行為缺失」的失敗；改以額外 mutation 驗證其敏感度（不取代 A 的 RED）：暫時把預設實作換成 `AcceptAnyCaptchaService`（`bash scripts/verify-test-evidence.sh mutate`，一次一個改動），預期三個流程各自因「預期 400 `CaptchaInvalid`、實際非 400」失敗，隨後還原並重跑通過，命令與輸出記錄於下。
@@ -46,7 +46,7 @@
   - 基線（b）（c）（d）：
   - mutation（b）（c）（d）：
   - GREEN：
-- [ ] 1.5 `CaptchaOptionsValidator`（`IValidateOptions<CaptchaOptions>`，WebApi）；啟動測試（比照 `RateLimitingOptionsFailFastTests`）：(a) Production + `AcceptAny` 啟動拋 `OptionsValidationException`，訊息含 Production；(b) 環境名稱 `production`（小寫）同樣失敗；(c) `Captcha:VerificationMode=99` 啟動失敗；(d) 拼錯名稱（`acceptany1`）啟動失敗；(e) Production + `Enforced` 正常啟動（防止驗證器誤擋）。
+- [ ] 1.5 `CaptchaOptionsValidator`（`IValidateOptions<CaptchaOptions>`，WebApi）；啟動測試（比照 `RateLimitingOptionsFailFastTests`）：(a) Production + `AcceptAny` 啟動拋 `OptionsValidationException`，訊息含 Production；(b) 環境名稱 `production`（小寫）同樣失敗；(c) `Captcha:VerificationMode=99` 啟動失敗；(d) 拼錯名稱（`acceptany1`）啟動失敗（斷言一般例外，不是 `OptionsValidationException`：ConfigurationBinder 在無驗證器時本就會拋例外，故 (d) 不作為 RED 依據，只作為回歸保護）；(e) Production + `Enforced` 正常啟動（防止驗證器誤擋）。
   - 預期 RED：驗證器未註冊時 (a)(b) 預期拋 `OptionsValidationException`、實際正常啟動；(c) 預期啟動失敗、實際以預設值啟動。
   - GREEN：註冊驗證器後 (a)–(e) 全數通過；`WebApi.Tests` 過濾 `CaptchaOptionsFailFast` 相關測試通過。
   - RED：
@@ -58,7 +58,7 @@
   - GREEN：
 - [ ] 1.7 重構後重跑 1.1–1.6 相關測試（或標 N/A 並說明）。
 
-## 3. 同步與收尾
+## 2. 同步與收尾
 
 - [ ] 2.1 更新 `tests/ProjectC.WebApi.Tests/Startup/ServiceRegistrationSnapshot.baseline.txt`（`ICaptchaService` 註冊、新增驗證器）；快照測試通過。
 - [ ] 2.2 更新 `docs/todo/2026-11-10-deployment-env-vars.md`（`Captcha__VerificationMode`：僅限非 Production、部署預設不設）；執行 `bash scripts/check-doc-paths.sh`。
