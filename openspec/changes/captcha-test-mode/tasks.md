@@ -22,7 +22,7 @@
   - GREEN：屬性加上初始值 `Enforced`；`Application.Tests` 過濾 `CaptchaOptionsTests` 全數通過。
   - RED：
   - GREEN：
-- [ ] 1.2 新增 `AcceptAnyCaptchaService`（Infrastructure，建構子注入 `RedisCaptchaService`）；`AcceptAnyCaptchaServiceTests`（`RedisCaptchaService` 以 mock／fake 替身，或以其所依賴的 `IConnectionMultiplexer` mock 建構）：(a) `VerifyAsync` 以任意 token 與答案預期通過，且內部 `RedisCaptchaService` 與 `IConnectionMultiplexer` 皆未被呼叫（「不碰 Redis」只針對 `VerifyAsync`）；(b) `GenerateAsync` 回傳的 `CaptchaChallenge` 與內部服務產生的是同一個結果，且內部 `GenerateAsync` 恰被呼叫一次。
+- [ ] 1.2 新增 `AcceptAnyCaptchaService`（Infrastructure，建構子注入 `RedisCaptchaService`）；`AcceptAnyCaptchaServiceTests`（`RedisCaptchaService` 為 `sealed class` 無法直接 mock，一律以 mock `IConnectionMultiplexer`／`ICaptchaImageGenerator` 建構真實的 `RedisCaptchaService`）：(a) `VerifyAsync` 以任意 token 與答案預期通過，且內部 `RedisCaptchaService` 與 `IConnectionMultiplexer` 皆未被呼叫（「不碰 Redis」只針對 `VerifyAsync`）；(b) `GenerateAsync` 回傳的 `CaptchaChallenge` 與內部服務產生的是同一個結果，且內部 `GenerateAsync` 恰被呼叫一次。
   - 契約宣告：先只建立實作 `ICaptchaService` 的類別與建構子，`VerifyAsync`、`GenerateAsync` 方法本體皆為 `throw new NotImplementedException()`（不偽造任何行為）。
   - 預期 RED：(a) 預期通過、實際拋出 `NotImplementedException`；(b) 預期回傳內部服務的結果、實際拋出 `NotImplementedException`（目標行為尚未實作）。
   - GREEN：`VerifyAsync` 恆回通過；`GenerateAsync` 委派內部服務；`Infrastructure.Tests` 過濾 `AcceptAnyCaptchaServiceTests` 全數通過。

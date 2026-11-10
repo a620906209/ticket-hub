@@ -7,7 +7,7 @@
 
 #### Scenario: CAPTCHA-MODE-001 設定缺漏時採用 Enforced
 - **WHEN** `Captcha` 設定未提供 `VerificationMode`
-- **THEN** 系統以 `Enforced` 運作，使用錯誤的驗證碼答案登入回傳 400 `CaptchaInvalid`，與本 change 之前的行為相同
+- **THEN** 系統以 `Enforced` 運作，使用錯誤的驗證碼答案登入回傳 400 `CaptchaInvalid`（`Enforced` 行為）
 
 #### Scenario: CAPTCHA-MODE-002 明確設為 Enforced 時行為不變
 - **WHEN** `Captcha:VerificationMode` 設為 `Enforced`，使用不存在的 token 或錯誤答案呼叫登入、註冊或加入購買佇列

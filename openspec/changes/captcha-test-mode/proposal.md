@@ -29,4 +29,4 @@
 - 測試：新增設定驗證、`AcceptAny` 行為、Production 拒絕啟動的測試；`ServiceRegistrationSnapshot.baseline.txt` 因 DI 註冊變動需同步。
 - 文件：`docs/todo/2026-11-10-deployment-env-vars.md`；`docs/api-conventions.md` 不需更新（本 change 不涉及認證、錯誤格式、命名或分頁慣例，設定鍵不在該文件範圍）。
 - 套件／API／資料庫：無變動。
-- Change 顆粒度：1 個 capability，tasks 預計約 8 項，不需拆分。
+- Change 顆粒度：1 個 capability，tasks 共 14 項（1.0–1.7、2.1–2.6），不需拆分。
