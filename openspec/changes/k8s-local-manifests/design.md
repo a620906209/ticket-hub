@@ -100,7 +100,7 @@ Job 以 `env` 的 `secretKeyRef` 取得 `ConnectionStrings__DefaultConnection`�
 
 替代方案：安裝 Calico 讓本機也能驗證。否決：改動 Docker Desktop 叢集的 CNI 風險高、超出本 change 範圍；列為待辦。
 
-### 決策 8：替代驗證 `scripts/verify-k8s-manifests.sh`（待使用者核准的例外）
+### 決策 8：替代驗證 `scripts/verify-k8s-manifests.sh`（使用者已於 2026-11-10 核准的例外）
 
 manifest 沒有適合 xUnit 的行為，依 CLAUDE.md「Task 執行前」第 2 點記錄替代驗證例外：
 
@@ -119,7 +119,7 @@ manifest 沒有適合 xUnit 的行為，依 CLAUDE.md「Task 執行前」第 2 �
 
   腳本產生的隨機密碼與金鑰只用英數字（hex），避免 `;`、`=`、`$(` 破壞連線字串解析或 `$(VAR)` 展開；金鑰長度須通過 api 的啟動驗證（至少 32 字元）。
 - **失敗情境可證明**：以手動暫時改動各做一次（`scripts/verify-test-evidence.sh mutate` 以 `dotnet test` 摘要行判定，不適用本腳本，不呼叫它），腳本須失敗並還原後重跑通過，原文記錄於 tasks.md。預期失敗斷言：(a) 拿掉 api 的 `readinessProbe` → 斷言 2；(b) api 副本改為 1 → 斷言 4；(c) 把 `Jwt__SigningKey` 放進 ConfigMap → 斷言 6 的 ConfigMap 鍵名檢查；(d) 讓 nginx 多一個 `location /health/` 轉發到 api → 斷言 8（須改 `deploy/nginx/default.conf` 並重建 `projectc/web:local`，還原後也要重建；`git status` 乾淨不能證明映像已還原，還原證據是還原並重建後斷言 8 全過）；(e) 把 api Service 改為 NodePort → 斷言 9。
-- **RED 證據與時序豁免**：本例外豁免 RED 先於實作的時序（manifest 與腳本在同一 task 內先後撰寫，manifest 不存在時腳本本身只能因「資源不存在」而失敗）；RED 證據 = 流程性 RED（manifest 不存在時腳本的原文輸出）+ 突變 a–e 的行為 RED。比照 `production-images` 的既有做法，**需使用者核准**。
+- **RED 證據與時序豁免**：本例外豁免 RED 先於實作的時序（manifest 與腳本在同一 task 內先後撰寫，manifest 不存在時腳本本身只能因「資源不存在」而失敗）；RED 證據 = 流程性 RED（manifest 不存在時腳本的原文輸出）+ 突變 a–e 的行為 RED。比照 `production-images` 的既有做法；使用者於 2026-11-10 在規格審查 PASS 後核准此例外並指示進入實作。
 - **解除條件**：日後 CI 能起叢集（kind／k3d）並執行同一支腳本，此例外改由 CI 取代。
 - 另以 claude-in-chrome 對 NodePort 30080 做一次真實瀏覽器流程（Admin 建活動 → 一般會員登入 → 瀏覽 → 下單 → 付款），數字與狀態以頁面文字或 DB 核對，不只依截圖。
 

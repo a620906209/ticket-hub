@@ -15,7 +15,7 @@
 > | K9：腳本在 manifest 被破壞時會失敗 | 3.2 突變驗證 |
 > | K10：完整購票流程可在叢集上完成 | 3.3 真實瀏覽器 |
 >
-> TDD：manifest 沒有 xUnit 可觸及的行為，依 design 決策 8 的替代驗證例外（**待使用者核准**），先寫腳本（`k8s/` 不存在時預期失敗），再補 manifest 使腳本通過。證據一律貼原文（CLAUDE.md「證據貼原文」）：每個失敗斷言的名稱與輸出、腳本摘要行、突變命令與輸出、`git stash`／`restore` 指令輸出。hardener：N/A（無 I/O 程式碼、Handler 或 Repository 變更）。
+> TDD：manifest 沒有 xUnit 可觸及的行為，依 design 決策 8 的替代驗證例外（使用者已於 2026-11-10 核准），先寫腳本（`k8s/` 不存在時預期失敗），再補 manifest 使腳本通過。證據一律貼原文（CLAUDE.md「證據貼原文」）：每個失敗斷言的名稱與輸出、腳本摘要行、突變命令與輸出、`git stash`／`restore` 指令輸出。hardener：N/A（無 I/O 程式碼、Handler 或 Repository 變更）。
 
 ## 1. 前置實測與驗證腳本
 
