@@ -65,6 +65,133 @@ SUMMARY: 0 passed, 3 failed
 ```
     - 另：斷言 9 依 Devin 審查改用 `POST /api/auth/login`（匿名、讀 body、以 Content-Length 傳送）；斷言 5 改斷言 2xx。
     - **第 1 輪外部審查（Devin，commit 9064470）B-001 處理：不採納。** 審查認為 2.1 的流程性 RED 不是行為 RED。design.md 決策 5 已明定本 change 採替代驗證例外（腳本先行的流程性 RED + 突變驗證），spec-reviewer 與 design-hardener 皆已接受；「目標行為失敗」的證據由 2.3 突變 a–e 提供（每個突變讓對應斷言失敗，還原後重跑通過）。
+    - **行為 RED：以暫時錯誤 Dockerfile 取得**（2026-11-10；補充上方「流程性 RED」，原紀錄保留）。同時套用三個暫時的錯誤實作（api runtime `USER root`、nginx 無 `/api/` 代理且無 SPA `try_files`、`.dockerignore` 未排除 `appsettings.Development.json`），執行腳本取得斷言層級的失敗；跑完以備份還原並確認 `git status`、`git diff --stat` 皆無輸出。完整原文：
+    ```
+    $ git status --short   # 改動前
+    (無輸出 = 乾淨)
+    $ sed -i "0,/^USER \$APP_UID/s//USER root/" deploy/api.Dockerfile
+    $ sed -i "/location \/api\/ {/,/^    }/d; /try_files \$uri \/index.html;/d" deploy/nginx/default.conf
+    $ sed -i "/appsettings.Development.json/d" .dockerignore
+    $ git diff -- deploy .dockerignore
+    warning: in the working copy of '.dockerignore', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'deploy/api.Dockerfile', LF will be replaced by CRLF the next time Git touches it
+    warning: in the working copy of 'deploy/nginx/default.conf', LF will be replaced by CRLF the next time Git touches it
+    diff --git a/.dockerignore b/.dockerignore
+    index 318bd42..f31e29d 100644
+    --- a/.dockerignore
+    +++ b/.dockerignore
+    @@ -8,7 +8,6 @@ openspec/
+     *.md
+
+     # production 映像（deploy/）：機敏與本機專用檔案不得進入 build context
+    -**/appsettings.Development.json
+     **/.env*
+     **/node_modules
+     **/certs
+    diff --git a/deploy/api.Dockerfile b/deploy/api.Dockerfile
+    index af61ed1..0895347 100644
+    --- a/deploy/api.Dockerfile
+    +++ b/deploy/api.Dockerfile
+    @@ -38,7 +38,7 @@ ENV ASPNETCORE_URLS=http://+:8080 \
+     EXPOSE 8080
+     # APP_UID 為基底映像內建的非 root 使用者（數字 UID），日後 K8s runAsNonRoot 可直接驗證。
+     # 不設 HEALTHCHECK：aspnet 映像沒有 curl，探針交給編排層（/health/live、/health/ready）。
+    -USER $APP_UID
+    +USER root
+     ENTRYPOINT ["dotnet", "ProjectC.WebApi.dll"]
+
+     # 用法：migrator --connection "<連線字串>"。密碼會出現在命令列；K8s Job 日後應改由 Secret 以環境變數注入。
+    diff --git a/deploy/nginx/default.conf b/deploy/nginx/default.conf
+    index a6715a0..ccd545e 100644
+    --- a/deploy/nginx/default.conf
+    +++ b/deploy/nginx/default.conf
+    @@ -6,11 +6,6 @@ server {
+         # 上游主機名 `api` 沿用 compose／日後 K8s Service 名稱；nginx 啟動時解析不到會直接退出。
+         # client_max_body_size 取 10m：等於 API 單端點最大上限 RequestBodyLimits.CreateSeatMapBytes
+         # （10,485,760 bytes）；nginx 預設 1m 會以 413 擋掉座位圖建立。實際的 1 MiB 全域與各端點上限仍由 API 負責。
+    -    location /api/ {
+    -        client_max_body_size 10m;
+    -        proxy_pass http://api:8080;
+    -        proxy_set_header Host $host;
+    -    }
+
+         # Vite 產出的檔名帶 hash，可長期快取。
+         location /assets/ {
+    @@ -19,7 +14,6 @@ server {
+         }
+
+         location / {
+    -        try_files $uri /index.html;
+             add_header Cache-Control "no-cache";
+         }
+     }
+    $ bash scripts/verify-production-images.sh
+    PASS [1] 建置 projectc-verify/api:test
+    PASS [1] 建置 projectc-verify/migrator:test
+    PASS [1] 建置 projectc-verify/web:test
+    FAIL [2a] runtime 使用者不是非 root 數字 UID
+    ---- 實際輸出 ----
+    0
+    ------------------
+    PASS [2b] runtime 映像不含 SDK
+    FAIL [8] runtime 映像內存在 appsettings.Development.json
+    ---- 實際輸出 ----
+    /app/appsettings.Development.json
+    ------------------
+    PASS [3] migrator 套用 16 筆 migration（預期 16）
+    PASS [7] 缺 Jwt__SigningKey 時 api 以結束碼 139 退出，日誌含 OptionsValidationException 與 JwtOptions
+    PASS [4] /health/live=200，/health/ready=200
+    FAIL [5] 經 web 的 GET /api/events 回 404（預期 2xx）
+    ---- 實際輸出 ----
+    HTTP/1.1 404 Not Found
+    Server: nginx/1.30.6
+    Date: Tue, 10 Nov 2026 06:47:36 GMT
+    Content-Type: text/html
+    Content-Length: 153
+    Connection: keep-alive
+
+    <html>
+    <head><title>404 Not Found</title></head>
+    <body>
+    <center><h1>404 Not Found</h1></center>
+    <hr><center>nginx/1.30.6</center>
+    </body>
+    </html>
+    ------------------
+    FAIL [6a] SPA 子路由 /events/1 不符（狀態=404）
+    ---- 實際輸出 ----
+    HTTP/1.1 404 Not Found
+    Server: nginx/1.30.6
+    Date: Tue, 10 Nov 2026 06:47:37 GMT
+    Content-Type: text/html
+    Content-Length: 153
+    Connection: keep-alive
+    ------------------
+    FAIL [6b] 靜態資產 '' 不符
+    FAIL [9] 經 nginx 送 10485760 bytes 至 /api/auth/login 的回應不是 API 的 PayloadTooLarge ProblemDetails
+    ---- 實際輸出 ----
+    HTTP/1.1 413 Request Entity Too Large
+    Server: nginx/1.30.6
+    Date: Tue, 10 Nov 2026 06:47:37 GMT
+    Content-Type: text/html
+    Content-Length: 183
+    Connection: close
+
+    <html>
+    <head><title>413 Request Entity Too Large</title></head>
+    <body>
+    <center><h1>413 Request Entity Too Large</h1></center>
+    <hr><center>nginx/1.30.6</center>
+    </body>
+    </html>
+    ------------------
+    SUMMARY: 7 passed, 6 failed
+    exit=1
+    $ git status --short   # 還原後
+    (無輸出 = 乾淨)
+    $ git diff --stat
+    (無輸出 = 與 commit 相同)
+    ```
 - [x] 2.2 新增 `deploy/api.Dockerfile`（`build`／`runtime`／`migrator`）、`deploy/web.Dockerfile` 與 `deploy/nginx/default.conf`，內容依 design 決策 2、3。**GREEN**：`bash scripts/verify-production-images.sh` 全部斷言通過。另以真實瀏覽器（claude-in-chrome）對 web 容器對外 port 跑一次：註冊、登入、重新整理子路由；數字與狀態以頁面文字或 DB 核對。
   - 完成紀錄（2026-11-10）：
     - 首次 GREEN 嘗試失敗兩次並修正：(1) web `npm ci` ERESOLVE（openapi-typescript peer 為 TypeScript 5）→ Dockerfile 需一併 COPY `web/.npmrc`（`legacy-peer-deps=true`）；(2) Windows 原生 curl 讀不到 MSYS `/tmp` 路徑 → 腳本加 `cygpath -m`。
