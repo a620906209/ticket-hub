@@ -14,20 +14,22 @@
 
 ## 2. 實作（依 TDD：先 RED 再 GREEN，證據逐字記錄於各 task 下）
 
-通則：RED 必須是目標行為不符的斷言失敗，不得是編譯、DI 或環境錯誤。為避免新增 `VerificationMode`／列舉前測試只產生編譯錯誤，1.1 先只加入列舉與屬性的最小骨架（預設值先設為 `AcceptAny`，使預設值測試能以斷言失敗作為 RED，GREEN 再改為 `Enforced`）；後續 task 的測試以該骨架編譯。所有命令皆在容器內執行：`docker compose exec api dotnet test tests/<專案> --filter "<名稱>"`。
+通則：RED 必須是目標行為不符的斷言失敗，不得是編譯、DI 或環境錯誤，也不得以刻意錯誤的預設值或偽造行為的空殼製造。新型別不存在而使測試無法編譯時，只先建立不含目標行為的最小契約宣告（見 1.1、1.2），測試在該宣告上因行為缺失而失敗。所有命令皆在容器內執行：`docker compose exec api dotnet test tests/<專案> --filter "<名稱>"`。
 
-- [ ] 1.1 `CaptchaOptions` 新增 `VerificationMode` 與列舉 `CaptchaVerificationMode { Enforced, AcceptAny }`；`CaptchaOptionsTests.Defaults_VerificationModeIsEnforced`。
-  - 預期 RED：`new CaptchaOptions().VerificationMode` 預期 `Enforced`，實際為骨架預設的 `AcceptAny`（斷言失敗）。
-  - GREEN：把預設改為 `Enforced`；`Application.Tests` 過濾 `CaptchaOptionsTests` 全數通過。
+- [ ] 1.1 `CaptchaOptions` 新增 `VerificationMode` 與列舉 `CaptchaVerificationMode { Enforced = 1, AcceptAny = 2 }`；`CaptchaOptionsTests.Defaults_VerificationModeIsEnforced`。
+  - 契約宣告：先只宣告列舉與屬性（`public CaptchaVerificationMode VerificationMode { get; set; }`，不寫初始值），列舉成員以非零值定義，使未設定的 `default` 不等於任何有效模式。
+  - 預期 RED：`new CaptchaOptions().VerificationMode` 預期 `Enforced`，實際為 `0`（未定義、未設定預設）；斷言失敗，原因是「缺漏時預設 Enforced」尚未實作。
+  - GREEN：屬性加上初始值 `Enforced`；`Application.Tests` 過濾 `CaptchaOptionsTests` 全數通過。
   - RED：
   - GREEN：
-- [ ] 1.2 新增 `AcceptAnyCaptchaService`（Infrastructure）；`AcceptAnyCaptchaServiceTests`：以任意 token（含空字串以外的未簽發值）與任意答案呼叫 `VerifyAsync`，且 `IConnectionMultiplexer` mock 上無任何呼叫。
-  - 預期 RED：先建立 `VerifyAsync` 回傳「驗證失敗」的空殼，斷言預期通過、實際失敗；Redis mock 斷言 `DidNotReceive` 於 GREEN 實作前亦成立，故另以「呼叫次數為 0」確認不碰 Redis 的測試在 GREEN 才新增並通過。
-  - GREEN：`VerifyAsync` 恆回通過；`Infrastructure.Tests` 過濾 `AcceptAnyCaptchaServiceTests` 全數通過。
+- [ ] 1.2 新增 `AcceptAnyCaptchaService`（Infrastructure）；`AcceptAnyCaptchaServiceTests`：以任意 token 與任意答案呼叫 `VerifyAsync` 預期通過；另以 `IConnectionMultiplexer` mock 斷言完全沒有被呼叫。
+  - 契約宣告：先只建立實作 `ICaptchaService` 的類別，`VerifyAsync` 方法本體為 `throw new NotImplementedException()`（不偽造任何通過或失敗的行為）。
+  - 預期 RED：測試預期 `VerifyAsync` 回傳通過，實際拋出 `NotImplementedException`（目標行為「一律通過」尚未實作）。
+  - GREEN：`VerifyAsync` 恆回通過、不碰 Redis；`Infrastructure.Tests` 過濾 `AcceptAnyCaptchaServiceTests` 全數通過。
   - RED：
   - GREEN：
 - [ ] 1.3 `AddCaptcha` 以工廠依模式選實作；整合測試（Testing 環境，真實 Redis 容器）針對 **login、register、join purchase queue 三個流程各一**：設定缺漏與顯式 `Enforced` 時，以不存在的 token 或錯誤答案呼叫，預期 400 `CaptchaInvalid`，且 Redis 中對應 key 若存在則已被 `GETDEL` 刪除（以先寫入 token 再用錯誤答案、事後該 key 不存在為斷言）。
-  - 預期 RED：工廠尚未接線時三流程仍使用 `RedisCaptchaService`，故測試在顯式 `Enforced` 下應已通過；為證明測試能失敗，RED 以暫時把 `AcceptAnyCaptchaService` 註冊為預設實作（`mutate`，一次一個改動）執行，預期三個流程各自因「預期 400 `CaptchaInvalid`、實際 200／非 400」失敗，隨後還原。
+  - 預期 RED：`AddCaptcha` 尚未依模式選實作前，`AcceptAny` 相關測試（1.4）才會失敗；本 task 的 Enforced 測試在現況即通過，屬既有行為的回歸保護，因此 RED 標 N/A 並說明理由，改以額外 mutation 驗證測試能失敗：暫時把預設實作換成 `AcceptAnyCaptchaService`（`bash scripts/verify-test-evidence.sh mutate`，一次一個改動），預期三個流程各自因「預期 400 `CaptchaInvalid`、實際非 400」失敗，隨後還原並重跑通過，命令與輸出記錄於下。
   - GREEN：工廠依模式選擇且預設 `Enforced`；`WebApi.Tests` 過濾 `CaptchaVerificationMode` 相關測試全數通過。
   - RED：
   - GREEN：
