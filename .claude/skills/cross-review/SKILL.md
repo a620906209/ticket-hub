@@ -38,10 +38,11 @@ description: 透過 herdr 另開 pane，以 Claude Code (Opus) 或 Devin CLI 跑
 ```bash
 herdr pane split --current --direction right --cwd "$PWD" --no-focus   # 讀 .result.pane.pane_id；窄／高 pane 改 down
 herdr pane run <pane> "claude --model opus --permission-mode auto"     # Claude Code
-herdr pane run <pane> "devin --permission-mode dangerous"                  # Devin（bypass：smart 會卡權限對話框，2026-11-10 使用者決定改用）
+herdr pane run <pane> "devin --permission-mode smart"                      # Devin（不要用 dangerous：auto mode 分類器會擋「建立不安全 agent」，2026-11-11）
 herdr agent list                                                         # 取 agent 名稱與 pane id
 ```
 
+- Devin smart 模式靠 `.devin/config.local.json`（gitignored）的唯讀 allowlist 避免權限對話框卡住；啟動前確認其中已有審查會用到的唯讀指令（`git show`／`git diff *`、`cat`／`grep`、`kubectl get`／`describe`／`logs`、`herdr agent`、`graphify query` 等），不放行寫入或刪除類指令。仍出現對話框時回報使用者，不代為核准。
 - `herdr agent start` 對 Git Bash pane 會失敗（agent_pane_busy／not an available shell），一律用 `pane run`。
 - 啟動後等 `herdr agent get <pane>` 為 `idle` 再送 prompt。
 - 同一輪迴圈沿用同一個 pane；重審時用全新的 prompt，不要求它沿用上輪結論。
@@ -55,6 +56,8 @@ herdr agent list                                                         # 取 a
 - 使用 subagent：Claude Code 用 `spec-reviewer` / `strict-reviewer`（`.claude/agents`）；Devin 用 `.agents/agents` 下同名 agent。Devin 的 prompt 要**明確**寫「請用 subagent 執行」。
 - 角色聲明：「你是 reviewer，不要使用 cross-review／apply-in-pane skill，也不要詢問要用哪個工具，直接審查。」（Devin 會自動載入專案 skill，曾自行觸發 cross-review 並反問工具選擇，2026-11-10）
 - 唯讀，不修改任何檔案、不 commit。
+- **不得對其他 pane 送鍵盤輸入或中斷**（`send-keys`、ctrl+c 等）；只能把報告用 `herdr agent prompt` 送出（`k8s-local-manifests` 第 2 輪 Devin 曾中斷實作 pane，2026-11-10）。
+- **範圍說明**：第一次送審就寫明專案威脅模型與已知範圍外項目（例如單人本機環境、無惡意的有權限操作者、需毫秒級競態替換資源才成立的情境）；blocking 的失敗情境必須在此前提下可重現，否則列為建議。理由：`k8s-local-manifests` 外審 8 輪中第 2–7 輪都在追越來越窄的競態邊角。
 - blocking 必須附具體失敗情境；沒有就列為建議。
 - 第一次送審的結尾：審完後用 herdr 把**完整報告**送回主 session pane（pane id 以 `herdr agent list` 查到的主 session 為準），再回 idle。
 
