@@ -331,3 +331,7 @@
   - 修正：Namespace 改用 `kubectl create`（已存在即失敗，不接管）；清理只依「本次 create 成功」旗標（`ns_created`／`np_ns_created`），不依事後 label；`create`／`label` 結束碼皆檢查，失敗即 FAIL 並結束（EXIT trap 仍清掉已建立者）；啟動時清殘留也只刪帶 label 者。
   - 驗證（docker-desktop）：完整重跑 → `SUMMARY: 14 passed, 0 failed, 1 unverified`、`UNVERIFIED: 8c`、`exit=3`，結束後無殘留。以 PATH shim 讓 `kubectl label` 失敗 → `FAIL [1] 標記 Namespace projectc-verify 失敗`、輸出 `forbidden: cannot patch namespace`、`SUMMARY: 1 passed, 1 failed, 0 unverified`、`exit=1`，結束後無殘留。無 label 的既有 `projectc-verify` → `PRECONDITION: …` `exit=2`，`foreign` ConfigMap 仍在。帶 label 的殘留 Namespace → 下一輪重跑 `14 passed, 0 failed, 1 unverified`、`exit=3` 並清除。
   - 限制：守衛通過後、`create` 之前的競態窗口無法在本機穩定重現；其保護依賴 `kubectl create` 對既有 Namespace 回 AlreadyExists 的語意，未做競態實測。
+- 第 3 輪：Devin CLI（smart 模式），審 commit `195ffab`，結果 FAIL；前輪 B-002、B-003 確認已解決。新 B-001：固定 Namespace 與 owner label 讓並行的第二個執行個體通過守衛並把第一個的 Namespace 當殘留刪除；且 Namespace 若在執行期間被換成同名資源，旗標式清理會依名稱誤刪。判斷：並行本就不被支援（固定 Namespace／NodePort 30081），但防護成本低，採納。
+  - 修正：以 `mkdir` 互斥鎖（`$TMPDIR/verify-k8s-manifests.lock`，內含 pid；pid 已死則接管）禁止並行，鎖在守衛前取得、EXIT 時釋放；建立 Namespace 後記錄 UID，清理前核對 UID 相符才刪。
+  - 驗證（docker-desktop）：背景啟動第一個執行個體，25 秒後啟動第二個 → `PRECONDITION: 另一個 verify-k8s-manifests 執行個體（pid 39337）仍在執行，拒絕並行。`、`exit=2`；第一個完成 `SUMMARY: 14 passed, 0 failed, 1 unverified`、`exit=3`，無殘留、鎖已釋放。預先放入死 pid（999999）的鎖 → 接管並完成 `14 passed, 0 failed, 1 unverified`、`exit=3`，無殘留。label 失敗 shim 仍 `exit=1`、無殘留。
+  - 限制：UID 不符分支（Namespace 於執行期間被替換）未做實測，僅程式審閱。

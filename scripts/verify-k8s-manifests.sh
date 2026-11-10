@@ -92,6 +92,20 @@ stop_background() {
 # 所有權標記：腳本只清理自己建立（帶此 label）的 Namespace，避免刪到同名的既有資源。
 readonly OWNER_LABEL="verify-k8s-manifests/owned=true"
 owns_namespace() { [ "$(k get namespace "$1" -o jsonpath='{.metadata.labels.verify-k8s-manifests/owned}' 2>/dev/null)" = "true" ]; }
+# 互斥鎖：固定 Namespace 與 NodePort 無法並行；另一個執行個體仍存活時拒絕執行，避免把它的 Namespace 當殘留刪掉。
+lock_dir="${TMPDIR:-/tmp}/verify-k8s-manifests.lock"
+holds_lock=0
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  lock_pid="$(cat "$lock_dir/pid" 2>/dev/null)"
+  if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+    echo "PRECONDITION: 另一個 verify-k8s-manifests 執行個體（pid $lock_pid）仍在執行，拒絕並行。" >&2
+    exit 2
+  fi
+  rm -rf "$lock_dir"
+  mkdir "$lock_dir" 2>/dev/null || { echo "PRECONDITION: 無法取得互斥鎖 $lock_dir" >&2; exit 2; }
+fi
+echo "$$" > "$lock_dir/pid"
+holds_lock=1
 for existing_ns in "$NS" "$NP_NS"; do
   if k get namespace "$existing_ns" >/dev/null 2>&1 && ! owns_namespace "$existing_ns"; then
     echo "PRECONDITION: Namespace $existing_ns 已存在且不是本腳本建立（缺 label $OWNER_LABEL），拒絕執行以免刪除既有資源；請改名或自行處理。" >&2
@@ -102,14 +116,18 @@ done
 # 標記失敗也不會讓已建立的 Namespace 殘留。
 ns_created=0
 np_ns_created=0
+ns_uid=""
+np_ns_uid=""
+namespace_uid() { k get namespace "$1" -o jsonpath='{.metadata.uid}' 2>/dev/null; }
+# 刪除前核對 UID：Namespace 若在執行期間被換成同名的別人資源，UID 不符就不刪。
+delete_created_namespace() { # delete_created_namespace <name> <uid>
+  [ -n "$2" ] && [ "$(namespace_uid "$1")" = "$2" ] && k delete namespace "$1" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
+}
 cleanup() {
   stop_background
-  if [ "${KEEP_UP:-0}" != "1" ] && [ "$ns_created" = "1" ]; then
-    k delete namespace "$NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
-  fi
-  if [ "$np_ns_created" = "1" ]; then
-    k delete namespace "$NP_NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
-  fi
+  if [ "${KEEP_UP:-0}" != "1" ] && [ "$ns_created" = "1" ]; then delete_created_namespace "$NS" "$ns_uid"; fi
+  if [ "$np_ns_created" = "1" ]; then delete_created_namespace "$NP_NS" "$np_ns_uid"; fi
+  [ "$holds_lock" = "1" ] && rm -rf "$lock_dir"
   rm -rf "$work_dir"
 }
 trap cleanup EXIT
@@ -144,7 +162,7 @@ if ! apply_out="$(render 00-namespace | k create -f - 2>&1)"; then
   fail 1 "建立 Namespace $NS 失敗（已存在或權限不足；不接管既有 Namespace）" "$apply_out"
   finish
 fi
-ns_created=1
+ns_created=1; ns_uid="$(namespace_uid "$NS")"
 if ! label_out="$(k label namespace "$NS" "$OWNER_LABEL" 2>&1)"; then
   fail 1 "標記 Namespace $NS 失敗" "$label_out"
   finish
@@ -379,7 +397,7 @@ if [ "$pf_body" = "Healthy" ]; then pass 8b "kubectl port-forward 到 api 可取
 tcp_reachable() { # tcp_reachable <namespace> <pod> <host> <port>
   k -n "$1" exec "$2" -- nc -z -w 3 "$3" "$4" >/dev/null 2>&1
 }
-if np_create_out="$(k create namespace "$NP_NS" 2>&1)"; then np_ns_created=1; fi
+if np_create_out="$(k create namespace "$NP_NS" 2>&1)"; then np_ns_created=1; np_ns_uid="$(namespace_uid "$NP_NS")"; fi
 if [ "$np_ns_created" != "1" ] || ! np_create_out="$(k label namespace "$NP_NS" "$OWNER_LABEL" 2>&1)"; then
   fail 8c "建立或標記 NetworkPolicy 測試 Namespace $NP_NS 失敗" "$np_create_out"
   finish
