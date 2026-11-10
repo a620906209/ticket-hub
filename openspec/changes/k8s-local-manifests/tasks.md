@@ -180,7 +180,7 @@
       == mutation c diff ==
       22a23
       >   Jwt__SigningKey: "mutation-value-in-configmap"
-      FAIL [6] Secret 鍵名 Jwt__SigningKey 出現在 k8s/10-configmap.yaml; Secret 鍵名 Jwt__SigningKey 出現在叢集的 ConfigMap; 
+      FAIL [6] Secret 鍵名 Jwt__SigningKey 出現在 k8s/10-configmap.yaml; Secret 鍵名 Jwt__SigningKey 出現在叢集的 ConfigMap;
       SUMMARY: 13 passed, 1 failed, 1 unverified
       exit=1
       RESTORE-DIFF: identical
@@ -192,7 +192,7 @@
       <   type: ClusterIP
       ---
       >   type: NodePort
-      FAIL [9] api Service 不是 ClusterIP; NodePort／LoadBalancer Service 數量不是 1; 
+      FAIL [9] api Service 不是 ClusterIP; NodePort／LoadBalancer Service 數量不是 1;
       SUMMARY: 13 passed, 1 failed, 1 unverified
       exit=1
       RESTORE-DIFF: identical
@@ -205,7 +205,7 @@
       <     listen 8080;
       <     server_name _;
       <     root /usr/share/nginx/html;
-      < 
+      <
       <     # 上游主機名 `api` 沿用 compose／日後 K8s Service 名稱；nginx 啟動時解析不到會直接退出。
       <     # client_max_body_size 取 10m：等於 API 單端點最大上限 RequestBodyLimits.CreateSeatMapBytes
       <     # （10,485,760 bytes）；nginx 預設 1m 會以 413 擋掉座位圖建立。實際的 1 MiB 全域與各端點上限仍由 API 負責。
@@ -214,13 +214,13 @@
       <         proxy_pass http://api:8080;
       <         proxy_set_header Host $host;
       <     }
-      < 
+      <
       <     # Vite 產出的檔名帶 hash，可長期快取。
       <     location /assets/ {
       <         add_header Cache-Control "public, max-age=31536000, immutable";
       <         try_files $uri =404;
       <     }
-      < 
+      <
       <     location / {
       <         try_files $uri /index.html;
       <         add_header Cache-Control "no-cache";
@@ -231,7 +231,7 @@
       >     listen 8080;
       >     server_name _;
       >     root /usr/share/nginx/html;
-      > 
+      >
       >     # 上游主機名 `api` 沿用 compose／日後 K8s Service 名稱；nginx 啟動時解析不到會直接退出。
       >     # client_max_body_size 取 10m：等於 API 單端點最大上限 RequestBodyLimits.CreateSeatMapBytes
       >     # （10,485,760 bytes）；nginx 預設 1m 會以 413 擋掉座位圖建立。實際的 1 MiB 全域與各端點上限仍由 API 負責。
@@ -240,24 +240,24 @@
       >         proxy_pass http://api:8080;
       >         proxy_set_header Host $host;
       >     }
-      > 
+      >
       >     # Vite 產出的檔名帶 hash，可長期快取。
       >     location /assets/ {
       >         add_header Cache-Control "public, max-age=31536000, immutable";
       >         try_files $uri =404;
       >     }
-      > 
+      >
       >     location /health/ {
       >         proxy_pass http://api:8080;
       >     }
-      > 
+      >
       >     location / {
       >         try_files $uri /index.html;
       >         add_header Cache-Control "no-cache";
       >     }
       > }
       build-exit=0
-      FAIL [8a] /health/live 回應為 api 健康檢查結果; /health/ready 回應為 api 健康檢查結果; /health/live 回應不是 SPA index.html（預期 nginx try_files 回 index.html）; 
+      FAIL [8a] /health/live 回應為 api 健康檢查結果; /health/ready 回應為 api 健康檢查結果; /health/live 回應不是 SPA index.html（預期 nginx try_files 回 index.html）;
       SUMMARY: 13 passed, 1 failed, 1 unverified
       exit=1
       RESTORE-DIFF: identical
@@ -291,11 +291,11 @@
     - DB 核對（`kubectl exec deploy/db -- psql`）：付款後 `Orders.Status` = `1`、`tickets` = `2`、`order_items` = `2`，與頁面一致。
     - DB 原始輸出（`kubectl exec deploy/db -- psql -U projectc -d projectc`，依序為建立場館／座位圖後、下單後、付款後）：
       ```
-       count 
+       count
       -------
            1
       (1 row)
-       count 
+       count
       -------
           20
       (1 row)
@@ -321,3 +321,9 @@
 - 實作 pane 先跑 `strict-reviewer` 至 PASS → 外部 reviewer → 外部 PASS 後再跑 `strict-reviewer` 與全新的對抗式 subagent（見 CLAUDE.md 流程第 6 步）。
 - 無前端程式碼變更，但 3.3 為真實瀏覽器驗證。
 - 審查通過後 `/opsx:archive`（`skip_specs`，無主 spec 同步）→ merge 回 master；歸檔後詢問是否以 `bash scripts/archive-todo.sh` 搬移已完成的待辦。
+
+## 交叉審查紀錄
+
+- 第 1 輪：Devin CLI（smart 模式），審 commit `158a509`，結果 FAIL，B-001：`scripts/verify-k8s-manifests.sh` 開頭與 EXIT trap 無條件刪除固定名稱的 `projectc-verify`／`projectc-verify-np`，同名既有 Namespace 會被誤刪。驗證成立。
+  - 修正：兩個 Namespace 以 label `verify-k8s-manifests/owned=true` 標記所有權；啟動時（trap 設定前）若 Namespace 已存在且缺此 label 則 `exit 2`；`cleanup()` 只刪帶 label 者。同輪處理 warning：移除本檔 12 行行尾空白（`git diff --check master...HEAD` 乾淨）。
+  - 驗證（docker-desktop）：重跑 `bash scripts/verify-k8s-manifests.sh` → `SUMMARY: 14 passed, 0 failed, 1 unverified`、`UNVERIFIED: 8c`、`exit=3`。守衛：預先建立無 label 的 `projectc-verify`（含 ConfigMap `foreign`）後執行 → `PRECONDITION: Namespace projectc-verify 已存在且不是本腳本建立（缺 label verify-k8s-manifests/owned=true），拒絕執行以免刪除既有資源；請改名或自行處理。`、`exit=2`；`foreign` ConfigMap 仍在（`foreign   1      2s`）；手動清掉後叢集無殘留。

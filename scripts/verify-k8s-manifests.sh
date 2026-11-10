@@ -89,13 +89,21 @@ stop_background() {
   done
   bg_pids=()
 }
+# 所有權標記：腳本只清理自己建立（帶此 label）的 Namespace，避免刪到同名的既有資源。
+readonly OWNER_LABEL="verify-k8s-manifests/owned=true"
+owns_namespace() { [ "$(k get namespace "$1" -o jsonpath='{.metadata.labels.verify-k8s-manifests/owned}' 2>/dev/null)" = "true" ]; }
+for existing_ns in "$NS" "$NP_NS"; do
+  if k get namespace "$existing_ns" >/dev/null 2>&1 && ! owns_namespace "$existing_ns"; then
+    echo "PRECONDITION: Namespace $existing_ns 已存在且不是本腳本建立（缺 label $OWNER_LABEL），拒絕執行以免刪除既有資源；請改名或自行處理。" >&2
+    exit 2
+  fi
+done
 cleanup() {
   stop_background
   if [ "${KEEP_UP:-0}" != "1" ]; then
-    k delete namespace "$NS" "$NP_NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
-  else
-    k delete namespace "$NP_NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
+    owns_namespace "$NS" && k delete namespace "$NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
   fi
+  owns_namespace "$NP_NS" && k delete namespace "$NP_NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
   rm -rf "$work_dir"
 }
 trap cleanup EXIT
@@ -109,6 +117,7 @@ render() {
 apply_manifest() { render "$1" | k apply -f - 2>&1; }
 
 # 殘留的驗證 Namespace 先清掉，確保從乾淨狀態開始。
+# 守衛已確認這些 Namespace 若存在必為本腳本建立。
 k delete namespace "$NS" "$NP_NS" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
 
 # ---- 前置斷言：覆寫結果正確（斷言 3、9 與突變 e 都依賴此變數） ----
@@ -123,7 +132,7 @@ grep -q "nodePort: ${VERIFY_NODEPORT}" <<<"$web_render" || override_problems+="w
 if [ -z "$override_problems" ]; then pass 0 "manifest 覆寫為 Namespace $NS、NodePort $VERIFY_NODEPORT"; else fail 0 "覆寫結果不符：$override_problems"; finish; fi
 
 # ---- 斷言 1：依序套用並等待就緒 ----
-apply_out="$(apply_manifest 00-namespace)"; apply_out+=$'\n'"$(apply_manifest 10-configmap)"
+apply_out="$(apply_manifest 00-namespace)"; k label namespace "$NS" "$OWNER_LABEL" --overwrite >/dev/null 2>&1; apply_out+=$'\n'"$(apply_manifest 10-configmap)"
 pg_user="$(kn get configmap projectc-config -o jsonpath='{.data.POSTGRES_USER}' 2>/dev/null)"
 pg_db="$(kn get configmap projectc-config -o jsonpath='{.data.POSTGRES_DB}' 2>/dev/null)"
 if [ -z "$pg_user" ] || [ -z "$pg_db" ]; then
@@ -353,7 +362,7 @@ if [ "$pf_body" = "Healthy" ]; then pass 8b "kubectl port-forward 到 api 可取
 tcp_reachable() { # tcp_reachable <namespace> <pod> <host> <port>
   k -n "$1" exec "$2" -- nc -z -w 3 "$3" "$4" >/dev/null 2>&1
 }
-k create namespace "$NP_NS" >/dev/null 2>&1
+k create namespace "$NP_NS" >/dev/null 2>&1; k label namespace "$NP_NS" "$OWNER_LABEL" --overwrite >/dev/null 2>&1
 k -n "$NP_NS" run srv --image=redis:7-alpine --image-pull-policy=IfNotPresent --labels=app=srv >/dev/null 2>&1
 k -n "$NP_NS" run cli --image=redis:7-alpine --image-pull-policy=IfNotPresent --command -- sleep 600 >/dev/null 2>&1
 k -n "$NP_NS" wait --for=condition=Ready pod/srv pod/cli --timeout=120s >/dev/null 2>&1
