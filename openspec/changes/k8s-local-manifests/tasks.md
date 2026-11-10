@@ -344,3 +344,6 @@
   - 修正：UID 直接取自 `kubectl create -o jsonpath='{.metadata.uid}'` 的回應（同一次 API 呼叫）；拿不到 UID 視為建立失敗、不記為本次建立；移除「UID 為空依名稱刪除」的 fallback，cleanup 一律須 UID 非空且相符才刪；守衛拒絕時先釋放鎖。
   - 驗證（docker-desktop）：完整重跑 `SUMMARY: 14 passed, 0 failed, 1 unverified`、`exit=3`，Namespace 與鎖無殘留。PATH shim 讓含 `metadata.uid` 的 kubectl 呼叫失敗 → `FAIL [1] 建立 Namespace projectc-verify 失敗（已存在、權限不足或回應無 UID；不接管既有 Namespace）`、輸出 `connection refused`、`exit=1`，無殘留。label 失敗 shim `exit=1`、無殘留。無 label 的既有 Namespace → `exit=2`、`foreign` ConfigMap 仍在、鎖已釋放。並行第二個 `exit=2`，第一個 `14 passed, 0 failed, 1 unverified`、`exit=3`，無殘留。
   - 限制：若 create 實際已在伺服器端成功、但回應遺失（網路中斷），該 Namespace 不會被清理（不依名稱刪除未知身分的物件，寧可殘留不誤刪）；UID 不符分支仍僅程式審閱。
+- 第 6 輪：Devin CLI（smart 模式），審 commit `74a8efc`，結果 FAIL；前輪 B-001 與鎖釋放建議確認解決。唯一 blocking：cleanup 的 UID 核對（get）與刪除（delete）非原子，有權限者於其間刪除並重建同名 Namespace 會被誤刪。
+  - 使用者裁定（2026-11-10）：「有權限者蓄意在毫秒窗口替換同名 Namespace」不在支援範圍（單人本機 docker-desktop 驗證腳本，威脅模型不成立）。降為已知限制，不修；理由寫於腳本註解（`kubectl delete` 無 UID precondition，`kubectl delete --raw -f` 實測回 NotFound，原子化須改走 kubectl proxy + curl，複雜度不值得）。
+  - 後續外部審查與最後一次 strict-reviewer／對抗式審查均被告知此範圍裁定，不再審查有權限者蓄意競態替換。

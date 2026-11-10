@@ -119,6 +119,9 @@ np_ns_uid=""
 namespace_uid() { k get namespace "$1" -o jsonpath='{.metadata.uid}' 2>/dev/null; }
 # UID 直接取自 create 的回應（與建立同一次 API 呼叫），拿不到就視為建立失敗、不記為「本次建立」；
 # 刪除前核對 UID，Namespace 若在執行期間被換成同名的別人資源，UID 不符就不刪。
+# 核對（get）與刪除（delete）之間不是原子操作，刻意不處理：kubectl delete 沒有 UID precondition，
+# 要原子化得改走 kubectl proxy + curl，而這需要有權限者蓄意在毫秒窗口替換同名 Namespace，
+# 於單人本機 docker-desktop 驗證腳本的威脅模型之外，複雜度不值得。
 delete_created_namespace() { # delete_created_namespace <name> <uid>
   [ -n "$2" ] && [ "$(namespace_uid "$1")" = "$2" ] && k delete namespace "$1" --ignore-not-found --wait=true --timeout=180s >/dev/null 2>&1
 }
