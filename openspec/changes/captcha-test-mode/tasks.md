@@ -3,7 +3,7 @@
 | AC | 測試 task |
 |----|-----------|
 | CAPTCHA-MODE-001 設定缺漏為 Enforced | 1.1（預設值）、1.3（缺漏時錯誤答案仍 400） |
-| CAPTCHA-MODE-002 Enforced 行為不變 | 1.3（login、register、join purchase queue 三流程各一，GETDEL 照常） |
+| CAPTCHA-MODE-002 Enforced 行為不變 | 1.3(B)（login、register、join purchase queue 三流程各一，GETDEL 照常） |
 | CAPTCHA-MODE-003 AcceptAny 任意答案通過 | 1.2、1.4 |
 | CAPTCHA-MODE-004 產生端點不變 | 1.4 |
 | CAPTCHA-MODE-005 欄位驗證與限流不繞過 | 1.4 |
@@ -28,10 +28,14 @@
   - GREEN：`VerifyAsync` 恆回通過、不碰 Redis；`Infrastructure.Tests` 過濾 `AcceptAnyCaptchaServiceTests` 全數通過。
   - RED：
   - GREEN：
-- [ ] 1.3 `AddCaptcha` 以工廠依模式選實作；整合測試（Testing 環境，真實 Redis 容器）針對 **login、register、join purchase queue 三個流程各一**：設定缺漏與顯式 `Enforced` 時，以不存在的 token 或錯誤答案呼叫，預期 400 `CaptchaInvalid`，且 Redis 中對應 key 若存在則已被 `GETDEL` 刪除（以先寫入 token 再用錯誤答案、事後該 key 不存在為斷言）。
-  - 預期 RED：`AddCaptcha` 尚未依模式選實作前，`AcceptAny` 相關測試（1.4）才會失敗；本 task 的 Enforced 測試在現況即通過，屬既有行為的回歸保護，因此 RED 標 N/A 並說明理由，改以額外 mutation 驗證測試能失敗：暫時把預設實作換成 `AcceptAnyCaptchaService`（`bash scripts/verify-test-evidence.sh mutate`，一次一個改動），預期三個流程各自因「預期 400 `CaptchaInvalid`、實際非 400」失敗，隨後還原並重跑通過，命令與輸出記錄於下。
-  - GREEN：工廠依模式選擇且預設 `Enforced`；`WebApi.Tests` 過濾 `CaptchaVerificationMode` 相關測試全數通過。
-  - RED：
+- [ ] 1.3 `AddCaptcha` 以工廠依模式選實作。兩組測試：
+  - (A) 選擇行為（RED 來源）：`CaptchaServiceSelectionTests`，以 `ServiceCollection` 加 `AddCaptcha` 後建立 scope 解析 `ICaptchaService`：`VerificationMode=AcceptAny` 預期為 `AcceptAnyCaptchaService`；`Enforced` 與設定缺漏預期為 `RedisCaptchaService`。
+  - (B) Enforced 回歸保護：整合測試（Testing 環境，真實 Redis 容器）針對 **login、register、join purchase queue 三個流程各一**，設定缺漏與顯式 `Enforced` 時，以不存在的 token 或錯誤答案呼叫，預期 400 `CaptchaInvalid`，且 Redis 對應 key 已被 `GETDEL` 刪除（先寫入 token、用錯誤答案呼叫、事後該 key 不存在為斷言）。
+  - 預期 RED（只針對 A）：factory 尚未實作時 `AddCaptcha` 固定註冊 `RedisCaptchaService`，`AcceptAny` 案例預期型別 `AcceptAnyCaptchaService`、實際為 `RedisCaptchaService`（斷言失敗）。
+  - B 的 RED：N/A——這些是既有 Enforced 行為的回歸保護，在 factory 實作前即通過，不存在「目標行為缺失」的失敗；改以額外 mutation 驗證其敏感度（不取代 A 的 RED）：暫時把預設實作換成 `AcceptAnyCaptchaService`（`bash scripts/verify-test-evidence.sh mutate`，一次一個改動），預期三個流程各自因「預期 400 `CaptchaInvalid`、實際非 400」失敗，隨後還原並重跑通過，命令與輸出記錄於下。
+  - GREEN：工廠依模式選擇且預設 `Enforced`；A、B 全數通過（`WebApi.Tests` 過濾 `CaptchaServiceSelection`、`CaptchaVerificationMode` 相關測試）。
+  - RED（A）：
+  - mutation（B）：
   - GREEN：
 - [ ] 1.4 整合測試（`AcceptAny`，非 Production）：(a) login、register、join purchase queue 以未曾產生的 token 與任意非空答案通過核對（login 以正確帳密回 200，register 與 queue 不回 `CaptchaInvalid`）；(b) `GET /api/captcha` 仍回新 token 與 base64 圖片，Redis 寫入帶 TTL 的雜湊；(c) token 空白或超過 64 字元、答案空白或超過 16 字元仍回 400 `Validation`（含逐欄位 `errors`）；(d) 超過 `CaptchaRateLimiting` 額度仍回 429。
   - 預期 RED：在 1.3 完成後、`AcceptAnyCaptchaService` 接線前，(a) 預期不回 `CaptchaInvalid`、實際回 400 `CaptchaInvalid`；(b)(c)(d) 為既有行為，另以「`AcceptAny` 下仍 400／429」的斷言在 GREEN 後確認未被繞過。
