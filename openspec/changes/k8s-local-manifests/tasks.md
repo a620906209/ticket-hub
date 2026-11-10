@@ -347,3 +347,6 @@
 - 第 6 輪：Devin CLI（smart 模式），審 commit `74a8efc`，結果 FAIL；前輪 B-001 與鎖釋放建議確認解決。唯一 blocking：cleanup 的 UID 核對（get）與刪除（delete）非原子，有權限者於其間刪除並重建同名 Namespace 會被誤刪。
   - 使用者裁定（2026-11-10）：「有權限者蓄意在毫秒窗口替換同名 Namespace」不在支援範圍（單人本機 docker-desktop 驗證腳本，威脅模型不成立）。降為已知限制，不修；理由寫於腳本註解（`kubectl delete` 無 UID precondition，`kubectl delete --raw -f` 實測回 NotFound，原子化須改走 kubectl proxy + curl，複雜度不值得）。
   - 後續外部審查與最後一次 strict-reviewer／對抗式審查均被告知此範圍裁定，不再審查有權限者蓄意競態替換。
+- 第 7 輪：Devin CLI（smart 模式），審 commit `4bddacd`，結果 FAIL；UID 核對／delete 非原子依使用者裁定未列入。blocking：鎖路徑取決於呼叫端 `TMPDIR`，不同 TMPDIR 的一般呼叫各拿各的鎖，會把對方的 Namespace 當殘留刪除（成立，且是一般呼叫而非蓄意情境）。
+  - 修正：鎖固定放 `/tmp/verify-k8s-manifests.lock`，不受 `TMPDIR` 影響（註解寫明原因）。
+  - 驗證（docker-desktop）：背景啟動第一個（預設 TMPDIR），20 秒後以 `TMPDIR=/tmp/othertmp` 啟動第二個 → `PRECONDITION: 互斥鎖 /tmp/verify-k8s-manifests.lock 已存在（持有者 pid …` `exit=2`，未觸碰叢集；第一個 `SUMMARY: 14 passed, 0 failed, 1 unverified`、`exit=3`，無 Namespace 與鎖殘留。

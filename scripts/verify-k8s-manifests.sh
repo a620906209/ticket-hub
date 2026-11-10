@@ -93,7 +93,8 @@ stop_background() {
 readonly OWNER_LABEL="verify-k8s-manifests/owned=true"
 owns_namespace() { [ "$(k get namespace "$1" -o jsonpath='{.metadata.labels.verify-k8s-manifests/owned}' 2>/dev/null)" = "true" ]; }
 # 互斥鎖：固定 Namespace 與 NodePort 無法並行；另一個執行個體仍存活時拒絕執行，避免把它的 Namespace 當殘留刪掉。
-lock_dir="${TMPDIR:-/tmp}/verify-k8s-manifests.lock"
+# 固定放 /tmp、不受呼叫端 TMPDIR 影響：鎖要保護的是共用的叢集 Namespace／NodePort，不同 TMPDIR 的呼叫也必須互斥。
+lock_dir="/tmp/verify-k8s-manifests.lock"
 holds_lock=0
 # 只用原子的 mkdir 取得鎖，不自動接管殘留的鎖（接管本身無法原子完成）；程序被 SIGKILL 才會留下殘鎖，需人工刪除。
 if ! mkdir "$lock_dir" 2>/dev/null; then
