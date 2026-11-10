@@ -16,6 +16,6 @@
 
 ## 待辦
 
-- [ ] 開新 change（需 spec，會影響 `captcha-verification` capability）：決定開關型式（`Captcha:Enabled` 或固定答案的 `ICaptchaService` 實作）與 Production 防護方式。
-- [ ] 介面歸類沿用既有規則（`ICaptchaService` 位於 `Application/Common/Interfaces`），新增設定鍵時同步更新 `docs/api-conventions.md` 與 `deployment-env-vars` 的分類。
+- [x] 開新 change（需 spec，會影響 `captcha-verification` capability）：決定開關型式（`Captcha:Enabled` 或固定答案的 `ICaptchaService` 實作）與 Production 防護方式。
+- [x] 介面歸類沿用既有規則（`ICaptchaService` 位於 `Application/Common/Interfaces`），新增設定鍵時同步更新 `docs/api-conventions.md` 與 `deployment-env-vars` 的分類。（design 判定無需更新 `docs/api-conventions.md`：該文件無設定鍵清單。）
 - [ ] 完成後，`k8s-local-manifests` 的 3.3 流程可改為全自動重跑，補驗 captcha 關閉時的完整購票流程。

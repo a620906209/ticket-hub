@@ -38,6 +38,18 @@
 - 只有 `Production` 環境名稱受保護；若部署用了其他環境名稱（如 `Staging`）仍可開啟。接受此取捨，Warning 日誌與 `deployment-env-vars` 文件註記作為補強。
 - `ICaptchaService` 註冊由具體型別改為工廠，`ServiceRegistrationSnapshot.baseline.txt` 的對應行須同步（見 tasks）。
 
+## 實作偏離記錄
+
+實作時對原 tasks／design 描述做了下列調整；specs 只描述系統行為，不受影響。
+
+- **1.1／1.2／1.4 的 RED 以 mutation 取得**：1.3 已先接好 DI 工廠，故 1.4 無法在未實作狀態下自然 RED；1.1／1.2 也改以 `scripts/verify-test-evidence.sh mutate` 暫時改動正式碼取得失敗證據（1.2 兩個方法各一次單一 mutation），取代契約宣告。
+- **1.6 以 `ILogEventSink` 擷取日誌**：專案以 Serilog 取代預設 `ILoggerProvider`，一般 logger provider 擷取不到訊息，改用 DI 註冊的 `InMemoryLogEventSink`（同 `SerilogConfigurator`）。
+- **1.4(d) 改為移除 `[EnableRateLimiting("captcha")]`**：以移除該屬性取代「關閉 CaptchaRateLimiting」，使行為測試不受限流干擾。
+
+## 已知技術債
+
+- `EventQueueControllerTests` 仍保留與 `CaptchaModeTestData` 相同的私有佇列活動 seed／會員 client helper，本 change 不處理，待日後統一抽共用。
+
 ## Migration Plan
 
 無資料或 API 遷移；未設定該鍵時行為與現況相同，可隨一般部署上線，回滾即還原映像。

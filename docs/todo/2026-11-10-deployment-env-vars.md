@@ -31,6 +31,7 @@
 | `ConnectionStrings__Redis` | （compose 寫死 `redis:6379`） | api | 叢集內 Service 位址，Redis 未設密碼 |
 | `DevelopmentSeed__AdminEmail` | `DEV_SEED_ADMIN_EMAIL` | api | 初始 Admin 帳號（非密碼）；僅 `Development` 使用 |
 | `DevelopmentSeed__OrganizerName` | `DEV_SEED_ORGANIZER_NAME` | api | 展示用名稱；僅 `Development` 使用 |
+| `Captcha__VerificationMode` | （不設定，預設 `Enforced`） | api | 驗證碼核對模式；`AcceptAny` 僅供非 Production 自動化驗證，Production 設定會使啟動失敗。部署預設不設，Production ConfigMap 不得出現此鍵 |
 | `POSTGRES_USER` | `POSTGRES_USER` | db | 使用者名稱，db 必需，日後 Postgres Deployment 也需要 |
 | `POSTGRES_DB` | `POSTGRES_DB` | db | 資料庫名稱，同上 |
 | `ACCEPT_EULA` | （compose 寫死 `Y`） | seq | Seq 授權同意，缺少則無法啟動 |

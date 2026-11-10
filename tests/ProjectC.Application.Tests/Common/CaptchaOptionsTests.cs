@@ -16,4 +16,12 @@ public class CaptchaOptionsTests
 
         options.TtlSeconds.Should().Be(120);
     }
+
+    [Fact]
+    public void Defaults_VerificationModeIsEnforced()
+    {
+        var options = new CaptchaOptions();
+
+        options.VerificationMode.Should().Be(CaptchaVerificationMode.Enforced);
+    }
 }
