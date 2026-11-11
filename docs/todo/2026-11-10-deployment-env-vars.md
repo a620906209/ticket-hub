@@ -12,7 +12,7 @@
 | `ConnectionStrings__DefaultConnection` | （由 `POSTGRES_USER`／`POSTGRES_PASSWORD`／`POSTGRES_DB` 組出） | api | 字串內含密碼，整條視為機敏 |
 | `Jwt__SigningKey` | `JWT_SIGNING_KEY` | api | 可偽造任何使用者的 access token |
 | `TicketSigning__SigningKey` | `TICKET_SIGNING_KEY` | api | 可偽造電子票券 QR Code 簽章 |
-| `AdminBootstrap__Password` | `ADMIN_BOOTSTRAP_PASSWORD` | api | 首位 Admin 密碼（至少 8 碼、含英文字母與數字）；僅在資料庫無 Admin 時使用。範例佔位值 `CHANGE-ME-REQUIRED` 必須替換；首位 Admin 建立後應從 Secret 移除，本機制不提供密碼輪替（Secret 殘留時，Admin 全被刪除後重啟會依該密碼重建） |
+| `AdminBootstrap__Password` | `ADMIN_BOOTSTRAP_PASSWORD` | api | 首位 Admin 密碼（至少 8 碼、含英文字母與數字）；僅在資料庫無 Admin 時使用。範例佔位值 `CHANGE-ME-REQUIRED` 必須替換；首位 Admin 建立後應從 Secret 移除並連同 `AdminBootstrap__Email` 一併移除（只移除其一會因「只設定其一」啟動失敗），本機制不提供密碼輪替（Secret 殘留時，Admin 全被刪除後重啟會依該密碼重建） |
 
 注意事項：
 

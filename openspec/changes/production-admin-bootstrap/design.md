@@ -44,7 +44,7 @@
 
 ## Risks / Trade-offs
 
-- [Secret 中的密碼在建立後仍留在部署設定] → 文件註明建立首位 Admin 後可移除 `AdminBootstrap__Password`（之後因已有 Admin 一律略過）。
+- [Secret 中的密碼在建立後仍留在部署設定] → 文件註明建立首位 Admin 後須將 `AdminBootstrap__Password` 與 `AdminBootstrap__Email` 一併移除（兩者須同時設定或同時省略，只移除其一會使啟動驗證失敗；兩者皆省略時機制自行略過）。
 - [Admin 全數被刪除或停用以外的情況：若所有 Admin 被刪除，下次啟動會依設定重建] → 屬預期的救援路徑，文件註明。
 - [兩個實例設定了不同 Email] → 不支援；最多建立一位（先成功者），後者見已有 Admin 而略過。
 - [Role 寫入方式與 seeder 重複] → 已知技術債，待 Domain 有角色指派流程時一併收斂。
