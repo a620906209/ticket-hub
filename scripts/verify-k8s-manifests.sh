@@ -22,7 +22,7 @@ readonly VERIFY_NODEPORT=30081
 readonly K8S_DIR="k8s"
 readonly MIGRATIONS_DIR="src/ProjectC.Infrastructure/Persistence/Migrations"
 readonly BASE="http://localhost:${VERIFY_NODEPORT}"
-readonly SECRET_KEYS=(POSTGRES_PASSWORD ConnectionStrings__DefaultConnection Jwt__SigningKey TicketSigning__SigningKey DevelopmentSeed__AdminPassword)
+readonly SECRET_KEYS=(POSTGRES_PASSWORD ConnectionStrings__DefaultConnection Jwt__SigningKey TicketSigning__SigningKey AdminBootstrap__Password)
 readonly MANIFESTS=(00-namespace 10-configmap 20-postgres 21-redis 22-seq 30-migrator-job 40-api 50-web 60-networkpolicy)
 
 k() { kubectl --context "$CONTEXT" "$@"; }
@@ -192,7 +192,7 @@ umask 077
   echo "ConnectionStrings__DefaultConnection=${conn_string}"
   echo "Jwt__SigningKey=${jwt_key}"
   echo "TicketSigning__SigningKey=${ticket_key}"
-  echo "DevelopmentSeed__AdminPassword=${admin_password}"
+  echo "AdminBootstrap__Password=${admin_password}"
 } > "$work_dir/secret.env"
 grep -v '^Jwt__SigningKey=' "$work_dir/secret.env" > "$work_dir/secret-missing.env"
 kn create secret generic projectc-secrets --from-env-file="$work_native/secret.env" >/dev/null 2>&1 \
@@ -204,7 +204,7 @@ declare -A secret_values=(
   [ConnectionStrings__DefaultConnection]="$conn_string"
   [Jwt__SigningKey]="$jwt_key"
   [TicketSigning__SigningKey]="$ticket_key"
-  [DevelopmentSeed__AdminPassword]="$admin_password"
+  [AdminBootstrap__Password]="$admin_password"
 )
 
 wait_rollout() { kn rollout status "$1" --timeout="${2:-240s}" 2>&1; }
@@ -303,6 +303,8 @@ summarize_load() { # summarize_load <輸出檔> → 「總數 非2xx數」
   echo "$total ${bad:-0}"
 }
 readonly MIN_LOAD_REQUESTS=20
+# Pod 替換或 rollout 可能在數秒內結束，固定時窗內的請求數不足；回復後繼續送請求直到達門檻（最多 30 秒），非 2xx 仍會被計入。
+load_reached_minimum() { [ "$(wc -l < "$1" | tr -d " ")" -ge "$MIN_LOAD_REQUESTS" ]; }
 
 victim="$(kn get pods -l app=api -o jsonpath='{.items[0].metadata.name}')"
 start_load "$work_dir/load4"
@@ -310,6 +312,7 @@ kn delete pod "$victim" --wait=true >/dev/null 2>&1
 recovered=1
 api_fully_ready() { [ "$(kn get deployment api -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" = "2" ]; }
 poll_until 180 api_fully_ready || recovered=0
+poll_until 30 load_reached_minimum "$work_dir/load4" || true
 stop_load "$work_dir/load4"
 read -r total bad <<<"$(summarize_load "$work_dir/load4")"
 if [ "$recovered" -eq 1 ] && [ "$total" -ge "$MIN_LOAD_REQUESTS" ] && [ "$bad" -eq 0 ]; then
@@ -321,6 +324,7 @@ fi
 start_load "$work_dir/load5"
 kn rollout restart deployment/api >/dev/null 2>&1
 rollout_out="$(wait_rollout deployment/api 360s)"; rollout_exit=$?
+poll_until 30 load_reached_minimum "$work_dir/load5" || true
 stop_load "$work_dir/load5"
 read -r total bad <<<"$(summarize_load "$work_dir/load5")"
 if [ "$rollout_exit" -eq 0 ] && [ "$total" -ge "$MIN_LOAD_REQUESTS" ] && [ "$bad" -eq 0 ]; then

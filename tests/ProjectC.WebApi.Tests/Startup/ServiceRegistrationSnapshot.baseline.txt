@@ -96,6 +96,7 @@ Scoped | ProjectC.Infrastructure.Captcha.ICaptchaImageGenerator | ProjectC.Infra
 Scoped | ProjectC.Infrastructure.Captcha.RedisCaptchaService | ProjectC.Infrastructure.Captcha.RedisCaptchaService
 Scoped | ProjectC.Infrastructure.Persistence.ApplicationDbContext | ProjectC.Infrastructure.Persistence.ApplicationDbContext
 Scoped | ProjectC.Infrastructure.Persistence.Seeding.DevelopmentDataSeeder | ProjectC.Infrastructure.Persistence.Seeding.DevelopmentDataSeeder
+Scoped | ProjectC.Infrastructure.Persistence.Seeding.ProductionAdminBootstrapper | ProjectC.Infrastructure.Persistence.Seeding.ProductionAdminBootstrapper
 Singleton | Microsoft.AspNetCore.Authorization.IAuthorizationHandler | ProjectC.WebApi.Common.RequireOrganizerContextHandler
 Singleton | Microsoft.AspNetCore.Diagnostics.IExceptionHandler | ProjectC.WebApi.ExceptionHandling.GlobalExceptionHandler
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.AuthOptions] | instance
@@ -110,6 +111,7 @@ Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Applicatio
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.SeatMapRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Notifications.MockEmailNotificationServiceOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Payments.MockPaymentGatewayOptions] | instance
+Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Persistence.Seeding.AdminBootstrapOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Persistence.Seeding.DevelopmentSeedOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Security.JwtOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Tickets.TicketSigningOptions] | instance
@@ -125,6 +127,7 @@ Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Ap
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.SeatMapRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Notifications.MockEmailNotificationServiceOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Payments.MockPaymentGatewayOptions] | instance
+Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Persistence.Seeding.AdminBootstrapOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Persistence.Seeding.DevelopmentSeedOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Security.JwtOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Tickets.TicketSigningOptions] | instance
@@ -137,6 +140,7 @@ Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.QueryCacheOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.RateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.SeatMapRateLimitingOptions] | instance
+Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Infrastructure.Persistence.Seeding.AdminBootstrapOptions] | ProjectC.WebApi.Extensions.AdminBootstrapOptionsValidator
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Infrastructure.Security.JwtOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Infrastructure.Tickets.TicketSigningOptions] | instance
 Singleton | ProjectC.Application.Common.AuthOptions | factory

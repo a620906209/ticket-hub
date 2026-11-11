@@ -48,7 +48,7 @@
 - 主機與其他專案共用，可用記憶體約 858MB，跑不動 K8s 控制平面，因此以 compose 部署。
 - 80／443 已由既有的反向代理佔用，HTTPS 沿用它，不另外安裝。
 - 規劃方向：各容器設記憶體上限；api 只綁定 `127.0.0.1`；映像在 CI 建置，不在 VPS 上建置；不部署 Seq，須先確認 api 在沒有 Seq 時可正常運作。
-- 規劃拆成兩個 change：① production 映像、production compose、首位 Admin 建立方式；② CD 與維運手冊（反向代理、備份）。
+- 規劃拆成兩個 change：① production 映像、production compose、首位 Admin 建立方式（已由 `production-admin-bootstrap` 處理）；② CD 與維運手冊（反向代理、備份）。
 
 主機位址與登入資訊不寫入版控。
 
