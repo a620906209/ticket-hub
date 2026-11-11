@@ -15,7 +15,9 @@ export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 cd "$(dirname "$0")/.."
 
-readonly CONTEXT="docker-desktop"
+CONTEXT="${VERIFY_CONTEXT:-docker-desktop}"
+readonly CONTEXT
+case "$CONTEXT" in docker-desktop|kind-npdemo) ;; *) echo "拒絕執行：VERIFY_CONTEXT 只允許 docker-desktop 或 kind-npdemo"; exit 2 ;; esac
 readonly NS="projectc-verify"
 readonly NP_NS="projectc-verify-np"
 readonly VERIFY_NODEPORT=30081
@@ -355,7 +357,17 @@ if [ -z "$leaks" ]; then pass 6 "5 個隨機機敏值未出現在 logs、describ
 
 # ---- 斷言 7：缺設定演練（暫存 Deployment 複製 api 規格，Secret 來源改為缺 Jwt__SigningKey 的副本） ----
 # 標籤用 app=api-missing-config，不帶 app=api，避免被 Service api 選到而干擾斷言 4、5。
-# 此 Pod 不在 NetworkPolicy 的 podSelector 內（db 只收 app=api），但它在設定驗證階段就退出，不會連 db。
+# 此 Pod 不在 NetworkPolicy 的 podSelector 內，但啟動時會連 db（ProductionAdminBootstrapper）、redis，並把日誌送 seq；# 在會執行 NetworkPolicy 的 CNI 上被擋會逾時或卡在日誌 flush 而不退出，故演練期間套用一條暫時 NetworkPolicy 放行。
+cat <<EOF | kn apply -f - >/dev/null 2>&1
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-missing-config-drill-egress-deps}
+spec:
+  podSelector: {matchExpressions: [{key: app, operator: In, values: [db, redis, seq]}]}
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{podSelector: {matchLabels: {app: api-missing-config}}}]
+EOF
 kn get deployment api -o json | jq '{apiVersion, kind, metadata: {name: "api-missing-config", namespace: .metadata.namespace},
   spec: (.spec | {replicas: 1, selector: {matchLabels: {app: "api-missing-config"}},
     template: (.template | .metadata = {labels: {app: "api-missing-config"}} | .spec.containers[0].envFrom |= map(if .secretRef then .secretRef.name = "projectc-secrets-missing" else . end))})}' \
@@ -377,6 +389,7 @@ else
   fail 7 "狀態=$reason，上次結束碼=$exit_code，日誌需含 SigningKey（確認是缺設定而非其他原因崩潰）" "$missing_logs"
 fi
 kn delete deployment api-missing-config --ignore-not-found >/dev/null 2>&1
+kn delete networkpolicy allow-missing-config-drill-egress-deps --ignore-not-found >/dev/null 2>&1
 
 # ---- 斷言 8：/health/* 不可經 web 取得 ----
 body_of() { curl -s -m 15 "$BASE$1"; }
@@ -430,7 +443,7 @@ spec:
 EOF
   sleep 5
   if tcp_reachable "$NP_NS" cli "$srv_ip" 6379; then
-    mark_unverified 8c "本機 CNI 不執行 NetworkPolicy（deny-all 保護的 Pod 仍可連通），無法驗證不可信 workload 不可達；見 docs/todo/2026-11-10-networkpolicy-enforcement-todo.md"
+    mark_unverified 8c "本機 CNI 不執行 NetworkPolicy（deny-all 保護的 Pod 仍可連通），無法驗證不可信 workload 不可達；見 docs/archive/2026-11-10-networkpolicy-enforcement-todo.md"
   else
     untrusted_problems=""
     kn run untrusted --image=redis:7-alpine --image-pull-policy=IfNotPresent --labels=app=untrusted --command -- sleep 600 >/dev/null 2>&1

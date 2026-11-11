@@ -18,7 +18,7 @@
 本機實測狀態（`k8s-local-manifests`，2026-11-10，Docker Desktop kubeadm）：
 
 - 已驗證：api 只有 ClusterIP，經 web NodePort 取不到 `/health/*`（nginx 只轉發 `/api/`），`kubectl port-forward` 可取得 `/health/live`，探針通過使 Pod Ready（`scripts/verify-k8s-manifests.sh` 斷言 8、9）。
-- **未驗證**：不可信 workload 不可達。Docker Desktop 的 CNI 不執行 NetworkPolicy（deny-all 保護的 Pod 仍可連通），`k8s/60-networkpolicy.yaml` 在本機只是宣告；待辦見 `docs/todo/2026-11-10-networkpolicy-enforcement-todo.md`。因此本項的上線 gate **仍未解除**，上述必要條件文字不變。
+- **已驗證（2026-11-12）**：不可信 workload 不可達。Docker Desktop 的 CNI 不執行 NetworkPolicy，改在 kind＋Calico 叢集（`VERIFY_CONTEXT=kind-npdemo bash scripts/verify-k8s-manifests.sh`）驗證：斷言 8c 通過，不可信 Pod 連不到 `api:8080`、`redis:6379`、`db:5432`，`app=web` 的 Pod 連得到 `api:8080`；全部 15 項斷言通過，探針不受 NetworkPolicy 影響。本機 K8s 部分的上線 gate 因此解除；VPS（compose）線仍須依本項必要條件自行實測。
 
 實測時注意：
 

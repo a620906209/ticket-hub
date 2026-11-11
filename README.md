@@ -146,7 +146,7 @@ docker compose exec api dotnet ef database update --project src/ProjectC.Infrast
 
 ### 示範帳號
 
-平台沒有對外開放的 Admin 註冊管道，第一個 Admin 由啟動時的機制建立：非 Development 環境由 `ProductionAdminBootstrapper` 依 `AdminBootstrap__Email`／`AdminBootstrap__Password` 在資料庫尚無 Admin 時建立（設定方式見 [`docs/todo/2026-11-10-deployment-env-vars.md`](docs/todo/2026-11-10-deployment-env-vars.md)）；Development 環境則由開發用的 `DevelopmentDataSeeder` 建立，以下為本機示範的步驟（見「已知限制」）：
+平台沒有對外開放的 Admin 註冊管道，第一個 Admin 由啟動時的機制建立：非 Development 環境由 `ProductionAdminBootstrapper` 依 `AdminBootstrap__Email`／`AdminBootstrap__Password` 在資料庫尚無 Admin 時建立（設定方式見 [`docs/archive/2026-11-10-deployment-env-vars.md`](docs/archive/2026-11-10-deployment-env-vars.md)）；Development 環境則由開發用的 `DevelopmentDataSeeder` 建立，以下為本機示範的步驟（見「已知限制」）：
 
 1. 在 `.env` 取消註解並設定 `DEV_SEED_ADMIN_EMAIL`、`DEV_SEED_ADMIN_PASSWORD`（範例見 [`.env.example`](.env.example)，密碼請自行設定）
 2. 套用 migration 後執行 `docker compose restart api`；seeder 會在啟動時建立該 Admin 帳號，以及一個由它擁有、已核准的主辦方（名稱預設 `Demo Organizer`）。若啟動當下還有未套用的 migration，seeder 會略過並在 log 留下警告
