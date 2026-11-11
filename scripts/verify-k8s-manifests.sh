@@ -303,6 +303,8 @@ summarize_load() { # summarize_load <輸出檔> → 「總數 非2xx數」
   echo "$total ${bad:-0}"
 }
 readonly MIN_LOAD_REQUESTS=20
+# Pod 替換或 rollout 可能在數秒內結束，固定時窗內的請求數不足；回復後繼續送請求直到達門檻（最多 30 秒），非 2xx 仍會被計入。
+load_reached_minimum() { [ "$(wc -l < "$1" | tr -d " ")" -ge "$MIN_LOAD_REQUESTS" ]; }
 
 victim="$(kn get pods -l app=api -o jsonpath='{.items[0].metadata.name}')"
 start_load "$work_dir/load4"
@@ -310,6 +312,7 @@ kn delete pod "$victim" --wait=true >/dev/null 2>&1
 recovered=1
 api_fully_ready() { [ "$(kn get deployment api -o jsonpath='{.status.readyReplicas}' 2>/dev/null)" = "2" ]; }
 poll_until 180 api_fully_ready || recovered=0
+poll_until 30 load_reached_minimum "$work_dir/load4" || true
 stop_load "$work_dir/load4"
 read -r total bad <<<"$(summarize_load "$work_dir/load4")"
 if [ "$recovered" -eq 1 ] && [ "$total" -ge "$MIN_LOAD_REQUESTS" ] && [ "$bad" -eq 0 ]; then
@@ -321,6 +324,7 @@ fi
 start_load "$work_dir/load5"
 kn rollout restart deployment/api >/dev/null 2>&1
 rollout_out="$(wait_rollout deployment/api 360s)"; rollout_exit=$?
+poll_until 30 load_reached_minimum "$work_dir/load5" || true
 stop_load "$work_dir/load5"
 read -r total bad <<<"$(summarize_load "$work_dir/load5")"
 if [ "$rollout_exit" -eq 0 ] && [ "$total" -ge "$MIN_LOAD_REQUESTS" ] && [ "$bad" -eq 0 ]; then
