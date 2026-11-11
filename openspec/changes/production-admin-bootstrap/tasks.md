@@ -6,7 +6,7 @@
 ## 1. Options 與啟動期設定驗證
 
 - [ ] 1.1 新增 `AdminBootstrapOptions` 與 `AdminBootstrapOptionsValidator`（WebApi），並於 `ResolveEagerlyValidatedOptions` 觸發；對應 ADMIN-BOOT-005/006/007。
-  - 先寫測試（WebApi.Tests/Startup，比照 `CaptchaOptionsFailFastTests`）：兩項皆空 → 啟動成功；只設 Email／只設 Password → 啟動失敗，且各寫一案、缺哪一項訊息就含哪一項的名稱；失敗例外文字一併收集並斷言不含密碼值（ADMIN-BOOT-010）；Email 格式錯、含前後空白、密碼 <8 碼／無數字／無字母 → 失敗；失敗訊息不含密碼值。
+  - 先寫測試（WebApi.Tests/Startup，比照 `CaptchaOptionsFailFastTests`）：兩項皆空 → 啟動成功；只設 Email／只設 Password → 啟動失敗，且各寫一案、缺哪一項訊息就含哪一項的名稱；失敗例外文字一併收集並斷言不含密碼值（ADMIN-BOOT-010）；Email 格式錯、含前後空白、密碼 <8 碼／無數字／無字母 → 失敗；失敗訊息不含密碼值。上述 006／007 失敗案例另以 Development 環境各跑一次（驗證在任何環境皆觸發，ADMIN-BOOT-006/007 的「任何環境」宣稱）。
   - 預期 RED：Options／validator 尚不存在或未驗證，斷言「啟動應失敗」得到成功（Expected exception／Actual no exception），目標行為不符而非編譯錯誤（先建空殼型別使其可編譯）。
   - GREEN：`docker compose exec api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~AdminBootstrapOptions"` 全數通過。
   - 完成紀錄：RED／GREEN／（重構重跑或 N/A）：<待填>
@@ -27,15 +27,15 @@
 ## 3. 註冊與啟動整合
 
 - [ ] 3.1 於 `WebApi/Extensions` 新增 DI 註冊（Scoped）並在 `Program.cs` 於 seeder 區塊旁以 `!IsDevelopment()` 呼叫；更新 `ServiceRegistrationSnapshot.baseline.txt`；對應 ADMIN-BOOT-004。
-  - 先寫測試（WebApi.Tests，以 `WebApplicationFactory` 走真實啟動流程，被測主體為 `Program.cs` 的環境判斷，不得只測抽出的輔助方法）：成對的兩個測試，皆設定合法的 `AdminBootstrap__*` 且 `DevelopmentSeed` 未設定、資料庫無 Admin——Development 環境啟動後資料庫無 Admin 會員；非 Development（如 Production 或 Testing）啟動後有該 Email 的 Admin。另驗證非 Development 啟動後以該 Email 與密碼經既有登入流程（測試環境驗證碼可處理）取得 token。
+  - 先寫測試（WebApi.Tests，以 `WebApplicationFactory` 走真實啟動流程，被測主體為 `Program.cs` 的環境判斷，不得只測抽出的輔助方法）：成對的兩個測試，皆設定合法的 `AdminBootstrap__*` 且 `DevelopmentSeed` 未設定、資料庫無 Admin——Development 環境啟動後資料庫無 Admin 會員；Testing 環境啟動後有該 Email 的 Admin，並以該 Email 與密碼經既有登入流程（測試環境驗證碼可處理）取得 token。另加一案 Production 環境，只斷言 Admin 已建立、不登入，且不得設定 `Captcha:VerificationMode=AcceptAny`（Production 禁用）也不得帶入 `Captcha__*`。其他既有整合測試的 `CustomWebApplicationFactory` 不得帶入 `AdminBootstrap__*`（Testing 環境有設定即會執行）。
   - 預期 RED：未接上啟動流程時，非 Development 啟動後 Admin 不存在（Expected 1／Actual 0）；並以暫時移除或反轉 `!IsDevelopment()` 條件做變異驗證（`bash scripts/verify-test-evidence.sh mutate`），確認 Development 那個測試會失敗。
   - GREEN：`ServiceRegistrationSnapshotTests` 與新測試通過；整合測試使用 Testcontainers，不連線開發用 db。
   - 完成紀錄：<待填>
 
 ## 4. 部署設定與文件
 
-- [ ] 4.1 更新 `k8s/10-configmap.yaml`（`ASPNETCORE_ENVIRONMENT: Production`、`AdminBootstrap__Email`、移除 `DevelopmentSeed__*` 與過時註解）、`k8s/examples/secret.example.yaml`、`scripts/verify-k8s-manifests.sh`（`SECRET_KEYS` 與產生的 secret 改為 `AdminBootstrap__Password`）。TDD：N/A（部署設定），驗證見 4.3。
-- [ ] 4.2 更新 `docs/todo/2026-11-10-deployment-env-vars.md`（新鍵、移除 Development 專用說明）、`docs/todo/2026-11-02-deployment-prerequisites.md`／`docs/todo/2026-10-28-k8s-todo.md` 中「首位 Admin bootstrap 待辦」的敘述；註明 K8s 3.3 瀏覽器流程需改走會員申請 + Admin 核准；建立首位 Admin 後應移除 `AdminBootstrap__Password`；本機制不提供密碼輪替；若 Secret 殘留密碼，Admin 全被刪除後重啟會依該密碼重建（移除後此路徑才不會意外觸發）。驗證：`grep -rn "DevelopmentSeed" k8s docs/todo scripts` 無過時殘留。TDD：N/A（純文件）。
+- [ ] 4.1 更新 `k8s/10-configmap.yaml`（`ASPNETCORE_ENVIRONMENT: Production`、`AdminBootstrap__Email`、移除 `DevelopmentSeed__*` 與過時註解）、`k8s/examples/secret.example.yaml`、`scripts/verify-k8s-manifests.sh`（`SECRET_KEYS` 與產生的 secret 改為 `AdminBootstrap__Password`）。`secret.example.yaml` 的佔位值須為不符合密碼強度規則的明顯佔位（例如 `CHANGE-ME-REQUIRED`，無數字），使未替換就部署時啟動驗證失敗，而非以公開範例密碼建出 Admin。TDD：N/A（部署設定），驗證見 4.3。
+- [ ] 4.2 更新 `docs/todo/2026-11-10-deployment-env-vars.md`（新鍵、移除 Development 專用說明）、`docs/todo/2026-11-02-deployment-prerequisites.md`／`docs/todo/2026-10-28-k8s-todo.md` 中「首位 Admin bootstrap 待辦」的敘述；註明 K8s 3.3 瀏覽器流程需改走會員申請 + Admin 核准；建立首位 Admin 後應移除 `AdminBootstrap__Password`；本機制不提供密碼輪替；若 Secret 殘留密碼，Admin 全被刪除後重啟會依該密碼重建（移除後此路徑才不會意外觸發）。文件須明列範例密碼佔位值必須替換。驗證：先以 grep 核對文件中引用的檔案行號與敘述屬實，再 `grep -rn "DevelopmentSeed" k8s docs/todo scripts` 無過時殘留。TDD：N/A（純文件）。
 - [ ] 4.3 重跑 `bash scripts/verify-k8s-manifests.sh`（`ASPNETCORE_ENVIRONMENT=Production`）並貼原文輸出，確認 api 就緒（含 `/health/ready`），並以 DB 查詢確認 Admin 已建立（Production 不可停用驗證碼，故不以腳本登入；登入由 3.1 整合測試覆蓋，必要時另以真實瀏覽器手動登入）；確認 OpenAPI／SwaggerUI 在 Production 不可用。完成紀錄：<待填>
 
 ## 5. 最終檢查

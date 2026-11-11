@@ -29,7 +29,7 @@
 
 #### Scenario: ADMIN-BOOT-005 兩項皆未設定
 - **WHEN** 兩項設定皆未提供，系統啟動
-- **THEN** 啟動成功、不建立任何會員，並記錄一則說明未設定而略過的 Info 日誌
+- **THEN** 啟動成功、不建立任何會員；非 Development 環境並記錄一則說明未設定而略過的 Info 日誌（Development 環境不執行本機制，不要求此日誌）
 
 #### Scenario: ADMIN-BOOT-006 只設定其一
 - **WHEN** 只設定 Email 或只設定 Password

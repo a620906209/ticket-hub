@@ -26,7 +26,7 @@
 3a. **Email 原樣使用**：不 Trim、不轉小寫（與既有註冊／登入一致，無正規化）；含前後空白的值不通過 `EmailAddress()` 驗證而啟動失敗。
 4. **並發**：不加分散式鎖（Redis 鎖會增加啟動相依）。先檢查再 `SaveChanges`；捕捉 `DbUpdateException`（內層 `PostgresException.SqlState == "23505"`、約束為 Email 唯一索引）後，以全新查詢重新確認：若已存在 Admin → 視為成功；若仍無 Admin（即相同 Email 為非 Admin 會員）→ 拋出明確例外使啟動失敗（對應 ADMIN-BOOT-003）。其他 `DbUpdateException` 一律重拋，不吞例外。
 5. **設定驗證**：`AdminBootstrapOptionsValidator : IValidateOptions<AdminBootstrapOptions>` 放 WebApi，內部用 FluentValidation（`EmailAddress()`、`MustBeStrongPassword()`）以重用註冊規則；兩項皆空白 → 成功（略過）；只有其一 → 失敗。失敗訊息只含設定項名稱與規則描述，不含值。於 `ResolveEagerlyValidatedOptions` 解析一次，使其在啟動時觸發。`DisplayName` 為選填設定，預設 `Administrator`。
-6. **Migration 檢查**：沿用 seeder 做法，`GetPendingMigrationsAsync` 有未套用者 → Warning 並略過。順序為：設定驗證（啟動即失敗）→ 未設定略過 → migration 檢查 → 建立。
+6. **Migration 檢查**：沿用 seeder 做法，`GetPendingMigrationsAsync` 有未套用者 → Warning 並略過。順序為：設定驗證（啟動即失敗）→ 未設定略過 → migration 檢查 → 建立。啟動時資料庫不可達使 bootstrapper 拋出例外、行程退出，由 K8s 重啟（CrashLoop）處理；此為預期的 fail-closed。
 7. **日誌**：僅記錄 `MemberId`、設定項名稱、未套用 migration 數量；日誌與例外訊息一律不含 Email、密碼與雜湊。
 8. **K8s**：`ASPNETCORE_ENVIRONMENT` 改 `Production`（同時關閉 OpenAPI／SwaggerUI）；ConfigMap 放 `AdminBootstrap__Email`，Secret 放 `AdminBootstrap__Password`；移除 `DevelopmentSeed__*`。`verify-k8s-manifests.sh` 的 `SECRET_KEYS` 與產生的 secret 同步改名。因不再有 Demo Organizer，先前 K8s 3.3 的瀏覽器流程需改走會員申請主辦方 + Admin 核准，於文件註明、不在本 change 重跑。
 
@@ -50,3 +50,9 @@
 - [Role 寫入方式與 seeder 重複] → 已知技術債，待 Domain 有角色指派流程時一併收斂。
 - [K8s 改 Production 後 `CaptchaOptionsValidator` 禁止 AcceptAny 開始生效] → ConfigMap 未設定 `Captcha__*`（預設 Enforced），不受影響；Production 無法關閉驗證碼，故 4.3 不以腳本登入。
 - [`Production` 環境可能啟用其他僅 Production 的行為（如 HTTPS 導向）] → tasks 以 `verify-k8s-manifests.sh` 重跑確認。
+
+## 審查紀錄
+
+- 主 session：spec-reviewer 第 1 輪 FAIL（B-001）→ 修正 → 第 2 輪 PASS；design-hardener PASS。
+- 外部審查（Devin CLI，smart）：第 1 輪（commit 9299821）FAIL（B-001／B-002，皆查證成立）→ 修正於 a170118 → 第 2 輪 spec-reviewer、design-hardener 皆 PASS。
+- 最後一次主 session 審查（HEAD a170118）：spec-reviewer PASS、design-hardener PASS，無 blocking；warning 已補入規格／tasks（005 日誌範圍、1.1 Development 案例、3.1 環境選擇與 factory 隔離、4.1 範例佔位值、4.2 行號核對、design 決策 6 DB 不可達）。
