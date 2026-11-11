@@ -1,14 +1,10 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using ProjectC.Application.Events.CreateEvent;
 using ProjectC.Application.PurchaseQueue.JoinPurchaseQueue;
-using ProjectC.Application.Venues.CreateSeatMap;
-using ProjectC.Application.Venues.CreateVenue;
 using ProjectC.Infrastructure.Persistence;
 using ProjectC.WebApi.Tests.TestSupport;
 
@@ -26,44 +22,12 @@ public class PurchaseQueueCaptchaTests : IClassFixture<CustomWebApplicationFacto
         _factory = factory;
     }
 
-    private static async Task<Guid> ReadCreatedIdAsync(HttpResponseMessage response)
-    {
-        response.EnsureSuccessStatusCode();
-        var created = await response.Content.ReadFromJsonAsync<CreatedResponse>();
-        return created!.Id;
-    }
-
-    private async Task<Guid> SeedQueueModeEnabledEventAsync(HttpClient adminClient)
-    {
-        var venueResponse = await adminClient.PostAsJsonAsync("/api/admin/venues", new CreateVenueRequest("Captcha Queue Test Venue"));
-        var venueId = await ReadCreatedIdAsync(venueResponse);
-        var seatMapResponse = await adminClient.PostAsJsonAsync(
-            $"/api/admin/venues/{venueId}/seat-maps", new CreateSeatMapRequest([new SeatRequest("A", "1")]));
-        var seatMapId = await ReadCreatedIdAsync(seatMapResponse);
-        var eventResponse = await adminClient.PostAsJsonAsync(
-            "/api/admin/events", new CreateEventRequest("Captcha Queue Test Event", DateTime.UtcNow.AddDays(30), venueId, seatMapId));
-        var eventId = await ReadCreatedIdAsync(eventResponse);
-
-        var patchResponse = await adminClient.PatchAsJsonAsync($"/api/admin/events/{eventId}/queue-mode", new { enabled = true });
-        patchResponse.EnsureSuccessStatusCode();
-
-        return eventId;
-    }
-
-    private async Task<HttpClient> CreateAuthenticatedMemberClientAsync()
-    {
-        var client = _factory.CreateClient();
-        var tokens = await AuthTestHelper.RegisterAndLoginAsync(client, AuthTestHelper.NewEmail());
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
-        return client;
-    }
-
     [Fact]
     public async Task JoinQueue_WithCorrectCaptcha_Succeeds()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
-        var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
-        var memberClient = await CreateAuthenticatedMemberClientAsync();
+        var eventId = await CaptchaModeTestData.SeedQueueModeEnabledEventAsync(adminClient);
+        var memberClient = await CaptchaModeTestData.CreateAuthenticatedMemberClientAsync(_factory, AuthTestHelper.NewEmail());
 
         var response = await memberClient.PostAsJsonAsync(
             $"/api/events/{eventId}/queue/entries",
@@ -78,8 +42,8 @@ public class PurchaseQueueCaptchaTests : IClassFixture<CustomWebApplicationFacto
     public async Task JoinQueue_WithWrongCaptchaAnswer_Returns400WithCaptchaInvalidTitleAndDoesNotCreateEntry()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
-        var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
-        var memberClient = await CreateAuthenticatedMemberClientAsync();
+        var eventId = await CaptchaModeTestData.SeedQueueModeEnabledEventAsync(adminClient);
+        var memberClient = await CaptchaModeTestData.CreateAuthenticatedMemberClientAsync(_factory, AuthTestHelper.NewEmail());
 
         var response = await memberClient.PostAsJsonAsync(
             $"/api/events/{eventId}/queue/entries",
@@ -103,8 +67,8 @@ public class PurchaseQueueCaptchaTests : IClassFixture<CustomWebApplicationFacto
     public async Task JoinQueue_WithMissingCaptchaAnswer_Returns400()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
-        var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
-        var memberClient = await CreateAuthenticatedMemberClientAsync();
+        var eventId = await CaptchaModeTestData.SeedQueueModeEnabledEventAsync(adminClient);
+        var memberClient = await CaptchaModeTestData.CreateAuthenticatedMemberClientAsync(_factory, AuthTestHelper.NewEmail());
 
         var response = await memberClient.PostAsJsonAsync(
             $"/api/events/{eventId}/queue/entries",
@@ -120,8 +84,8 @@ public class PurchaseQueueCaptchaTests : IClassFixture<CustomWebApplicationFacto
     public async Task JoinQueue_TwoConcurrentRequestsFromSameMember_ResultInExactlyOneEntry()
     {
         var adminClient = await AuthTestHelper.CreateAuthenticatedAdminWithOrganizerContextClientAsync(_factory);
-        var eventId = await SeedQueueModeEnabledEventAsync(adminClient);
-        var memberClient = await CreateAuthenticatedMemberClientAsync();
+        var eventId = await CaptchaModeTestData.SeedQueueModeEnabledEventAsync(adminClient);
+        var memberClient = await CaptchaModeTestData.CreateAuthenticatedMemberClientAsync(_factory, AuthTestHelper.NewEmail());
 
         Task<HttpResponseMessage> SendJoinRequest() => memberClient.PostAsJsonAsync(
             $"/api/events/{eventId}/queue/entries",

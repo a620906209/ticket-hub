@@ -55,7 +55,7 @@ herdr agent list                                                         # 取 a
 必須包含：
 - 使用 subagent：Claude Code 用 `spec-reviewer` / `strict-reviewer`（`.claude/agents`）；Devin 用 `.agents/agents` 下同名 agent。Devin 的 prompt 要**明確**寫「請用 subagent 執行」。
 - 角色聲明：「你是 reviewer，不要使用 cross-review／apply-in-pane skill，也不要詢問要用哪個工具，直接審查。」（Devin 會自動載入專案 skill，曾自行觸發 cross-review 並反問工具選擇，2026-11-10）
-- 唯讀，不修改任何檔案、不 commit。
+- 唯讀，不修改任何檔案、不 commit。讀檔一律用 `cat`／`grep`／`git show`／`git diff`，不要用 `python` 等可執行任意程式碼的直譯器（Devin smart 的 allowlist 不放行，會卡權限對話框；`captcha-test-mode` 規格審查曾因此被卡，2026-11-11）。
 - **不得對其他 pane 送鍵盤輸入或中斷**（`send-keys`、ctrl+c 等）；只能把報告用 `herdr agent prompt` 送出（`k8s-local-manifests` 第 2 輪 Devin 曾中斷實作 pane，2026-11-10）。
 - **範圍說明**：第一次送審就寫明專案威脅模型與已知範圍外項目（例如單人本機環境、無惡意的有權限操作者、需毫秒級競態替換資源才成立的情境）；blocking 的失敗情境必須在此前提下可重現，否則列為建議。理由：`k8s-local-manifests` 外審 8 輪中第 2–7 輪都在追越來越窄的競態邊角。
 - blocking 必須附具體失敗情境；沒有就列為建議。

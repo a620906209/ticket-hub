@@ -26,7 +26,7 @@ Scoped | ProjectC.Application.Authentication.PasswordReset.ResetPasswordRequestV
 Scoped | ProjectC.Application.Authentication.Refresh.RefreshTokenHandler | ProjectC.Application.Authentication.Refresh.RefreshTokenHandler
 Scoped | ProjectC.Application.Captcha.GetCaptcha.GetCaptchaHandler | ProjectC.Application.Captcha.GetCaptcha.GetCaptchaHandler
 Scoped | ProjectC.Application.Common.Interfaces.IApplicationDbContext | factory
-Scoped | ProjectC.Application.Common.Interfaces.ICaptchaService | ProjectC.Infrastructure.Captcha.RedisCaptchaService
+Scoped | ProjectC.Application.Common.Interfaces.ICaptchaService | factory
 Scoped | ProjectC.Application.Common.Interfaces.IUnitOfWork | ProjectC.Infrastructure.Persistence.UnitOfWork
 Scoped | ProjectC.Application.Common.Paging.PageRequestValidator | ProjectC.Application.Common.Paging.PageRequestValidator
 Scoped | ProjectC.Application.Events.CreateEvent.CreateEventHandler | ProjectC.Application.Events.CreateEvent.CreateEventHandler
@@ -93,6 +93,7 @@ Scoped | ProjectC.Domain.Tickets.ITicketTypeRepository | ProjectC.Infrastructure
 Scoped | ProjectC.Domain.Venues.ISeatMapRepository | ProjectC.Infrastructure.Persistence.Repositories.SeatMapRepository
 Scoped | ProjectC.Domain.Venues.IVenueRepository | ProjectC.Infrastructure.Persistence.Repositories.VenueRepository
 Scoped | ProjectC.Infrastructure.Captcha.ICaptchaImageGenerator | ProjectC.Infrastructure.Captcha.CaptchaImageGenerator
+Scoped | ProjectC.Infrastructure.Captcha.RedisCaptchaService | ProjectC.Infrastructure.Captcha.RedisCaptchaService
 Scoped | ProjectC.Infrastructure.Persistence.ApplicationDbContext | ProjectC.Infrastructure.Persistence.ApplicationDbContext
 Scoped | ProjectC.Infrastructure.Persistence.Seeding.DevelopmentDataSeeder | ProjectC.Infrastructure.Persistence.Seeding.DevelopmentDataSeeder
 Singleton | Microsoft.AspNetCore.Authorization.IAuthorizationHandler | ProjectC.WebApi.Common.RequireOrganizerContextHandler
@@ -127,6 +128,7 @@ Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.In
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Persistence.Seeding.DevelopmentSeedOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Security.JwtOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Tickets.TicketSigningOptions] | instance
+Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.CaptchaOptions] | ProjectC.WebApi.Extensions.CaptchaOptionsValidator
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.CaptchaOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.CaptchaRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.DistributedLockOptions] | instance

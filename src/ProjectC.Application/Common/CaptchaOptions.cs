@@ -12,4 +12,13 @@ public sealed class CaptchaOptions
 
     [Range(1, int.MaxValue)]
     public int TtlSeconds { get; set; } = 120;
+
+    public CaptchaVerificationMode VerificationMode { get; set; } = CaptchaVerificationMode.Enforced;
+}
+
+// 成員以非零值定義，使未設定的 default（0）不等於任何有效模式。
+public enum CaptchaVerificationMode
+{
+    Enforced = 1,
+    AcceptAny = 2
 }
