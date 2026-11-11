@@ -18,4 +18,5 @@
 
 - [x] 開新 change（需 spec，會影響 `captcha-verification` capability）：決定開關型式（`Captcha:Enabled` 或固定答案的 `ICaptchaService` 實作）與 Production 防護方式。
 - [x] 介面歸類沿用既有規則（`ICaptchaService` 位於 `Application/Common/Interfaces`），新增設定鍵時同步更新 `docs/api-conventions.md` 與 `deployment-env-vars` 的分類。（design 判定無需更新 `docs/api-conventions.md`：該文件無設定鍵清單。）
-- [ ] 完成後，`k8s-local-manifests` 的 3.3 流程可改為全自動重跑，補驗 captcha 關閉時的完整購票流程。
+- [x] 完成後，`k8s-local-manifests` 的 3.3 流程可改為全自動重跑，補驗 captcha 關閉時的完整購票流程。
+  - 完成紀錄（2026-11-11，docker-desktop，master cf7e48d 重建 `projectc/api:local`，`KEEP_UP=1 bash scripts/verify-k8s-manifests.sh` → 14 passed, 0 failed, 1 unverified（8c））：對 projectc-verify 的 api 執行 `kubectl set env Captcha__VerificationMode=AcceptAny`；兩個新 Pod 啟動日誌各有一筆停用 Warning。claude-in-chrome 以錯誤驗證碼（`wrong`）登入 seeder Admin 成功（進入「我的主辦方」）、註冊 buyer2@local.dev 成功（DB `Members` 該列 Role=0）。限制：未重跑建立場館／活動／票種、下單與付款（下單與付款本無驗證碼，2026-11-10 已手動驗證）；驗證後已刪除 projectc-verify。
