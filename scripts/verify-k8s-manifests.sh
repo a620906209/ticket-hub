@@ -78,6 +78,7 @@ for image in projectc/api:local projectc/api-migrator:local projectc/web:local; 
   docker image inspect "$image" >/dev/null 2>&1 || { echo "缺少映像 $image，請先 docker build"; exit 2; }
 done
 
+# 機敏值用隨機位元組，不用固定測試值（原因見斷言 6）。
 random_hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 
 work_dir="$(mktemp -d)"
@@ -183,11 +184,13 @@ if [ -z "$pg_user" ] || [ -z "$pg_db" ]; then
   finish
 fi
 
+# 每次執行隨機產生機敏值，斷言 6 才能以值本身搜尋 logs／describe／版控是否外洩；固定值無法區分「洩漏」與「巧合」。
 pg_password="$(random_hex 16)"
 jwt_key="$(random_hex 32)"
 ticket_key="$(random_hex 32)"
 admin_password="Aa1-$(random_hex 12)"
 conn_string="Host=db;Port=5432;Database=${pg_db};Username=${pg_user};Password=${pg_password}"
+# secret.env 含明文機敏值，僅擁有者可讀；檔案放暫存目錄並由 trap 刪除。
 umask 077
 {
   echo "POSTGRES_PASSWORD=${pg_password}"
@@ -196,6 +199,7 @@ umask 077
   echo "TicketSigning__SigningKey=${ticket_key}"
   echo "AdminBootstrap__Password=${admin_password}"
 } > "$work_dir/secret.env"
+# 缺 Jwt__SigningKey 的副本，供斷言 7 演練缺設定。
 grep -v '^Jwt__SigningKey=' "$work_dir/secret.env" > "$work_dir/secret-missing.env"
 kn create secret generic projectc-secrets --from-env-file="$work_native/secret.env" >/dev/null 2>&1 \
   || { fail 1 "建立 Secret 失敗"; finish; }
@@ -224,9 +228,11 @@ apply_out+=$'\n'"$(apply_manifest 50-web)"
 out="$(wait_rollout deployment/web)" || step1_problems+="deployment/web 未就緒：$out"$'\n'
 apply_out+=$'\n'"$(apply_manifest 60-networkpolicy)"
 
+# 以 Designer.cs 檔數當預期筆數，新增 migration 時腳本不必同步修改。
 expected_migrations="$(ls "$MIGRATIONS_DIR"/*.Designer.cs | wc -l | tr -d ' ')"
 applied="$(kn exec deploy/db -- psql -U "$pg_user" -d "$pg_db" -tA -c 'select count(*) from "__EFMigrationsHistory"' 2>&1 | tr -d '\r ')"
 [ "$applied" = "$expected_migrations" ] || step1_problems+="__EFMigrationsHistory 筆數=$applied，預期 $expected_migrations"$'\n'
+# 雙副本首次啟動允許重啟 1 次（見 k8s/40-api.yaml 的 startupProbe 註解），超過視為啟動不穩定。
 max_restarts="$(kn get pods -l app=api -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{"\n"}{end}' 2>/dev/null | sort -n | tail -n 1)"
 [ "${max_restarts:-99}" -le 1 ] || step1_problems+="api 重啟次數 $max_restarts 超過 1"$'\n'
 if [ -z "$step1_problems" ]; then
@@ -260,6 +266,7 @@ poll_until() { # poll_until <timeout 秒> <指令...>：每 3 秒執行一次，
 endpoints_empty() { [ -z "$(api_endpoints)" ]; }
 endpoints_present() { [ -n "$(api_endpoints)" ]; }
 
+# 停掉 db 模擬相依故障：readiness 失敗須讓 api Pod 移出 Service endpoints，流量才不會打到連不上 DB 的 Pod。
 kn scale deployment/db --replicas=0 >/dev/null 2>&1
 if poll_until 90 endpoints_empty; then
   pass 2b "db 停止後 api Service endpoints 在 90 秒內清空（readiness 轉為 NotReady）"
@@ -279,6 +286,7 @@ http_code() { curl -s -o /dev/null -m 15 -w '%{http_code}' "$@"; }
 root_code="$(http_code "$BASE/")"
 events_code="$(http_code "$BASE/api/events?page=1&pageSize=1")"
 if [ "$root_code" = "200" ]; then pass 3a "GET $BASE/ → 200"; else fail 3a "GET $BASE/ → $root_code（預期 200）"; fi
+# 只接受 2xx：3xx 代表代理或路徑被重導，不能算 /api 可用。
 if [[ "$events_code" =~ ^2[0-9][0-9]$ ]]; then pass 3b "GET /api/events → $events_code（2xx，非 3xx）"; else fail 3b "GET /api/events → $events_code（預期 2xx）"; fi
 
 # ---- 斷言 4、5：持續請求下的 Pod 刪除與滾動更新 ----
@@ -357,7 +365,8 @@ if [ -z "$leaks" ]; then pass 6 "5 個隨機機敏值未出現在 logs、describ
 
 # ---- 斷言 7：缺設定演練（暫存 Deployment 複製 api 規格，Secret 來源改為缺 Jwt__SigningKey 的副本） ----
 # 標籤用 app=api-missing-config，不帶 app=api，避免被 Service api 選到而干擾斷言 4、5。
-# 此 Pod 不在 NetworkPolicy 的 podSelector 內，但啟動時會連 db（ProductionAdminBootstrapper）、redis，並把日誌送 seq；# 在會執行 NetworkPolicy 的 CNI 上被擋會逾時或卡在日誌 flush 而不退出，故演練期間套用一條暫時 NetworkPolicy 放行。
+# 此 Pod 不在 NetworkPolicy 的 podSelector 內，但啟動時會連 db（ProductionAdminBootstrapper）、redis，並把日誌送 seq；
+# 在會執行 NetworkPolicy 的 CNI 上被擋會逾時或卡在日誌 flush 而不退出，故演練期間套用一條暫時 NetworkPolicy 放行。
 cat <<EOF | kn apply -f - >/dev/null 2>&1
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -392,6 +401,7 @@ kn delete deployment api-missing-config --ignore-not-found >/dev/null 2>&1
 kn delete networkpolicy allow-missing-config-drill-egress-deps --ignore-not-found >/dev/null 2>&1
 
 # ---- 斷言 8：/health/* 不可經 web 取得 ----
+# api 的健康檢查不得經對外入口 web 取得；nginx 只轉發 /api/，其餘路徑回 SPA index.html，因此 Healthy 回應代表轉發設定被放寬。
 body_of() { curl -s -m 15 "$BASE$1"; }
 health_problems=""
 for path in /health/live /health/ready /api/health/live /api/health/ready; do
@@ -404,6 +414,7 @@ live_body="$(body_of /health/live)"
 grep -qi '<html' <<<"$live_body" || health_problems+="/health/live 回應不是 SPA index.html（預期 nginx try_files 回 index.html）; "
 if [ -z "$health_problems" ]; then pass 8a "經 web 取不到 /health/live、/health/ready、/api/health/*（回應不是 Healthy）"; else fail 8a "$health_problems"; fi
 
+# port-forward 直連 api Service，不經 web 也不受 NetworkPolicy 管制，代表維運來源（探針與維運存取須可達）。
 pf_log="$work_dir/pf.log"
 kn port-forward service/api :8080 > "$pf_log" 2>&1 &
 bg_pids+=("$!")
