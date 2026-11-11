@@ -121,9 +121,48 @@
       $ docker compose exec api dotnet test tests/ProjectC.Infrastructure.Tests --filter "FullyQualifiedName~ProductionAdminBootstrapper"
       Passed!  - Failed:     0, Passed:    18, Skipped:     0, Total:    18, Duration: 10 s - ProjectC.Infrastructure.Tests.dll (net10.0)
       ```
-    - 連跑 20 次（`--no-build`，filter 為兩個並發測試）：
+    - 連跑 20 次（逐輪原文；每輪命令相同，`--no-build`，filter 為兩個並發相關測試；2026-11-11 外部審查 B-001 後重跑取代原彙總紀錄）：
       ```
-           20 Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: N s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 1: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 2: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 3: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 4: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 5: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 6: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 7: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 8: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 9: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 10: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 11: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 12: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 13: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 14: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 15: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 16: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 17: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 18: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 19: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      # run 20: docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --no-build --filter "FullyQualifiedName~WhenTwoInstancesRunConcurrently|FullyQualifiedName~WhenAnotherInstanceCreatesSameAdminBeforeSave"
+      Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 3 s - ProjectC.Infrastructure.Tests.dll (net10.0)
       ```
 
 ## 3. 註冊與啟動整合
@@ -168,7 +207,7 @@
            at FluentAssertions.Collections.GenericCollectionAssertions`3.ContainSingle(String because, Object[] becauseArgs)
          at ProjectC.WebApi.Tests.Startup.ProductionAdminBootstrapStartupTests.Startup_InProductionWhenAdminAlreadyExists_DoesNotCreateSecondAdmin() in /src/tests/ProjectC.WebApi.Tests/Startup/ProductionAdminBootstrapStartupTests.cs:line 116
       --- End of stack trace from previous location ---
-      
+
       Failed!  - Failed:     3, Passed:     2, Skipped:     0, Total:     5, Duration: 1 s - ProjectC.WebApi.Tests.dll (net10.0)
       ```
       （Development 案例與 base factory 設定案例在實作前本就通過，Development 案例靠下方 mutation 證明有效。）
@@ -242,7 +281,7 @@
            at FluentAssertions.Collections.GenericCollectionAssertions`3.ContainSingle(String because, Object[] becauseArgs)
          at ProjectC.WebApi.Tests.Startup.ProductionAdminBootstrapStartupTests.Startup_InProductionWhenAdminAlreadyExists_DoesNotCreateSecondAdmin() in /src/tests/ProjectC.WebApi.Tests/Startup/ProductionAdminBootstrapStartupTests.cs:line 116
       --- End of stack trace from previous location ---
-      
+
       Failed!  - Failed:     4, Passed:     1, Skipped:     0, Total:     5, Duration: 3 s - ProjectC.WebApi.Tests.dll (net10.0)
       結果：測試如預期失敗
       ```
@@ -307,7 +346,7 @@
     - 日誌：具名 placeholder、只記 `MemberId` 與 pending migration 數量，不含 Email／密碼／雜湊（log-leak 測試覆蓋）。
     - 結論：檢查清單無缺漏分支，未修改程式碼，故不需 RED 補強、不需重跑 `strict-reviewer`。不確定項（交由使用者）：Email 不做大小寫正規化，與既有登入的精確比對一致；若日後登入改為不分大小寫須同步處理。
 - [x] 5.2 全套測試（api 容器內 `dotnet test` 各測試專案）貼各專案摘要行原文，0 failed／0 skipped；`graphify update .`。
-  - 完成紀錄（5.2；`docker compose exec -T api dotnet test tests/<專案>`，各專案摘要行原文）：
+  - 完成紀錄（5.2；各專案命令為 `docker compose exec -T api dotnet test tests/ProjectC.<Domain／Application／LoadTest.Seeder／Infrastructure／WebApi>.Tests`，各專案摘要行原文）：
     ```
     Passed!  - Failed:     0, Passed:   153, Skipped:     0, Total:   153, Duration: 128 ms - ProjectC.Domain.Tests.dll (net10.0)
     Passed!  - Failed:     0, Passed:   625, Skipped:     0, Total:   625, Duration: 1 s - ProjectC.Application.Tests.dll (net10.0)
@@ -323,3 +362,7 @@
 
 - strict-reviewer 與全新對抗式 subagent 審查迴圈至無 blocking（CLAUDE.md 開發流程步驟 6）。
 - 歸檔（`/opsx:archive`，含主 spec 同步）後，詢問是否以 `scripts/archive-todo.sh` 搬移已完成的 `docs/todo/` 項目；合併回 master。
+
+## 6. 外部交叉審查紀錄（cross-review，實作階段）
+
+- 第 1 輪：Devin CLI（GPT-6 Luna Medium Thinking，smart 模式），審查 commit d3e1fab。verdict FAIL，blocking 1 項：B-001（task 2.2「連跑 20 次」以 `Duration: N s` 佔位彙總呈現，非逐輪原文，位置 tasks.md 2.2 完成紀錄）。驗證成立；處理：重跑 20 次並將逐輪原文寫入 2.2，另展開 5.2 的命令、移除兩處行尾空白（只改證據，程式碼未動）。Devin 的 .NET 測試未跑完、無通過結論；subagent 另列的 B-002（5.2 證據）Devin 主審已降為建議，不採納為 blocking。
