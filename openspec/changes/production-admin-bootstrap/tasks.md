@@ -6,7 +6,7 @@
 ## 1. Options 與啟動期設定驗證
 
 - [ ] 1.1 新增 `AdminBootstrapOptions` 與 `AdminBootstrapOptionsValidator`（WebApi），並於 `ResolveEagerlyValidatedOptions` 觸發；對應 ADMIN-BOOT-005/006/007。
-  - 先寫測試（WebApi.Tests/Startup，比照 `CaptchaOptionsFailFastTests`）：兩項皆空 → 啟動成功；只設 Email／只設 Password → 啟動失敗，且各寫一案、缺哪一項訊息就含哪一項的名稱；Email 格式錯、含前後空白、密碼 <8 碼／無數字／無字母 → 失敗；失敗訊息不含密碼值。
+  - 先寫測試（WebApi.Tests/Startup，比照 `CaptchaOptionsFailFastTests`）：兩項皆空 → 啟動成功；只設 Email／只設 Password → 啟動失敗，且各寫一案、缺哪一項訊息就含哪一項的名稱；失敗例外文字一併收集並斷言不含密碼值（ADMIN-BOOT-010）；Email 格式錯、含前後空白、密碼 <8 碼／無數字／無字母 → 失敗；失敗訊息不含密碼值。
   - 預期 RED：Options／validator 尚不存在或未驗證，斷言「啟動應失敗」得到成功（Expected exception／Actual no exception），目標行為不符而非編譯錯誤（先建空殼型別使其可編譯）。
   - GREEN：`docker compose exec api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~AdminBootstrapOptions"` 全數通過。
   - 完成紀錄：RED／GREEN／（重構重跑或 N/A）：<待填>
@@ -14,13 +14,13 @@
 ## 2. ProductionAdminBootstrapper
 
 - [ ] 2.1 實作 `ProductionAdminBootstrapper`（Infrastructure）；對應 ADMIN-BOOT-001/002/003/005/008/010。先對照 hardener 清單列出防禦分支（參數、`CancellationToken` 傳遞、並發、例外邊界、日誌遮蔽）一併納入測試。
-  - 先寫測試（Infrastructure.Tests/Seeding，Testcontainers，比照 `DevelopmentDataSeederTests`）：無 Admin → 建立 Admin 且無 Organizer、密碼為雜湊且可驗證；已有 Admin（不同 Email／已停用）→ 無變更；相同 Email 非 Admin → 拋明確例外且該會員不變；未設定 → 略過；有未套用 migration → 略過，並斷言 Warning 等級且訊息含未套用 migration 數量；已有 Admin 與未設定的略過路徑斷言為 Info 等級；內層非 SqlState 23505 的 `DbUpdateException` 一律重拋、23505 但約束非 Email 唯一索引時不視為「已存在」而重拋（避免例外過濾過寬吞掉其他例外）；取消的 `CancellationToken` → 拋 `OperationCanceledException`；以 `ILogger` 擷取全部日誌與例外訊息，斷言不含密碼與雜湊。
+  - 先寫測試（Infrastructure.Tests/Seeding，Testcontainers，比照 `DevelopmentDataSeederTests`）：無 Admin → 建立 Admin 且無 Organizer、密碼為雜湊且可驗證；已有 Admin（不同 Email／已停用）→ 無變更；相同 Email 非 Admin → 拋明確例外且該會員不變，並對該例外訊息斷言不含設定 Email 值與資料庫既有會員 Email 值（ADMIN-BOOT-003 的驗證證據）；未設定 → 略過；有未套用 migration → 略過，並斷言 Warning 等級且訊息含未套用 migration 數量；已有 Admin 與未設定的略過路徑斷言為 Info 等級；內層非 SqlState 23505 的 `DbUpdateException` 一律重拋、23505 但約束非 Email 唯一索引時不視為「已存在」而重拋（避免例外過濾過寬吞掉其他例外）；取消的 `CancellationToken` → 拋 `OperationCanceledException`；以 `ILogger` 擷取全部日誌與例外訊息，斷言不含密碼與雜湊。
   - 預期 RED：bootstrapper 為空殼時，「應建立 Admin」得到 0 筆（Expected 1／Actual 0）等斷言失敗。
   - GREEN：`docker compose exec api dotnet test tests/ProjectC.Infrastructure.Tests --filter "FullyQualifiedName~ProductionAdminBootstrapper"` 通過。
   - 完成紀錄：<待填>
 - [ ] 2.2 並發：兩個獨立 `DbContext` 同時執行 bootstrapper；對應 ADMIN-BOOT-009。核心業務邏輯（並發）依 CLAUDE.md 加做還原驗證（`bash scripts/verify-test-evidence.sh restore` 或 `mutate`，例如暫時移除唯一性衝突處理）。
-  - 先寫測試：(a) 確定性測試——以 EF `SaveChangesInterceptor`（或等價機制）在 bootstrapper 的 `SaveChanges` 前先寫入另一筆 Admin，驅動唯一性衝突分支，斷言以全新查詢確認後視為成功、不拋例外；(b) 兩個獨立 `DbContext` 同時執行的壓力測試。
-  - 預期 RED：移除衝突處理的版本，其中一個執行緒拋出未處理的 `DbUpdateException`（Expected no exception／Actual DbUpdateException）。
+  - 先寫測試：(a) 確定性測試——以 EF `SaveChangesInterceptor`（或等價機制）在 bootstrapper 的 `SaveChanges` 前，另以獨立 DbContext 提交一筆 Email 與 `AdminBootstrap__Email` 完全相同、角色為 Admin 的會員，使 bootstrapper 的寫入實際收到 Email 唯一索引造成的 SqlState 23505；斷言以全新查詢確認該會員為 Admin 後視為成功、不拋例外，並斷言確實走過 23505 恢復分支（以攔截到的 `DbUpdateException` 或日誌／計數佐證，不得只斷言最終資料狀態）；(b) 兩個獨立 `DbContext` 同時執行的壓力測試。
+  - 預期 RED：移除衝突處理的版本，其中一個執行緒拋出未處理的 `DbUpdateException`（Expected no exception／Actual DbUpdateException）；變異驗證針對移除 23505 恢復分支。
   - GREEN：同上 filter 通過；多次重跑（至少 20 次）皆通過。
   - 完成紀錄：RED／還原驗證輸出：<待填>
 
