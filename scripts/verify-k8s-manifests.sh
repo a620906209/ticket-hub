@@ -22,7 +22,7 @@ readonly VERIFY_NODEPORT=30081
 readonly K8S_DIR="k8s"
 readonly MIGRATIONS_DIR="src/ProjectC.Infrastructure/Persistence/Migrations"
 readonly BASE="http://localhost:${VERIFY_NODEPORT}"
-readonly SECRET_KEYS=(POSTGRES_PASSWORD ConnectionStrings__DefaultConnection Jwt__SigningKey TicketSigning__SigningKey DevelopmentSeed__AdminPassword)
+readonly SECRET_KEYS=(POSTGRES_PASSWORD ConnectionStrings__DefaultConnection Jwt__SigningKey TicketSigning__SigningKey AdminBootstrap__Password)
 readonly MANIFESTS=(00-namespace 10-configmap 20-postgres 21-redis 22-seq 30-migrator-job 40-api 50-web 60-networkpolicy)
 
 k() { kubectl --context "$CONTEXT" "$@"; }
@@ -192,7 +192,7 @@ umask 077
   echo "ConnectionStrings__DefaultConnection=${conn_string}"
   echo "Jwt__SigningKey=${jwt_key}"
   echo "TicketSigning__SigningKey=${ticket_key}"
-  echo "DevelopmentSeed__AdminPassword=${admin_password}"
+  echo "AdminBootstrap__Password=${admin_password}"
 } > "$work_dir/secret.env"
 grep -v '^Jwt__SigningKey=' "$work_dir/secret.env" > "$work_dir/secret-missing.env"
 kn create secret generic projectc-secrets --from-env-file="$work_native/secret.env" >/dev/null 2>&1 \
@@ -204,7 +204,7 @@ declare -A secret_values=(
   [ConnectionStrings__DefaultConnection]="$conn_string"
   [Jwt__SigningKey]="$jwt_key"
   [TicketSigning__SigningKey]="$ticket_key"
-  [DevelopmentSeed__AdminPassword]="$admin_password"
+  [AdminBootstrap__Password]="$admin_password"
 )
 
 wait_rollout() { kn rollout status "$1" --timeout="${2:-240s}" 2>&1; }

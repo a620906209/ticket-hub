@@ -12,7 +12,7 @@
 | `ConnectionStrings__DefaultConnection` | （由 `POSTGRES_USER`／`POSTGRES_PASSWORD`／`POSTGRES_DB` 組出） | api | 字串內含密碼，整條視為機敏 |
 | `Jwt__SigningKey` | `JWT_SIGNING_KEY` | api | 可偽造任何使用者的 access token |
 | `TicketSigning__SigningKey` | `TICKET_SIGNING_KEY` | api | 可偽造電子票券 QR Code 簽章 |
-| `DevelopmentSeed__AdminPassword` | `DEV_SEED_ADMIN_PASSWORD` | api | 初始 Admin 密碼；僅 `Development` 環境使用 |
+| `AdminBootstrap__Password` | `ADMIN_BOOTSTRAP_PASSWORD` | api | 首位 Admin 密碼（至少 8 碼、含英文字母與數字）；僅在資料庫無 Admin 時使用。範例佔位值 `CHANGE-ME-REQUIRED` 必須替換；首位 Admin 建立後應從 Secret 移除，本機制不提供密碼輪替（Secret 殘留時，Admin 全被刪除後重啟會依該密碼重建） |
 
 注意事項：
 
@@ -29,8 +29,7 @@
 | `Auth__PasswordResetTokenExpirationMinutes` | `AUTH_PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES` | api | 數值設定 |
 | `Seq__ServerUrl` | （compose 寫死 `http://seq:5341`） | api | 叢集內 Service 位址，無憑證 |
 | `ConnectionStrings__Redis` | （compose 寫死 `redis:6379`） | api | 叢集內 Service 位址，Redis 未設密碼 |
-| `DevelopmentSeed__AdminEmail` | `DEV_SEED_ADMIN_EMAIL` | api | 初始 Admin 帳號（非密碼）；僅 `Development` 使用 |
-| `DevelopmentSeed__OrganizerName` | `DEV_SEED_ORGANIZER_NAME` | api | 展示用名稱；僅 `Development` 使用 |
+| `AdminBootstrap__Email` | `ADMIN_BOOTSTRAP_EMAIL` | api | 首位 Admin 帳號（非密碼）；與 `AdminBootstrap__Password` 須同時設定，皆未設定則略過 bootstrap；非 `Development` 環境執行 |
 | `Captcha__VerificationMode` | （不設定，預設 `Enforced`） | api | 驗證碼核對模式；`AcceptAny` 僅供非 Production 自動化驗證，Production 設定會使啟動失敗。部署預設不設，Production ConfigMap 不得出現此鍵 |
 | `POSTGRES_USER` | `POSTGRES_USER` | db | 使用者名稱，db 必需，日後 Postgres Deployment 也需要 |
 | `POSTGRES_DB` | `POSTGRES_DB` | db | 資料庫名稱，同上 |
@@ -41,7 +40,7 @@
 
 | 容器鍵名 | 服務 | production 映像預設 | 說明 |
 | --- | --- | --- | --- |
-| `ASPNETCORE_ENVIRONMENT` | api | `Production`（映像 `ENV`） | 開發 compose 設 `Development`（會執行 seeder 與 OpenAPI／SwaggerUI）。demo 環境是否改回 `Development` 留給 `k8s-local-manifests` 決定（見 k8s-todo 第 3 項）。 |
+| `ASPNETCORE_ENVIRONMENT` | api | `Production`（映像 `ENV`） | 開發 compose 設 `Development`（會執行展示用 seeder 與 OpenAPI／SwaggerUI）；K8s 已改 `Production`，首位 Admin 由 `AdminBootstrap__*` 建立，不建立 Organizer（Admin 核准會員申請後主辦方才出現）。 |
 | `ASPNETCORE_URLS` | api | `http://+:8080`（映像 `ENV`） | 容器內監聽 8080，HTTP-only，TLS 不在本階段。 |
 
 ## 四、本機開發專用，不進部署分類

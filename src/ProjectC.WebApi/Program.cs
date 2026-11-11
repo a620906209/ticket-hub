@@ -56,6 +56,7 @@ try
     builder.Services.AddCaptcha(builder.Configuration);
     builder.Services.AddRateLimiting(builder.Configuration);
     builder.Services.AddDevelopmentSeeding(builder.Configuration);
+    builder.Services.AddAdminBootstrap(builder.Configuration);
     builder.Services.AddApplicationHandlers();
     builder.Services.AddBackgroundServices(builder.Environment);
     builder.Services.AddApiHealthChecks();
@@ -64,11 +65,18 @@ try
 
     app.ResolveEagerlyValidatedOptions();
 
-    // 只在 Development 執行（整合測試用 Testing 環境、正式環境皆不執行）；正式環境的既有 Admin 由 migration 回填涵蓋。
+    // 展示用 seeder 只在 Development 執行（整合測試用 Testing 環境、正式環境皆不執行）；
+    // 其餘環境改由 ProductionAdminBootstrapper 在資料庫無 Admin 且有設定 AdminBootstrap 時建立首位 Admin
+    // （未設定則自行略過），兩套機制不在同一環境重疊（production-admin-bootstrap design.md 決策 2）。
     if (app.Environment.IsDevelopment())
     {
         using var seedScope = app.Services.CreateScope();
         await seedScope.ServiceProvider.GetRequiredService<DevelopmentDataSeeder>().SeedAsync(CancellationToken.None);
+    }
+    else
+    {
+        using var bootstrapScope = app.Services.CreateScope();
+        await bootstrapScope.ServiceProvider.GetRequiredService<ProductionAdminBootstrapper>().BootstrapAsync(CancellationToken.None);
     }
 
     // Configure the HTTP request pipeline.

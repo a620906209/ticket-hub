@@ -1,4 +1,6 @@
 using ProjectC.Application.Common;
+using Microsoft.Extensions.Options;
+using ProjectC.Infrastructure.Persistence.Seeding;
 
 namespace ProjectC.WebApi.Extensions;
 
@@ -30,6 +32,10 @@ public static class EagerOptionsValidationExtensions
                 .CreateLogger("ProjectC.Captcha")
                 .LogWarning("驗證碼核對已停用（Captcha:VerificationMode = AcceptAny），任何答案都會通過；僅限非 Production 環境使用。");
         }
+
+        // AdminBootstrapOptions 只有在兩項皆設定時才需要驗證，同樣沒有 ValidateOnStart()，強制在啟動時解析
+        // （production-admin-bootstrap design.md 決策 5）。
+        _ = app.Services.GetRequiredService<IOptions<AdminBootstrapOptions>>().Value;
 
         // SeatMapRateLimitingOptions 同樣沒有 ValidateOnStart()，理由與上面相同（request-body-size-limits design.md 決策 8）。
         app.Services.GetRequiredService<SeatMapRateLimitingOptions>();
