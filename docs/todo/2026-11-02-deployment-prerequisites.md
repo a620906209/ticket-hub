@@ -1,6 +1,6 @@
 # 部署前置條件（2026-11-02）
 
-適用於任何把 api 部署到本機開發以外環境的提案，包含 K8s 與 VPS（compose）。目前 repo 沒有 `k8s/`、production compose 或部署 change，以下條件都尚未完成。
+適用於任何把 api 部署到本機開發以外環境的提案，包含 K8s 與 VPS（compose）。本文件 2026-11-02 建立時 repo 尚無 `k8s/` 與 production 映像；至 2026-11-12，`k8s/`（`k8s-local-manifests`）、`deploy/`（production 映像與 `docker-compose.verify.yml`）已存在，本機 K8s 部分的條件已逐項實測（狀態見各小節）。VPS（compose）線尚未實測。另見 `docs/review/production-readiness-report-2026-11-12.md` 的上線最低必要條件。
 
 ## 必要條件
 

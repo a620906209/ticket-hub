@@ -46,8 +46,7 @@ docker compose exec web npm run lint    # ESLint
 docker compose exec web npm run build   # production build 健檢（vue-tsc + vite build）
 ```
 
-## 已知限制（本輪範圍）
+## 已知限制
 
-- 買家「我的訂單」列表/明細只有空狀態畫面，尚未串接查詢 API（後端還沒有買家專屬的訂單查詢端點），完整脈絡見 `openspec/changes/archive/2026-08-18-ticketing-web-ui/design.md`。
-
-（Admin 場館／座位圖查詢 API 缺失的限制已在 `admin-venue-seatmap-query` 這個 change 補齊，場館/座位圖列表改為串接真實查詢、建立活動表單改用下拉選單，不再需要手動輸入 GUID。）
+- 沒有 E2E 測試（Playwright／Cypress），購票全流程只能靠瀏覽器手動驗證（見上方「測試」）。
+- 首輪 `ticketing-web-ui` 時的兩個限制都已補齊：買家「我的訂單」列表／明細已串接 `GET /api/orders`、`GET /api/orders/{id}`（`src/api/orders.ts`）；Admin 場館／座位圖列表已串接真實查詢，建立活動表單改用下拉選單（`admin-venue-seatmap-query`）。歷史脈絡見 `openspec/changes/archive/2026-08-18-ticketing-web-ui/design.md`。

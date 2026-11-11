@@ -81,7 +81,7 @@
 <body>
 <nav>
   <h1>Ticket-Hub 架構導讀</h1>
-  <p>行號以 2026-10-21 master（ba835ff）為準</p>
+  <p>行號以 2026-10-21 master（ba835ff）為準；2026-11-05 起 Program.cs 已拆成 Extensions/*.cs，其餘行號可能漂移，請以檔名為主</p>
   <div class="group">前置知識</div>
   <a href="#prereq">讀之前要懂的概念</a>
   <div class="group">00 架構：為什麼這樣設計</div>
@@ -416,7 +416,7 @@
     <table>
       <tr><th>防線</th><th>擋什麼</th><th>在哪</th></tr>
       <tr><td>Request body 大小上限</td><td>超大請求吃光記憶體</td><td><code>[RequestSizeLimit]</code>、<code>RequestBodyLimits</code></td></tr>
-      <tr><td>Rate limit</td><td>同一人或同一 IP 狂打。login 依 IP，下單／確認依會員，各 policy 分開計數</td><td><a class="file" href="vscode://file/C:/AIArea/ProjectC/src/ProjectC.WebApi/Program.cs:386">Program.cs:386</a></td></tr>
+      <tr><td>Rate limit</td><td>同一人或同一 IP 狂打。login 依 IP，下單／確認依會員，各 policy 分開計數</td><td><a class="file" href="vscode://file/C:/AIArea/ProjectC/src/ProjectC.WebApi/Extensions/RateLimitingServiceCollectionExtensions.cs:51">RateLimitingServiceCollectionExtensions.cs:51</a></td></tr>
       <tr><td>驗證碼</td><td>腳本自動登入、自動排隊</td><td><code>Infrastructure/Captcha/</code></td></tr>
       <tr><td>排隊</td><td>同時下單人數太多</td><td>見 04</td></tr>
       <tr><td>快取</td><td>大量重複讀「活動列表」「票種列表」</td><td><a class="file" href="vscode://file/C:/AIArea/ProjectC/src/ProjectC.Application/Tickets/GetTicketTypes/GetTicketTypesHandler.cs:38">GetTicketTypesHandler.cs:38</a></td></tr>

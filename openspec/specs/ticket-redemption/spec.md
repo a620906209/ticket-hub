@@ -1,7 +1,7 @@
 # ticket-redemption Specification
 
 ## Purpose
-TBD - created by archiving change ticket-issuance-and-redemption. Update Purpose after archive.
+定義現場核銷電子票券的行為：已切換至 Approved Organizer 的操作人員將 `Issued` 票券轉為 `Redeemed` 並記錄時間，拒絕重複、不存在或狀態不合法的核銷，以資料庫層級防止併發重複核銷，可選擇驗證 QR 簽章內容，並在需實名活動要求先查詢持票人並確認身分。
 ## Requirements
 ### Requirement: 核銷成功將 Ticket 狀態轉為 Redeemed 並記錄時間
 系統 SHALL 在核銷成功時將 Ticket 狀態由 `Issued` 轉為 `Redeemed`，並記錄核銷時間（`RedeemedAtUtc`）；成功時 HTTP 回應 MUST 為 `204 No Content`（比照既有 `POST /api/orders/{id}/confirm`／`POST /api/orders/{id}/cancel` 的回應慣例，不回傳 body）。
