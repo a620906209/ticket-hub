@@ -175,6 +175,28 @@ public class ProductionAdminBootstrapperTests
         (await LoadMembersAsync(connectionString)).Should().BeEquivalentTo(before);
     }
 
+    // 衝突路徑的 Error 日誌由 EF Core 自己的 logger（Microsoft.EntityFrameworkCore.Update）輸出，不是 bootstrapper 的 logger；
+    // Npgsql 預設遮蔽 PostgresException.Detail（Key (Email)=(...)），此測試守住「EF 日誌與例外文字皆不含 Email」。
+    [Fact]
+    public async Task BootstrapAsync_WhenEmailConflictsWithNonAdmin_EntityFrameworkLogsAndExceptionsNeverContainEmail()
+    {
+        var connectionString = await CreateIsolatedDatabaseAsync();
+        var email = NewEmail();
+        await AddMemberAsync(connectionString, email);
+        var efLogs = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(efLogs).SetMinimumLevel(LogLevel.Trace));
+
+        await using (var dbContext = new ApplicationDbContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>().UseNpgsql(connectionString).UseLoggerFactory(loggerFactory).Options))
+        {
+            var act = () => CreateBootstrapper(dbContext, new ListLogger<ProductionAdminBootstrapper>(), email).BootstrapAsync(CancellationToken.None);
+            await act.Should().ThrowAsync<InvalidOperationException>();
+        }
+
+        efLogs.Lines.Should().Contain(line => line.StartsWith("Error", StringComparison.Ordinal), "必須實際走過 EF 的 Error 日誌路徑，否則斷言無意義");
+        string.Join(Environment.NewLine, efLogs.Lines).Should().NotContain(email).And.NotContain(Password);
+    }
+
     [Theory]
     [InlineData(null, null)]
     [InlineData("", "")]
@@ -364,6 +386,26 @@ public class ProductionAdminBootstrapperTests
             var members = await LoadMembersAsync(connectionString);
             members.Should().ContainSingle(member => member.Email == email && member.Role == MemberRole.Admin);
         }
+    }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider, ILogger
+    {
+        private readonly List<string> _lines = [];
+
+        public IReadOnlyList<string> Lines => _lines;
+
+        public ILogger CreateLogger(string categoryName) => this;
+
+        public void Dispose()
+        {
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => _lines.Add($"{logLevel} {formatter(state, exception)} {exception}");
     }
 
     private sealed class CompetingInsertInterceptor : SaveChangesInterceptor
