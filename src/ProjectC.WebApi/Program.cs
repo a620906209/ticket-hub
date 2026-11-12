@@ -59,6 +59,7 @@ try
     builder.Services.AddRedisServices(builder.Configuration);
     builder.Services.AddCaptcha(builder.Configuration);
     builder.Services.AddRateLimiting(builder.Configuration);
+    builder.Services.AddClientAddressResolution();
     builder.Services.AddDevelopmentSeeding(builder.Configuration);
     builder.Services.AddAdminBootstrap(builder.Configuration);
     builder.Services.AddApplicationHandlers();
@@ -106,6 +107,10 @@ try
     });
 
     app.UseExceptionHandler();
+
+    // 還原須早於 HTTPS 轉址（讀 Scheme）與 UseRateLimiter（讀 RemoteIpAddress）；TraceId 與請求日誌在更外層，
+    // 記錄到的仍是代理位址（reverse-proxy-forwarded-headers design.md 決策 2）。
+    app.UseForwardedHeaders();
 
     // 平台探針以 HTTP 直連，被轉址後探測結果就不再反映實際狀態（api-health-checks design.md 決策 6）。
     app.UseWhen(

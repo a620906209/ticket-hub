@@ -55,6 +55,14 @@ public class RateLimitingOptionsFailFastTests
         return configuration;
     }
 
+    private static Dictionary<string, string?> BaseConfigurationWithPublicReadRateLimiting(int permitLimit, int windowSeconds)
+    {
+        var configuration = BaseConfiguration(permitLimit: 20, windowSeconds: 60);
+        configuration["PublicReadRateLimiting:PermitLimit"] = permitLimit.ToString();
+        configuration["PublicReadRateLimiting:WindowSeconds"] = windowSeconds.ToString();
+        return configuration;
+    }
+
     private static bool ContainsOptionsValidationException(Exception exception)
     {
         var current = exception;
@@ -176,6 +184,29 @@ public class RateLimitingOptionsFailFastTests
             builder.UseEnvironment("Testing");
             builder.ConfigureAppConfiguration((_, configBuilder) =>
                 configBuilder.AddInMemoryCollection(BaseConfigurationWithSeatMapRateLimiting(permitLimit, windowSeconds)));
+        });
+
+        var act = () => factory.Server;
+
+        act.Should().Throw<Exception>()
+            .Where(e => e is OptionsValidationException || ContainsOptionsValidationException(e));
+    }
+
+    // api-rate-limiting spec PRL-006：PublicReadRateLimitingOptions 同樣沒有 ValidateOnStart()，
+    // Program.cs 在 app.Build() 後強制解析一次，理由與上面相同（reverse-proxy-forwarded-headers design.md 決策 6）。
+    // PRL-005（缺漏時採用預設值）見 PublicReadRateLimitingOptionsTests（Application.Tests）。
+    [Theory]
+    [InlineData(0, 60)]
+    [InlineData(-1, 60)]
+    [InlineData(120, 0)]
+    [InlineData(120, -1)]
+    public void CreatingHost_WithNonPositivePublicReadRateLimitingValues_ThrowsOptionsValidationException(int permitLimit, int windowSeconds)
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Testing");
+            builder.ConfigureAppConfiguration((_, configBuilder) =>
+                configBuilder.AddInMemoryCollection(BaseConfigurationWithPublicReadRateLimiting(permitLimit, windowSeconds)));
         });
 
         var act = () => factory.Server;

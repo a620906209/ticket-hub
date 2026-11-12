@@ -47,6 +47,7 @@
 - `GlobalExceptionHandler`：未預期例外 → 500，`Title = "InternalServerError"`；`BadHttpRequestException` → 其原本狀態碼，`Title` 為機器代碼：413 `PayloadTooLarge`、408 `RequestTimeout`、400 `BadRequest`，其他狀態碼為 reason phrase 僅保留英數字元（框架無 reason phrase，或移除非英數字元後為空字串時 `BadRequest`）。皆帶 `traceId` extension，不含 `Detail`。
 - 認證挑戰／授權拒絕：JWT 認證 scheme 產生的 401（未帶、無效或過期 token）與 403（角色或 Policy 不足、控制器 `Forbid()`）為 `application/problem+json`，含 `status`、`Title`（`Unauthorized`／`Forbidden`）與 `traceId`（`HttpContext.TraceIdentifier`），不含 `Detail`；401 的狀態碼與 `WWW-Authenticate` header 與框架預設逐字相同。業務失敗轉換的 401／403 不屬此類，仍帶原 `Detail`。實作在 `JwtBearerProblemDetailsResponses`。
 - 限流：429，`Title = "TooManyRequests"`，帶 `Retry-After` header（若可得）與 `traceId`。
+- 公開讀取限流：匿名 `GET /api/events*`（`EventsController` 類別層級 `[EnableRateLimiting("public-read")]`）超額回 429（格式同上），預設 120 次／60 秒，設定節 `PublicReadRateLimiting`（`PermitLimit`、`WindowSeconds`，啟動時 fail-fast 驗證）。限流分區 key（`public-read`、login、captcha 共用）為還原後的用戶端 IP：`UseForwardedHeaders` 只信任 `ForwardedHeaders:TrustedNetworks`（CIDR 清單，預設 10/8、172.16/12、192.168/16、127/8、::1/128；`ForwardLimit=1`；格式錯誤啟動失敗）來源送的 `X-Forwarded-For`，非信任來源偽造的標頭一律忽略。nginx 須以 `$remote_addr` 覆寫（不可 append）`X-Forwarded-For`。
 
 ### 驗證錯誤的逐欄位 `errors`
 

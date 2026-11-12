@@ -78,6 +78,25 @@ for image in projectc/api:local projectc/api-migrator:local projectc/web:local; 
   docker image inspect "$image" >/dev/null 2>&1 || { echo "缺少映像 $image，請先 docker build"; exit 2; }
 done
 
+# ---- 斷言 10a～10c：轉送標頭設定（靜態檔案檢查，不動叢集；reverse-proxy-forwarded-headers design.md 決策 3、4） ----
+# nginx 必須以 $remote_addr 覆蓋 X-Forwarded-For（不得用 $proxy_add_x_forwarded_for 附加用戶端自帶的值），
+# 否則外部用戶端可偽造標頭、經受信任的 nginx 被 API 還原成任意位址而繞過限流。
+forwarded_problems=""
+grep -qE '^[[:space:]]*proxy_set_header[[:space:]]+X-Forwarded-For[[:space:]]+\$remote_addr;' deploy/nginx/default.conf \
+  || forwarded_problems+="nginx 未以 \$remote_addr 覆蓋 X-Forwarded-For; "
+grep -qE '^[[:space:]]*proxy_set_header[[:space:]]+X-Forwarded-Proto[[:space:]]+\$scheme;' deploy/nginx/default.conf \
+  || forwarded_problems+="nginx 未傳遞 X-Forwarded-Proto; "
+grep -qE '^[[:space:]]*proxy_set_header[[:space:]]+X-Forwarded-For[[:space:]]+\$proxy_add_x_forwarded_for' deploy/nginx/default.conf \
+  && forwarded_problems+="nginx 以 \$proxy_add_x_forwarded_for 附加用戶端自帶的 X-Forwarded-For; "
+grep -qE '^[[:space:]]*externalTrafficPolicy:[[:space:]]+Local[[:space:]]*$' "$K8S_DIR/50-web.yaml" \
+  || forwarded_problems+="web Service 未設 externalTrafficPolicy: Local; "
+if [ -z "$forwarded_problems" ]; then
+  pass 10 "nginx 以 \$remote_addr 覆蓋 X-Forwarded-For 並傳遞 X-Forwarded-Proto；web Service externalTrafficPolicy: Local"
+else
+  fail 10 "$forwarded_problems（未對叢集做任何操作）"
+  finish
+fi
+
 # 機敏值用隨機位元組，不用固定測試值（原因見斷言 6）。
 random_hex() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
 
@@ -177,6 +196,10 @@ if ! label_out="$(k label namespace "$NS" "$OWNER_LABEL" 2>&1)"; then
   finish
 fi
 apply_out+=$'\n'"$(apply_manifest 10-configmap)"
+# 經 NodePort 的所有請求在 API 看來來自同一個位址，斷言 4、5 的持續請求會超過公開讀取的預設額度（120 次／60 秒）；
+# 只在驗證 Namespace 放寬額度，不改 manifest 與程式預設值（reverse-proxy-forwarded-headers tasks 3.2）。
+kn patch configmap projectc-config --type merge -p '{"data":{"PublicReadRateLimiting__PermitLimit":"100000"}}' >/dev/null 2>&1 \
+  || { fail 1 "放寬驗證 Namespace 的 PublicReadRateLimiting 額度失敗"; finish; }
 pg_user="$(kn get configmap projectc-config -o jsonpath='{.data.POSTGRES_USER}' 2>/dev/null)"
 pg_db="$(kn get configmap projectc-config -o jsonpath='{.data.POSTGRES_DB}' 2>/dev/null)"
 if [ -z "$pg_user" ] || [ -z "$pg_db" ]; then
@@ -488,6 +511,22 @@ if [ -z "$expose_problems" ]; then
   pass 9 "api 為 ClusterIP、僅 web 為 NodePort（$web_nodeport）、api／web／migrator 皆 runAsNonRoot、OpenAPI／SwaggerUI 不可經 web 取得"
 else
   fail 9 "$expose_problems" "$svc_types"
+fi
+
+# ---- 斷言 10d：經 NodePort 偽造 X-Forwarded-For 無法繞過登入限流 ----
+# 每次請求帶不同的偽造標頭；nginx 以 $remote_addr 覆蓋後，API 看到的用戶端位址都相同，超過登入額度（預設 5 次／60 秒，每個 api 副本各自計數、共 2 個副本，故需超過 10 次）後
+# 必須出現 429。若 nginx 附加而非覆蓋標頭，每個偽造值各自一個分區，不會出現 429。
+# 通過判準是「偽造值被覆蓋」，不要求看到特定外部 IP：Docker Desktop 經 NodePort 進入時來源可能被 NAT 成閘道位址。
+login_codes=""
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  login_codes+="$(curl -s -o /dev/null -m 15 -w '%{http_code}' -X POST "$BASE/api/auth/login" \
+    -H 'Content-Type: application/json' -H "X-Forwarded-For: 203.0.113.$((100 + attempt))" \
+    -d '{"email":"nobody@example.com","password":"WrongPassword1","captchaToken":"x","captchaAnswer":"x"}') "
+done
+if grep -q '429' <<<"$login_codes"; then
+  pass 10d "12 次登入請求各帶不同偽造 X-Forwarded-For，仍被限流（狀態碼：${login_codes% }）"
+else
+  fail 10d "12 次登入請求各帶不同偽造 X-Forwarded-For，沒有出現 429（偽造標頭未被覆蓋？）：${login_codes% }"
 fi
 
 finish

@@ -50,6 +50,9 @@ metadata:
   namespace: projectc
 spec:
   type: NodePort
+  # 保留用戶端來源位址：預設的 Cluster 策略會 SNAT，nginx 只看得到節點／閘道位址，限流會全部共用同一個分區
+  # （reverse-proxy-forwarded-headers design.md 決策 4）。
+  externalTrafficPolicy: Local
   selector:
     app: web
   ports:
