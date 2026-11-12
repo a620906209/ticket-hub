@@ -120,4 +120,9 @@
     - `Passed!  - Failed:     0, Passed:   303, Skipped:     0, Total:   303, Duration: 1 m 27 s - ProjectC.Infrastructure.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:   938, Skipped:     0, Total:   938, Duration: 6 m 49 s - ProjectC.WebApi.Tests.dll (net10.0)`（Domain／Application／Infrastructure／Seeder 為修正前同次全套輸出，未受三個測試檔影響）
 - [x] 4.3 `graphify update .`（輸出：`Code graph updated.`）
-- [ ] 4.4 Task 完成後告知：spec 同步狀態、AC 涵蓋、重複邏輯（與 `CaptchaOptionsValidator` 的環境判斷是否值得抽共用）、命名一致性
+- [x] 4.4 Task 完成後告知：spec 同步狀態、AC 涵蓋、重複邏輯（與 `CaptchaOptionsValidator` 的環境判斷是否值得抽共用）、命名一致性
+  - spec 同步：實作與 spec 無偏差；`docs/review/TODO.md` C-1(b)、④ 已更新，README／k8s guide／`.env.example` 已同步，主 spec 於 archive 時同步
+  - AC 涵蓋：MOCKGUARD-001～009 皆有對應測試（001～007 `MockServicesProductionGuardTests`、008 `MockServicesAllowedBehaviorTests`、009 `MockGuardDeploymentConfigTests`）
+  - 重複邏輯：與 `CaptchaOptionsValidator` 的環境判斷僅 2～3 行（`IsProduction()`），不值得抽共用
+  - 命名一致性：與既有 `*Options`／`*OptionsValidator` 命名一致
+  - 外部審查：第 1 輪 Claude Code (Opus) 審 commit `01f90d9`，PASS、無 blocking；採納建議，將 `CreatingHost_WithNonBooleanFlag_Throws` 加上例外訊息須含 `Mocks:AllowInProduction` 的斷言（`Passed!  - Failed:     0, Passed:    12, Skipped:     0, Total:    12, Duration: 2 s - ProjectC.WebApi.Tests.dll (net10.0)`）

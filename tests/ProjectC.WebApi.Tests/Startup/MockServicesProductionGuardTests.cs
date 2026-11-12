@@ -108,7 +108,7 @@ public class MockServicesProductionGuardTests
 
     private static OptionsValidationException FindOptionsValidationException(Exception exception)
     {
-        for (var current = exception; current is not null; current = current.InnerException!)
+        for (Exception? current = exception; current is not null; current = current.InnerException)
         {
             if (current is OptionsValidationException validation)
             {
@@ -203,6 +203,7 @@ public class MockServicesProductionGuardTests
             _ = factory.Server;
         };
 
-        act.Should().Throw<Exception>();
+        var exception = act.Should().Throw<Exception>().Which;
+        exception.ToString().Should().Contain("Mocks:AllowInProduction");
     }
 }
