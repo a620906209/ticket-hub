@@ -118,7 +118,7 @@ Order → OrderItem → Ticket（電子票券，核銷用）
 
 - **P95 < 500ms 只有部分達成**：500 併發搶 50 張、0% 超賣在 k6 實測中全數達成。下單 P95 經兩輪優化，暖機後兩種票種都在 500ms 內（數量票約 370–415ms、座位票約 241ms）；但驗收規則要求「api 重建後第一次執行（冷啟動）也要通過」，數量票冷啟動約 918ms，**判定未達成**；座位票正式流程沒有在冷啟動下驗收，以量測組態補測冷啟動，5 次中有 4 次 ≥ 500ms。冷啟動多出的時間大半花在開資料庫連線（推測與 JIT、從零建立連線有關，未驗證）。候選解法是 Redis 預扣閘門（售完後的請求不進資料庫），但需要重新驗證超賣保證，收尾時決定暫緩。完整數據見 [`docs/load-test/p95-phase2-report.md`](docs/load-test/p95-phase2-report.md)
 - **量測環境是本機 Docker Compose**（WSL2），不是正式部署環境；數字只代表相對改善幅度
-- **金流、Email 都是 Mock 實作**，沒有串接真實第三方服務；只提供電子票券，不處理活動取消／退款（範疇決策見 [`docs/project-scope.md`](docs/project-scope.md) 第 2 節 Won't）。Mock 在所有環境無條件註冊，密碼重設因此也沒有投遞管道
+- **金流、Email 都是 Mock 實作**，沒有串接真實第三方服務；只提供電子票券，不處理活動取消／退款（範疇決策見 [`docs/project-scope.md`](docs/project-scope.md) 第 2 節 Won't）。Mock 在所有環境無條件註冊，密碼重設因此也沒有投遞管道。Production 預設拒絕以 Mock 付款／Email 啟動（`OptionsValidationException`），僅限展示／驗證時須設定 `Mocks__AllowInProduction=true` 明示放行（啟動時記一筆 Warning），**不得用於收費**
 - **尚未達可對外收費上線的狀態**：2026-11-12 的 Production Readiness Review 判定 No-Go（Mock 金流、反向代理後登入限流分區失效、無 TLS、無備份等），完整發現與上線最低必要條件見 [`docs/review/production-readiness-report-2026-11-12.md`](docs/review/production-readiness-report-2026-11-12.md)，待辦見 [`docs/review/TODO.md`](docs/review/TODO.md)
 - **前端 UI 審視的 P2 項目與買家探索頁改版暫緩**，見 [`docs/archive/2026-10-08-ui-ux-review.md`](docs/archive/2026-10-08-ui-ux-review.md) 第 6 節
 - **部分平台管理功能只有後端**：會員停用／啟用、主辦方停權只有 API，沒有前端入口；平台 Admin 帳號沒有註冊或管理介面，只能由啟動時的機制建立（非 Development 環境由 `ProductionAdminBootstrapper` 依 `AdminBootstrap__*` 設定建立首位 Admin，Development 由 `DevelopmentDataSeeder`），該機制不提供密碼輪替

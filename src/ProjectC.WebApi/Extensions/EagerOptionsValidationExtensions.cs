@@ -1,4 +1,6 @@
 using ProjectC.Application.Common;
+using ProjectC.Domain.Notifications;
+using ProjectC.Domain.Payments;
 using Microsoft.Extensions.Options;
 using ProjectC.Infrastructure.Persistence.Seeding;
 
@@ -31,6 +33,24 @@ public static class EagerOptionsValidationExtensions
             app.Services.GetRequiredService<ILoggerFactory>()
                 .CreateLogger("ProjectC.Captcha")
                 .LogWarning("驗證碼核對已停用（Captcha:VerificationMode = AcceptAny），任何答案都會通過；僅限非 Production 環境使用。");
+        }
+
+        // MockServicesOptions 同樣沒有 ValidateOnStart()，強制在啟動時解析讓 Production 守門確實執行；
+        // 明示放行時留下 Warning，避免 Mock 被帶進收費環境卻無人察覺（mock-service-production-guard design.md 決策 2、6）。
+        var mockServicesOptions = app.Services.GetRequiredService<MockServicesOptions>();
+        if (app.Environment.IsProduction() && mockServicesOptions.AllowInProduction)
+        {
+            var mockServiceNames = MockServicesOptionsValidator.FindMockServiceNames(
+                app.Services.GetRequiredService<IPaymentGateway>(),
+                app.Services.GetRequiredService<IEmailNotificationService>());
+            if (mockServiceNames.Count > 0)
+            {
+                app.Services.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("ProjectC.MockServices")
+                    .LogWarning(
+                        "Production 以 Mock 實作運行（Mocks:AllowInProduction = true）：{MockServices}；僅限展示／驗證，不得用於收費。",
+                        string.Join("、", mockServiceNames));
+            }
         }
 
         // AdminBootstrapOptions 只有在兩項皆設定時才需要驗證，同樣沒有 ValidateOnStart()，強制在啟動時解析

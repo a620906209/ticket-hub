@@ -35,7 +35,7 @@
 | **1. 代理層與認證邊界** | 任何對外曝露前必須完成 | ① `reverse-proxy-forwarded-headers`：nginx 轉送標頭、`UseForwardedHeaders`＋信任代理、限流 key 改用轉送後 IP、`captcha` 同步、公開讀取端點加 IP 限流 | **C-2**、M-3 | 無 | M |
 | | | ② `edge-security-headers`：TLS 終結（Ingress／cert-manager 或 nginx）、HSTS、CSP／X-Frame／nosniff、`AllowedHosts`、CORS 決策、gzip、digest 釘版 | H-3、L-5、L-8 | ① 完成（HSTS 需 Proto 正確） | M |
 | | | ③ `secrets-and-observability-hardening`：Seq 認證＋API key＋PVC、Redis `requirepass`＋AOF＋PVC、Admin email 移 Secret、migrator 改環境變數、Sealed／External Secrets | H-4、H-8、M-7 | 無（可與②並行，但建議序跑以免審查互擾） | M |
-| **2. 金流與通知鏈** | 從「展示」變「能收錢」 | ④ `production-guard-for-mocks`：Production 下 Mock 付款／Email 綁定即啟動失敗（`ValidateOnStart`）；README 同步 | **C-1(b)**、H-2 前置 | 無 | S |
+| **2. 金流與通知鏈** | 從「展示」變「能收錢」 | ④ ✅ `production-guard-for-mocks`：Production 下 Mock 付款／Email 綁定即啟動失敗（啟動時強制解析驗證，`ResolveEagerlyValidatedOptions`）；README 同步（已實作，待歸檔） | **C-1(b)**、H-2 前置 | 無 | S |
 | | | ⑤ `email-delivery`：真實 Email 實作（SMTP／SendGrid），密碼重設改為 Handler 內寄送 | H-2、H-1 | ④ | M |
 | | | ⑥ `payment-gateway-integration`：真實金流（授權→扣款→webhook 驗簽→冪等→對帳），含 Declined／逾時／重複 webhook 情境 | **C-1(a)** | ④、⑤（付款結果通知） | L |
 | **3. 資料安全與一致性** | 不丟資料、不重複處理 | ⑦ `order-cleanup-leader-lock`：清理服務取 `IDistributedLock`、`ChangeOrderStatusAsync` 改 FOR UPDATE 或 Order 加 xmin、多副本整合測試 | H-6 | 無（建議在⑥之前完成，金流接上後重複取消代價更高） | S–M |
@@ -61,7 +61,7 @@
 
 ## 🔴 Critical
 
-### C-1 正式環境付款為 Mock
+### C-1 正式環境付款為 Mock（(b) ✅ 已由 change `production-guard-for-mocks` 緩解：Production 預設拒絕以 Mock 啟動，須 `Mocks__AllowInProduction=true` 明示放行；(a) 真實金流仍未完成）
 - **維度**：功能完整度／資安 A04
 - **位置**：`src/ProjectC.WebApi/Extensions/TicketingServiceCollectionExtensions.cs:24`、`src/ProjectC.Infrastructure/Payments/MockPaymentGateway.cs:15`、`src/ProjectC.Application/Orders/ConfirmOrderHandler.cs:70`
 - **問題**：`IPaymentGateway` 無條件綁 `MockPaymentGateway`，`AlwaysSucceed` 預設 true；確認訂單不收款即成功。

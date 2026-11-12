@@ -42,6 +42,8 @@ services:
       Jwt__Audience: verify-audience
       Jwt__SigningKey: ${VERIFY_JWT_SIGNING_KEY:?}
       TicketSigning__SigningKey: ${VERIFY_TICKET_SIGNING_KEY:?}
+      # 映像預設為 Production，而付款／Email 仍是 Mock；Production 預設拒絕以 Mock 啟動，此旗標明示放行。僅限驗證，不得用於收費環境。
+      Mocks__AllowInProduction: "true"
     ports:
       - "127.0.0.1::8080"
 

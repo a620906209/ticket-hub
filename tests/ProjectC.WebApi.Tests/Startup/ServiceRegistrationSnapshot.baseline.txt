@@ -116,6 +116,7 @@ Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastruc
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Persistence.Seeding.DevelopmentSeedOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Security.JwtOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Infrastructure.Tickets.TicketSigningOptions] | instance
+Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.WebApi.Extensions.MockServicesOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.AuthOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.CaptchaOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.CaptchaRateLimitingOptions] | instance
@@ -133,6 +134,7 @@ Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.In
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Persistence.Seeding.DevelopmentSeedOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Security.JwtOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Infrastructure.Tickets.TicketSigningOptions] | instance
+Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.WebApi.Extensions.MockServicesOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.CaptchaOptions] | ProjectC.WebApi.Extensions.CaptchaOptionsValidator
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.CaptchaOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.CaptchaRateLimitingOptions] | instance
@@ -146,6 +148,7 @@ Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Infrastructure.Persistence.Seeding.AdminBootstrapOptions] | ProjectC.WebApi.Extensions.AdminBootstrapOptionsValidator
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Infrastructure.Security.JwtOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Infrastructure.Tickets.TicketSigningOptions] | instance
+Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.WebApi.Extensions.MockServicesOptions] | ProjectC.WebApi.Extensions.MockServicesOptionsValidator
 Singleton | ProjectC.Application.Common.AuthOptions | factory
 Singleton | ProjectC.Application.Common.CaptchaOptions | factory
 Singleton | ProjectC.Application.Common.CaptchaRateLimitingOptions | factory
@@ -167,6 +170,7 @@ Singleton | ProjectC.Domain.Tickets.ITicketSigningService | ProjectC.Infrastruct
 Singleton | ProjectC.Infrastructure.Notifications.MockEmailNotificationServiceOptions | factory
 Singleton | ProjectC.Infrastructure.Payments.MockPaymentGatewayOptions | factory
 Singleton | ProjectC.Infrastructure.Tickets.TicketSigningOptions | factory
+Singleton | ProjectC.WebApi.Extensions.MockServicesOptions | factory
 Singleton | StackExchange.Redis.IConnectionMultiplexer | factory
 Transient | ProjectC.Application.Common.Interfaces.IPasswordHasher | ProjectC.Infrastructure.Security.BCryptPasswordHasher
 Transient | ProjectC.Application.Common.Interfaces.ITokenService | ProjectC.Infrastructure.Security.JwtTokenService
