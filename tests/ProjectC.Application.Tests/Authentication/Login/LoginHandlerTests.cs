@@ -68,6 +68,16 @@ public class LoginHandlerTests
         result.Error!.Type.Should().Be(ErrorType.Unauthorized);
     }
 
+    // 未知 Email 若跳過雜湊驗證，回應時間會明顯短於「Email 存在但密碼錯誤」，攻擊者可據此枚舉帳號。
+    [Fact]
+    public async Task HandleAsync_WithUnknownEmail_StillVerifiesPasswordOnceToEqualizeTiming()
+    {
+        var result = await _handler.HandleAsync(ValidRequest("nobody@example.com", "Password123"), CancellationToken.None);
+
+        result.Error!.Type.Should().Be(ErrorType.Unauthorized);
+        _passwordHasher.VerifyPasswordCallCount.Should().Be(1);
+    }
+
     [Fact]
     public async Task HandleAsync_WithDeactivatedAccount_ReturnsForbidden()
     {

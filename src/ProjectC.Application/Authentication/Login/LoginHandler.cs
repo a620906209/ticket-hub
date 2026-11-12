@@ -12,6 +12,10 @@ public sealed class LoginHandler
     private const string InvalidCredentialsMessage = "Email 或密碼錯誤。";
     private const string InvalidCaptchaMessage = "驗證碼錯誤或已逾時，請重新取得驗證碼。";
 
+    // 未知 Email 時仍需做一次完整的雜湊驗證，避免回應時間洩漏帳號是否存在。cost 11 須與
+    // BCryptPasswordHasher 的預設 work factor 一致，否則耗時不同反而成為新的側通道。
+    public const string DummyPasswordHash = "$2a$11$Zx1Tp2BEVSp4UTLIpVE3l.v7YHReF/4PnePEScNJcB17tNBJVjG4K";
+
     private readonly IApplicationDbContext _dbContext;
     private readonly IPasswordHasher _passwordHasher;
     private readonly ITokenService _tokenService;
@@ -55,7 +59,9 @@ public sealed class LoginHandler
         }
 
         var member = await _dbContext.Members.FirstOrDefaultAsync(m => m.Email == request.Email, cancellationToken);
-        if (member is null || !_passwordHasher.VerifyPassword(request.Password, member.PasswordHash))
+        var passwordHash = member?.PasswordHash ?? DummyPasswordHash;
+        var isPasswordValid = _passwordHasher.VerifyPassword(request.Password, passwordHash);
+        if (member is null || !isPasswordValid)
         {
             return Result<AuthTokensDto>.Failure(Error.Unauthorized(InvalidCredentialsMessage));
         }
