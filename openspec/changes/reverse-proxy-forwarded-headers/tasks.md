@@ -33,6 +33,7 @@
   - 測試先行：整合測試——受信任來源下兩個 `X-Forwarded-For` 各打滿登入額度互不觸發 429；非信任來源每次帶不同標頭仍落入同一分區並在超額後 429；captcha 同。
   - 預期 RED：此 task 排在 1.2 之後，RED 以暫時移除 1.2 的 middleware 註冊驗證測試確實會失敗（Expected 第二個用戶端 200 but found 429），貼 `mutate`／stash 輸出。
   - GREEN：相關測試與既有 `LoginRateLimitingTests`、`CaptchaRateLimitTests` 全過。
+  - 既有 LRL 追溯（回歸，GREEN 須重跑並貼原文）：LRL-001 `Login_WithRequestsUnderTheLimit_AllSucceedWithoutBeingRateLimited`；LRL-002 `Login_WithExactlyThePermitLimitRequests_AllSucceedWithoutBeingRateLimited`；LRL-003 `Login_WithCorrectCredentialsAsTheRequestOverTheLimit_IsStillRejectedWithoutIssuingTokens`；LRL-005 `Login_AfterTheWindowResets_RequestsAreAllowedAgain`；LRL-006 `OrdersRateLimitingTests.PlaceOrderAndLogin_UsageOnPlaceOrderDoesNotAffectLogin`；LRL-010 `Login_WhenRateLimited_ReturnsProblemDetailsWithRetryAfterHeader`；LRL-004 由本 task 新增的 LRL-011 測試（兩個不同用戶端 IP 各自計數）與 `LoginRateLimiterPartitioningTests` 覆蓋（TestServer 來源 IP 固定，既有整合測試無法驗證不同 IP）。實作時若發現任一對應不成立，補測試。
   - LRL-012 為回歸防護（現況即通過，不產生 RED）；LRL-011 以上述 mutate 取得 RED。
   - 還原驗證（核心安全邏輯）：依 CLAUDE.md 以 `bash scripts/verify-test-evidence.sh restore`／`mutate` 執行並貼原文。
   - 紀錄：（待填）
