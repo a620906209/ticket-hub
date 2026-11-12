@@ -105,6 +105,7 @@ Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Applicatio
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.DistributedLockOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.LoginRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.OrderCleanupOptions] | instance
+Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.PublicReadRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.PurchaseQueueOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.QueryCacheOptions] | instance
 Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.RateLimitingOptions] | instance
@@ -121,6 +122,7 @@ Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Ap
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.DistributedLockOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.LoginRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.OrderCleanupOptions] | instance
+Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.PublicReadRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.PurchaseQueueOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.QueryCacheOptions] | instance
 Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.RateLimitingOptions] | instance
@@ -136,6 +138,7 @@ Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.CaptchaRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.DistributedLockOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.LoginRateLimitingOptions] | instance
+Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.PublicReadRateLimitingOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.PurchaseQueueOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.QueryCacheOptions] | instance
 Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.RateLimitingOptions] | instance
@@ -153,6 +156,7 @@ Singleton | ProjectC.Application.Common.Interfaces.IPurchaseQueueAdmissionMirror
 Singleton | ProjectC.Application.Common.Interfaces.IQueryCache | ProjectC.Infrastructure.Caching.RedisQueryCache
 Singleton | ProjectC.Application.Common.LoginRateLimitingOptions | factory
 Singleton | ProjectC.Application.Common.OrderCleanupOptions | factory
+Singleton | ProjectC.Application.Common.PublicReadRateLimitingOptions | factory
 Singleton | ProjectC.Application.Common.PurchaseQueueOptions | factory
 Singleton | ProjectC.Application.Common.QueryCacheOptions | factory
 Singleton | ProjectC.Application.Common.RateLimitingOptions | factory

@@ -69,7 +69,7 @@
 - **驗收**：Production 環境無真實 gateway 設定時 `dotnet ProjectC.WebApi.dll` 啟動失敗並記錄明確錯誤；有設定時 ConfirmOrder 整合測試以 stub gateway 驗證 Declined 路徑回 409。
 - **工時**：(b) S；(a) L
 
-### C-2 登入／驗證碼限流在反向代理後失效
+### C-2 ✅ 登入／驗證碼限流在反向代理後失效（change `reverse-proxy-forwarded-headers` 已實作並歸檔，2026-11-12）
 - **維度**：資安 A07／API2
 - **位置**：`src/ProjectC.WebApi/Common/LoginRateLimiterPartitioning.cs:10`、`src/ProjectC.WebApi/Extensions/RateLimitingServiceCollectionExtensions.cs:55,58`、`deploy/nginx/default.conf:9-13`、`src/ProjectC.WebApi/Program.cs`（無 `UseForwardedHeaders`）
 - **問題**：分區 key 為 `Connection.RemoteIpAddress`；nginx／K8s 不送、API 不讀 `X-Forwarded-For` → 全站共用一個 5/60s 計數器：任一人錯 5 次即全站鎖登入；攻擊者亦可藉此 DoS。
@@ -183,7 +183,7 @@
 - **驗收**：XSS 測試頁無法讀取 refresh token；refresh 流程 e2e 通過。
 - **工時**：M
 
-### M-3 公開 `GET /api/events*` 無限流
+### M-3 ✅ 公開 `GET /api/events*` 無限流（change `reverse-proxy-forwarded-headers` 已實作並歸檔，2026-11-12）
 - **位置**：`src/ProjectC.WebApi/Controllers/EventsController.cs`
 - **修法**：加 `public-read` IP 分區限流（依賴 C-2 修正），或 GlobalLimiter。
 - **驗收**：超過門檻回 429 帶 `Retry-After`。

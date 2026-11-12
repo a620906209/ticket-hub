@@ -45,6 +45,14 @@ public static class RateLimitingServiceCollectionExtensions
             .ValidateDataAnnotations();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SeatMapRateLimitingOptions>>().Value);
 
+        // PublicReadRateLimitingOptions：公開活動讀取端點的獨立額度，同樣有安全預設值、不需要 ValidateOnStart
+        // （reverse-proxy-forwarded-headers design.md 決策 6）。
+        services
+            .AddOptions<PublicReadRateLimitingOptions>()
+            .Bind(configuration.GetSection(PublicReadRateLimitingOptions.SectionName))
+            .ValidateDataAnnotations();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<PublicReadRateLimitingOptions>>().Value);
+
         // place-order/confirm-order 是分區鍵為會員 Id 的獨立命名 Fixed Window policy，各自累計、不共用計數
         // （rate-limiting-queue design.md 決策 1）；login 呼叫當下使用者尚未通過驗證，改以來源 IP 分區
         // （login-rate-limiting design.md 決策 1）。三個 policy 各自獨立計數，皆共用下方同一個 OnRejected。
@@ -56,6 +64,9 @@ public static class RateLimitingServiceCollectionExtensions
             // 獨立命名的 captcha policy，MUST NOT 沿用 "login"——共用 policy 名稱會共用同一個
             // PartitionedRateLimiter 計數器（captcha-verification design.md 決策 6）。
             rateLimiterOptions.AddPolicy("captcha", httpContext => CreateCaptchaPartition(httpContext));
+            // 公開活動讀取端點（EventsController 四個匿名 GET）共用一個獨立命名的 policy，以來源 IP 分區；
+            // 重用 GetPartitionKey 但計數器與 login／captcha 獨立（reverse-proxy-forwarded-headers design.md 決策 6）。
+            rateLimiterOptions.AddPolicy("public-read", httpContext => CreatePublicReadPartition(httpContext));
             // 建立座位圖放寬到 10MB 本文，以 Organizer 分區限制單一 Organizer 的頻率
             // （request-body-size-limits design.md 決策 8）。
             rateLimiterOptions.AddPolicy("create-seat-map", httpContext => CreateOrganizerPartition(httpContext));
@@ -116,6 +127,19 @@ public static class RateLimitingServiceCollectionExtensions
             static RateLimitPartition<string> CreateCaptchaPartition(HttpContext httpContext)
             {
                 var options = httpContext.RequestServices.GetRequiredService<CaptchaRateLimitingOptions>();
+                var partitionKey = LoginRateLimiterPartitioning.GetPartitionKey(httpContext);
+
+                return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = options.PermitLimit,
+                    Window = TimeSpan.FromSeconds(options.WindowSeconds),
+                    QueueLimit = 0,
+                });
+            }
+
+            static RateLimitPartition<string> CreatePublicReadPartition(HttpContext httpContext)
+            {
+                var options = httpContext.RequestServices.GetRequiredService<PublicReadRateLimitingOptions>();
                 var partitionKey = LoginRateLimiterPartitioning.GetPartitionKey(httpContext);
 
                 return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions

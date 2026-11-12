@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using ProjectC.Application.Common.Paging;
 using ProjectC.Application.Events.GetEventById;
 using ProjectC.Application.Events.GetEventSeats;
@@ -10,6 +11,8 @@ namespace ProjectC.WebApi.Controllers;
 
 [ApiController]
 [Route("api/events")]
+// 四個匿名 GET 共用同一個來源 IP 額度（reverse-proxy-forwarded-headers design.md 決策 6）。
+[EnableRateLimiting("public-read")]
 public class EventsController : ControllerBase
 {
     private readonly GetEventsHandler _getEventsHandler;
