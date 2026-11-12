@@ -19,6 +19,8 @@
 | L-2 CLAUDE.md graphify 敘述 | 改為「graphify-out/ 已 git-ignore」 | — |
 | L-6 `ticket-redemption` Purpose | 由 TBD 改為依 7 條 Requirement 歸納的目的敘述 | `openspec validate --all` 32 passed |
 
+| 階段 0（分支 `chore/stage0-hardening`，未 commit） | M-9：未知 Email 也對固定 dummy hash 驗證一次；M-17：`HostOptions.ShutdownTimeout` 20 秒（K8s 的 grace period 與 preStop 原本就有）；H-11＋M-16：寫入 `docs/2026-11-12-clock-dependencies.md`，Logout 維持匿名 | Application.Tests 626 passed（新增測試 RED：`Expected VerifyPasswordCallCount to be 1, but found 0`）、Infrastructure `BCryptPasswordHasherTests` 2 passed、WebApi Startup 82 passed |
+
 未修正但不需 OpenSpec 的項目與理由：M-12 全域 `~/.claude/CLAUDE.md`（影響其他專案，請使用者自行決定）；L-3 graphify 絕對路徑（hook 執行環境的 PATH 不確定，改錯會讓每次工具呼叫失敗）；L-4 LICENSE（授權選擇屬使用者決策）；M-15 版本號／CHANGELOG（需決定版號策略）；L-5 digest 釘版、L-8 gzip、H-3 nginx 安全標頭雖是設定檔，但會改變 production 映像行為且 CSP 可能破壞前端，建議併入 H-3 的 change 一起驗證。
 
 ---

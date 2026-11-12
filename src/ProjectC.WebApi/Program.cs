@@ -39,6 +39,10 @@ try
     // （request-body-size-limits design.md 決策 2）。
     builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = RequestBodyLimits.GlobalBytes);
 
+    // K8s 收到終止訊號時先跑 preStop sleep 5 秒，再給行程 terminationGracePeriodSeconds(30) 的剩餘時間；
+    // .NET 預設 ShutdownTimeout 也是 30 秒，會在 SIGKILL 之前走不完，故設 20 秒讓背景服務與 Serilog 能乾淨收尾。
+    builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(20));
+
     // Add services to the container.
 
     builder.Services.AddControllers();
