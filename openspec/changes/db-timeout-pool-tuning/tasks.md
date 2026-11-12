@@ -36,13 +36,14 @@
 ## 2. DbContext 套用設定（TDD）
 
 - [ ] 2.1 `AddPersistence` 改為 `(sp, options)` 多載，執行期以 `NpgsqlConnectionStringBuilder` 套用 `Timeout`／`Maximum Pool Size`，並以 `o.CommandTimeout(n)` 套用命令逾時（對應 DBL-001、002、003、004）
-  - 測試先行（`tests/ProjectC.WebApi.Tests/Database/DatabasePersistenceConfigurationTests.cs`，用 `CustomWebApplicationFactory.WithWebHostBuilder` ＋ `AddInMemoryCollection` 設定 `Database:*`，由 host 取 scope 內的 `ApplicationDbContext`，不連開發用 `db`）：
+  - 測試先行（`tests/ProjectC.WebApi.Tests/Database/DatabasePersistenceConfigurationTests.cs`，用 `DatabaseSettingsWebApplicationFactory.WithWebHostBuilder` ＋ `AddInMemoryCollection` 設定 `Database:*`（**不可**用 `CustomWebApplicationFactory`：其測試 helper 會移除正式 DbContext 註冊，`Database:*` 不生效，見 design Context），由 host 取 scope 內的 `ApplicationDbContext`，不連開發用 `db`）：
     - `ApplicationDbContext_WithoutDatabaseSection_UsesDefaultTimeoutsAndPoolSize`（DBL-001：`Database.GetCommandTimeout()` 為 30，連線字串 `Timeout` 15、`MaxPoolSize` 100）
     - `ApplicationDbContext_WithDatabaseSection_AppliesCommandTimeoutAndConnectionStringValues`（DBL-002：7／5／20）
     - `ApplicationDbContext_WhenConnectionStringHasSameParameters_DatabaseSettingsWin`（DBL-003：以 `ConnectionStrings:DefaultConnection` 內含 `Maximum Pool Size=500;Timeout=60` 的設定，斷言覆蓋為 20／5；解析用 `NpgsqlConnectionStringBuilder`，不做字串比對）
     - `DatabaseReadinessHealthCheck_WithLargeDatabaseSettings_StillUsesTwoSecondTimeoutWithoutPooling`（DBL-004：`Database:ConnectionTimeoutSeconds = 30`、`MaxPoolSize = 20` 下跑 `CheckHealthAsync` 後，該 scope DbContext 的連線字串 `Timeout` 為 2、`Pooling` 為 false）
   - 預期 RED：測試可編譯（僅用既有 API）；RED 為斷言失敗：`Expected ... to be 7, but found 30`（命令逾時未套用）、`Expected builder.MaxPoolSize to be 20, but found 100`；DBL-001 的命令逾時斷言現況會失敗（目前未呼叫 `CommandTimeout`，`GetCommandTimeout()` 為 null，`Expected 30 but found <null>`），連線字串 `Timeout`／`MaxPoolSize` 部分現況即為預設值；DBL-004 現況即通過，記為「既有行為固定」並以 mutation（見下）證明能失敗；RED 紀錄以實際結果為準
-  - 最小實作：見標題；連線字串缺漏（null／空）維持現行行為
+  - 最小實作：見標題；連線字串缺漏（null／空）維持現行行為。另（測試支援，不屬正式行為）：把 DbContext 註冊抽成 `AddApplicationDbContext()` 並由 `AddPersistence` 呼叫；新增 `DatabaseSettingsWebApplicationFactory`（design 決策 2）。RED 階段 factory 與抽出的方法須先存在且可編譯，RED 才是斷言失敗而非編譯錯誤
+  - 回歸：新增 factory 不改動共用 `TestHostConfiguration`；GREEN 後另跑既有一個使用 `CustomWebApplicationFactory` 的測試類別確認不受影響
   - GREEN：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~DatabasePersistenceConfiguration"` 全數通過
   - mutation（`bash scripts/verify-test-evidence.sh mutate`，一次一個，還原後 `touch`）：(a) 移除 `MaxPoolSize` 賦值，DBL-002／003 須失敗；(b) 移除 `o.CommandTimeout(...)`，DBL-002 須失敗；(c) 把 `DatabaseReadinessHealthCheck` 的 `Timeout = TimeoutSeconds` 改成沿用池設定，DBL-004 須失敗
   - 重構：N/A 或重跑同命令
@@ -54,7 +55,7 @@
 ## 3. 逾時確實生效（整合測試，真實 PostgreSQL）
 
 - [ ] 3.1 DBL-008／009：命令逾時與連線池耗盡等待逾時（對應 DBL-008、009）
-  - 測試先行（`tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutBehaviorTests.cs`，`CustomWebApplicationFactory`＋`Database:*` 設定；用 `Stopwatch` 斷言上界，不斷言下界以外的精確時間）：
+  - 測試先行（`tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutBehaviorTests.cs`，`DatabaseSettingsWebApplicationFactory`（2.1 建立，非 `CustomWebApplicationFactory`）＋`Database:*` 設定；用 `Stopwatch` 斷言上界，不斷言下界以外的精確時間）：
     - `ExecuteSql_WhenCommandExceedsCommandTimeout_FailsWithinBoundAndPoolRemainsUsable`（`CommandTimeoutSeconds = 2`，`pg_sleep(6)`；斷言 5 秒內失敗、例外鏈含 `TimeoutException`、之後 `SELECT 1` 成功；`pg_sleep` 用 `ExecuteSqlRawAsync` 並加 `#pragma warning disable EF1002` 與固定字串理由註解，比照 `ProductionAdminBootstrapStartupTests`）
     - `OpenConnection_WhenPoolExhausted_FailsWithinConnectionTimeoutAndSucceedsAfterRelease`（`MaxPoolSize = 1`、`ConnectionTimeoutSeconds = 2`；先以一個 scope 的 DbContext 開連線占用池，另一 scope 取連線須在 5 秒內失敗，釋放後可成功）
   - 測試前提：`MaxPoolSize = 1` 的測試跑在完整 host 上，背景服務可能同時取同一個池的連線；斷言只看上界（失敗須在 5 秒內），占用連線前須容許等待，並於紀錄說明是否需停用背景服務（4.2 同）
@@ -88,7 +89,7 @@
     - mutation (a)／(b)：
 
 - [ ] 4.2 端對端：DB 逾時經 HTTP 回標準 503（對應 AER-DB-001、002 的 HTTP 層）
-  - 測試先行（`tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs`，`CustomWebApplicationFactory`＋`Database:CommandTimeoutSeconds = 1`）：
+  - 測試先行（`tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs`，`DatabaseSettingsWebApplicationFactory`（2.1 建立，非 `CustomWebApplicationFactory`）＋`Database:CommandTimeoutSeconds = 1`）：
     - `GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails`：測試先以獨立連線開交易並 `LOCK TABLE "Events" IN ACCESS EXCLUSIVE MODE`（固定字串，加 EF1002 理由註解）使目標查詢卡住，呼叫會查 DB 且未被查詢快取擋掉的公開端點（`GET /api/events/{id:guid}`，實作時先確認該路徑不命中 Redis 快取，必要時改選不經快取的端點並在紀錄說明），斷言 `503`、`application/problem+json`、`title = ServiceUnavailable`、`traceId` 非空且等於回應中的值、無 `detail`；測試結尾回滾鎖
     - `GetEventById_WhenConnectionPoolExhausted_Returns503ProblemDetails`：`MaxPoolSize = 1`、`ConnectionTimeoutSeconds = 1`，測試先占用唯一連線，再呼叫同一端點，斷言同上
   - 預期 RED：在 4.1 的最小實作前，回應為 500 `InternalServerError`（`Expected ... to be 503, but found 500`）；RED 取得方式為 4.1 實作前先寫此測試，或對 4.1 實作以 `restore`／mutation 暫時移除分支
