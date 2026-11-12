@@ -30,6 +30,8 @@ public class ProductionAdminBootstrapStartupTests : IClassFixture<CustomWebAppli
             // 環境變數的優先序高於 UseSetting，必須以較晚加入的設定來源明確清空，Development 案例才不會被展示用 seeder 污染。
             builder.ConfigureAppConfiguration((_, configBuilder) => configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
             {
+                // 本測試不驗證 Mock 守門；Production 案例須明示放行，否則會先被守門擋下（mock-service-production-guard）。
+                ["Mocks:AllowInProduction"] = "true",
                 ["AdminBootstrap:Email"] = adminEmail,
                 ["AdminBootstrap:Password"] = AdminPassword,
                 ["DevelopmentSeed:AdminEmail"] = string.Empty,

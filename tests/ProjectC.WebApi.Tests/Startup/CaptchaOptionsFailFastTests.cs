@@ -21,6 +21,8 @@ public class CaptchaOptionsFailFastTests
                 ["Jwt:Audience"] = "ProjectC.Tests.Client",
                 ["Jwt:SigningKey"] = "integration-test-signing-key-not-for-prod-32+",
                 ["Jwt:AccessTokenExpirationMinutes"] = "30",
+                // 本測試不驗證 Mock 守門；Production 案例須明示放行，否則會先被守門擋下（mock-service-production-guard）。
+                ["Mocks:AllowInProduction"] = "true",
                 [$"{TicketSigningOptions.SectionName}:{nameof(TicketSigningOptions.SigningKey)}"] = new string('x', 32),
                 ["Captcha:VerificationMode"] = verificationMode,
             }));
