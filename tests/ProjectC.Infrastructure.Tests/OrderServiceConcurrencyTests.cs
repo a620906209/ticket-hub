@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using ProjectC.Application.Common;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Domain.Members;
@@ -69,6 +70,99 @@ public class OrderServiceConcurrencyTests
         await using var readDbContext = _fixture.CreateDbContext();
         var reloadedOrder = await readDbContext.Orders.AsNoTracking().SingleAsync(o => o.Id == orderId);
         reloadedOrder.Status.Should().Be(OrderStatus.Cancelled);
+    }
+
+    private static async Task MakeOrderExpiredAsync(ApplicationDbContext dbContext, Guid orderId)
+    {
+        var order = await dbContext.Orders.SingleAsync(o => o.Id == orderId);
+        dbContext.Entry(order).Property(o => o.HeldUntilUtc).CurrentValue = DateTime.UtcNow.AddMinutes(-1);
+        await dbContext.SaveChangesAsync();
+    }
+
+    // 讓兩個逾時取消確定「都已讀到 Pending 的訂單、都卡在同一個列鎖上」才放行，重疊不靠執行緒排程碰巧發生：
+    // 外部交易先持有鎖，兩個取消各自讀完訂單後排進鎖，等兩條連線都在等鎖才回滾外部交易。
+    private async Task<Result[]> CancelExpiredConcurrentlyWhileLockHeldAsync(Guid orderId, Func<ApplicationDbContext, Task> acquireRowLockAsync)
+    {
+        await using var holderDbContext = _fixture.CreateDbContext();
+        await using var holderTransaction = await new UnitOfWork(holderDbContext).BeginTransactionAsync(CancellationToken.None);
+        await acquireRowLockAsync(holderDbContext);
+
+        await using var dbContextA = _fixture.CreateDbContext();
+        await using var dbContextB = _fixture.CreateDbContext();
+        var cancelTasks = new[]
+        {
+            CreateOrderService(dbContextA).CancelExpiredOrderAsync(orderId, CancellationToken.None),
+            CreateOrderService(dbContextB).CancelExpiredOrderAsync(orderId, CancellationToken.None),
+        };
+
+        try
+        {
+            await PostgresLockProbe.WaitUntilBackendsWaitForRowLockAsync(_fixture, WaitTimeout, minimumWaitingBackendCount: 2);
+            cancelTasks.Any(t => t.IsCompleted).Should().BeFalse("兩個取消都必須卡在列鎖上，而不是在交易前就結束");
+        }
+        finally
+        {
+            await holderTransaction.RollbackAsync(CancellationToken.None);
+        }
+
+        return await Task.WhenAll(cancelTasks).WaitAsync(WaitTimeout);
+    }
+
+    // order-cleanup-leader-lock OCLE-009：系統清理路徑（requestingBuyerId = null）同樣靠 ReloadAsync 才能讓輸家被拒絕，
+    // 分散式鎖失效或兩個實例重疊時，正確性只剩這一層。
+    [Fact]
+    public async Task CancelExpiredOrderAsync_TwoConcurrentCallsOnSameSeatOrder_OnlyOneSucceedsAndSeatReleasedOnce()
+    {
+        await using var seedDbContext = _fixture.CreateDbContext();
+        var (orderId, _) = await SeedPendingOrderAsync(seedDbContext);
+        await MakeOrderExpiredAsync(seedDbContext, orderId);
+        var eventSeatId = await seedDbContext.OrderItems.AsNoTracking()
+            .Where(i => EF.Property<Guid>(i, "OrderId") == orderId)
+            .Select(i => i.EventSeatId!.Value)
+            .SingleAsync();
+        (await TicketingTestData.ReloadAsync(seedDbContext, eventSeatId)).IsAvailableForHold(DateTime.UtcNow)
+            .Should().BeFalse("前提：取消前座位處於暫扣狀態");
+
+        var results = await CancelExpiredConcurrentlyWhileLockHeldAsync(orderId,
+            holderDbContext => new EventSeatRepository(holderDbContext).GetForUpdateAsync([eventSeatId], CancellationToken.None));
+
+        results.Count(r => r.IsSuccess).Should().Be(1, "兩個並發的逾時清理取消同一筆訂單，只能有一個成功");
+        results.Single(r => !r.IsSuccess).Error!.Type.Should().Be(ErrorType.Conflict, "輸家 MUST 回報訂單已非 Pending 的衝突");
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Orders.AsNoTracking().SingleAsync(o => o.Id == orderId)).Status.Should().Be(OrderStatus.Cancelled);
+        (await TicketingTestData.ReloadAsync(readDbContext, eventSeatId)).IsAvailableForHold(DateTime.UtcNow)
+            .Should().BeTrue("座位應已釋放");
+    }
+
+    // order-cleanup-leader-lock OCLE-010
+    [Fact]
+    public async Task CancelExpiredOrderAsync_TwoConcurrentCallsOnSameCountingOrder_OnlyOneSucceedsAndQuantityRestoredOnce()
+    {
+        const int initialQuantity = 100;
+        const int orderedQuantity = 3;
+        await using var seedDbContext = _fixture.CreateDbContext();
+        var (eventId, _) = await TicketingTestData.SeedEventWithSeatsAsync(seedDbContext, seatCount: 1);
+        var ticketTypeId = await TicketingTestData.SeedCountBasedTicketTypeAsync(seedDbContext, eventId, availableQuantity: initialQuantity);
+        var buyer = Member.Register($"buyer-{Guid.NewGuid():N}@example.com", "Test Buyer", "hash");
+        seedDbContext.Members.Add(buyer);
+        await seedDbContext.SaveChangesAsync();
+        var placeResult = await CreateOrderService(seedDbContext).PlaceOrderAsync(
+            buyer.Id, new PlaceOrderRequest([new PlaceOrderSelectionRequest(null, ticketTypeId, orderedQuantity)]), CancellationToken.None);
+        placeResult.IsSuccess.Should().BeTrue();
+        var orderId = placeResult.Value;
+        await MakeOrderExpiredAsync(seedDbContext, orderId);
+        (await seedDbContext.TicketTypes.AsNoTracking().SingleAsync(t => t.Id == ticketTypeId)).AvailableQuantity
+            .Should().Be(initialQuantity - orderedQuantity, "前提：下單後庫存已扣除");
+
+        var results = await CancelExpiredConcurrentlyWhileLockHeldAsync(orderId,
+            holderDbContext => new TicketTypeRepository(holderDbContext).GetForUpdateAsync([ticketTypeId], CancellationToken.None));
+
+        results.Count(r => r.IsSuccess).Should().Be(1, "兩個並發的逾時清理取消同一筆訂單，只能有一個成功");
+        results.Single(r => !r.IsSuccess).Error!.Type.Should().Be(ErrorType.Conflict);
+        await using var readDbContext = _fixture.CreateDbContext();
+        (await readDbContext.Orders.AsNoTracking().SingleAsync(o => o.Id == orderId)).Status.Should().Be(OrderStatus.Cancelled);
+        (await readDbContext.TicketTypes.AsNoTracking().SingleAsync(t => t.Id == ticketTypeId)).AvailableQuantity
+            .Should().Be(initialQuantity, "庫存只能回補該訂單的數量一次，不得多回補");
     }
 
     [Fact]

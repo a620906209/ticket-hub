@@ -13,20 +13,28 @@ namespace ProjectC.WebApi.BackgroundServices;
 /// </summary>
 public sealed class ExpiredOrderCleanupService : BackgroundService
 {
+    private const string LeaderElectionLockKey = "order-cleanup:lock";
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IDateTimeProvider _dateTimeProvider;
     private readonly OrderCleanupOptions _options;
+    private readonly IDistributedLock _distributedLock;
+    private readonly DistributedLockOptions _lockOptions;
     private readonly ILogger<ExpiredOrderCleanupService> _logger;
 
     public ExpiredOrderCleanupService(
         IServiceScopeFactory scopeFactory,
         IDateTimeProvider dateTimeProvider,
         OrderCleanupOptions options,
+        IDistributedLock distributedLock,
+        DistributedLockOptions lockOptions,
         ILogger<ExpiredOrderCleanupService> logger)
     {
         _scopeFactory = scopeFactory;
         _dateTimeProvider = dateTimeProvider;
         _options = options;
+        _distributedLock = distributedLock;
+        _lockOptions = lockOptions;
         _logger = logger;
     }
 
@@ -43,7 +51,7 @@ public sealed class ExpiredOrderCleanupService : BackgroundService
             {
                 try
                 {
-                    await CleanupOnceCoreAsync(stoppingToken);
+                    await CleanupOnceWithLeaderElectionAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -67,6 +75,71 @@ public sealed class ExpiredOrderCleanupService : BackgroundService
         using (LogContext.PushProperty("TraceId", Guid.NewGuid().ToString()))
         {
             await CleanupOnceCoreAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>正式排程路徑（<see cref="ExecuteAsync"/>）的進入點：先取得整輪清理的 leader lock，取得者才清理，
+    /// 鎖被其他實例持有時跳過本輪。Redis 不可用（含取鎖拋出非連線類 Redis 例外）時 fail-open：記 Warning 後照常清理，
+    /// 與排隊入場推進的 fail-closed 刻意不同——清理的正確性由資料庫的取消操作保證，Redis 鎖只是避免重複工作的
+    /// 效率優化（order-cleanup-leader-lock design.md 決策 3）。</summary>
+    public async Task CleanupOnceWithLeaderElectionAsync(CancellationToken cancellationToken)
+    {
+        var ttl = TimeSpan.FromSeconds(Math.Max(1, _options.IntervalSeconds) * _lockOptions.LockTtlMultiplier);
+        var (lockResult, acquireException) = await TryAcquireLeaderLockAsync(ttl, cancellationToken);
+
+        if (lockResult.LockResult == LockResult.HeldByOther)
+        {
+            _logger.LogDebug("Skipping this expired order cleanup cycle; lock {LockKey} is held by another instance.", LeaderElectionLockKey);
+            return;
+        }
+
+        if (lockResult.LockResult == LockResult.RedisUnavailable)
+        {
+            _logger.LogWarning(
+                acquireException,
+                "Redis is unavailable; running this expired order cleanup cycle without lock {LockKey} (fail-open, correctness relies on database row locks).",
+                LeaderElectionLockKey);
+            await CleanupOnceCoreAsync(cancellationToken);
+            return;
+        }
+
+        try
+        {
+            await CleanupOnceCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            await ReleaseLeaderLockAsync(lockResult.OwnerToken!);
+        }
+    }
+
+    // RedisDistributedLock 只把連線／逾時例外轉成 RedisUnavailable；failover 時的 RedisServerException（READONLY／LOADING／OOM）
+    // 會直接拋出，在這裡一併視同 RedisUnavailable，不放寬共用鎖的 catch（會改變排隊推進的 fail-closed 語意）。
+    private async Task<(LockAcquisitionResult LockResult, Exception? AcquireException)> TryAcquireLeaderLockAsync(
+        TimeSpan ttl, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await _distributedLock.TryAcquireAsync(LeaderElectionLockKey, ttl, cancellationToken), null);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return (new LockAcquisitionResult(LockResult.RedisUnavailable, null), exception);
+        }
+    }
+
+    // 釋放失敗只記 Warning（TTL 會兜底），不得遮蔽 finally 前清理本身拋出的例外；Warning 不帶 owner token。
+    // 釋放刻意不帶呼叫端的 token：關機取消（stoppingToken）正是 finally 最需要釋放的時機，帶著已取消的 token 會讓釋放被跳過、
+    // 鎖殘留到 TTL（預設 15 分鐘）才失效；單次 Redis 指令的耗時由連線逾時設定界定。
+    private async Task ReleaseLeaderLockAsync(string ownerToken)
+    {
+        try
+        {
+            await _distributedLock.ReleaseAsync(LeaderElectionLockKey, ownerToken, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Failed to release lock {LockKey}; it will expire by TTL.", LeaderElectionLockKey);
         }
     }
 

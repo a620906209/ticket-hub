@@ -33,6 +33,8 @@ public class ExpiredOrderCleanupServiceTests : IClassFixture<CustomWebApplicatio
             _factory.Services.GetRequiredService<IServiceScopeFactory>(),
             _factory.Services.GetRequiredService<IDateTimeProvider>(),
             new OrderCleanupOptions(),
+            new FakeDistributedLock(),
+            new DistributedLockOptions(),
             NullLogger<ExpiredOrderCleanupService>.Instance);
 
     private static async Task<Guid> ReadCreatedIdAsync(HttpResponseMessage response)

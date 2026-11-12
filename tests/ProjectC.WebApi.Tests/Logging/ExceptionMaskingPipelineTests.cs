@@ -65,7 +65,8 @@ public sealed class ExceptionMaskingPipelineTests : IClassFixture<ThrowingQueryC
         scopeFactory.Setup(f => f.CreateScope())
             .Throws(new InvalidOperationException("Host=db;Password=" + Secret + ";Database=x"));
         var service = new ExpiredOrderCleanupService(
-            scopeFactory.Object, new SystemDateTimeProvider(), new OrderCleanupOptions(), logger);
+            scopeFactory.Object, new SystemDateTimeProvider(), new OrderCleanupOptions(),
+            new FakeDistributedLock(), new DistributedLockOptions(), logger);
 
         await service.StartAsync(CancellationToken.None);
         await WaitUntilAsync(() => _factory.LogSink.Events.Any(e => e.RenderMessage().Contains("cleanup cycle failed", StringComparison.Ordinal)));

@@ -38,7 +38,7 @@
 | **2. 金流與通知鏈** | 從「展示」變「能收錢」 | ④ ✅ `production-guard-for-mocks`：Production 下 Mock 付款／Email 綁定即啟動失敗（啟動時強制解析驗證，`ResolveEagerlyValidatedOptions`）；README 同步（已實作，待歸檔） | **C-1(b)**、H-2 前置 | 無 | S |
 | | | ⑤ `email-delivery`：真實 Email 實作（SMTP／SendGrid），密碼重設改為 Handler 內寄送 | H-2、H-1 | ④ | M |
 | | | ⑥ `payment-gateway-integration`：真實金流（授權→扣款→webhook 驗簽→冪等→對帳），含 Declined／逾時／重複 webhook 情境 | **C-1(a)** | ④、⑤（付款結果通知） | L |
-| **3. 資料安全與一致性** | 不丟資料、不重複處理 | ⑦ `order-cleanup-leader-lock`：清理服務取 `IDistributedLock`、`ChangeOrderStatusAsync` 改 FOR UPDATE 或 Order 加 xmin、多副本整合測試 | H-6 | 無（建議在⑥之前完成，金流接上後重複取消代價更高） | S–M |
+| **3. 資料安全與一致性** | 不丟資料、不重複處理 | ⑦ `order-cleanup-leader-lock`（已實作，待歸檔）：清理服務取 `IDistributedLock`（Redis 不可用 fail-open）、並發取消測試、多副本整合測試；FOR UPDATE／xmin 部分原本已由現有鎖處理，不需改動 | H-6 | 無（建議在⑥之前完成，金流接上後重複取消代價更高） | S–M |
 | | | ⑧ `db-resilience`：`EnableRetryOnFailure`（execution strategy 包交易）、`CommandTimeout`、連線池調校＋k6 複測 | M-1 | ⑦（兩者都碰 OrderService 交易邊界） | M |
 | | | ⑨ `postgres-backup-restore`：pg_dump CronJob＋外部儲存、RPO/RTO 文件、一次還原演練 | H-5 | 無 | M |
 | **4. 可觀測性與交付管線** | 上線後看得見、改得動 | ⑩ `metrics-and-alerts`：OpenTelemetry Metrics＋`/metrics`、4 條告警、Grafana dashboard JSON 進版控 | H-7 | 無 | M |
@@ -124,7 +124,8 @@
 ### H-6 `ExpiredOrderCleanupService` 多副本無 leader lock
 - **維度**：韌性
 - **位置**：`src/ProjectC.WebApi/BackgroundServices/ExpiredOrderCleanupService.cs`（無 `IDistributedLock`）、`k8s/40-api.yaml` replicas 2、`src/ProjectC.Infrastructure/.../OrderService.cs:736+`
-- **問題**：兩副本同時掃描取消；`ChangeOrderStatusAsync` 非 FOR UPDATE 載入，且 `OrderConfiguration.cs` 無並發 token → 重複釋放庫存／座位風險 🤔[需多副本動態測試確認]。
+- **問題**：兩副本同時掃描取消 → 重複工作。實際範圍（`order-cleanup-leader-lock` 實作時確認）：`ChangeOrderStatusAsync` 已以 FOR UPDATE 取列鎖後 `ReloadAsync`，重複釋放庫存／座位的風險原本就已被擋住（並發取消測試 OCLE-009／010 驗證）；缺的只是 leader lock 避免重複工作。
+- **狀態**：已實作（待歸檔）：清理服務每輪先取 `order-cleanup:lock`，取得者才清理、未取得者跳過；Redis 不可用 fail-open（正確性由資料庫列鎖保證）。
 - **修法**：比照 `PurchaseQueueAdmissionService` 取 `IDistributedLock`；或 `ChangeOrderStatusAsync` 改 FOR UPDATE＋狀態機冪等。
 - **驗收**：整合測試並行兩個 service 實例處理同一批過期訂單，座位釋放次數 = 1；單元測試驗證鎖未取得時跳過本輪。
 - **工時**：S–M
