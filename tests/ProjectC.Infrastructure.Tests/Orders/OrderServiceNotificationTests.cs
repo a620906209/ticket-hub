@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ProjectC.Application.Common;
+using ProjectC.Application.Common.Interfaces;
+using Moq;
 using ProjectC.Application.Orders;
 using ProjectC.Application.Orders.PlaceOrder;
 using ProjectC.Domain.Members;
@@ -212,6 +214,8 @@ public class OrderServiceNotificationTests
             provider.GetRequiredService<IServiceScopeFactory>(),
             new SystemDateTimeProvider(),
             new OrderCleanupOptions(),
+            new Mock<IDistributedLock>().Object,
+            new DistributedLockOptions(),
             NullLogger<ExpiredOrderCleanupService>.Instance);
 
         await cleanupService.CleanupOnceAsync(CancellationToken.None);

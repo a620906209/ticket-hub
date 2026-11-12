@@ -43,6 +43,8 @@ public class BackgroundServiceTraceIdTests : IClassFixture<ObservabilityWebAppli
             _factory.Services.GetRequiredService<IServiceScopeFactory>(),
             _factory.Services.GetRequiredService<IDateTimeProvider>(),
             new OrderCleanupOptions(),
+            new FakeDistributedLock(),
+            new DistributedLockOptions(),
             _factory.Services.GetRequiredService<ILogger<ExpiredOrderCleanupService>>());
 
     private static async Task<Guid> ReadCreatedIdAsync(HttpResponseMessage response)
