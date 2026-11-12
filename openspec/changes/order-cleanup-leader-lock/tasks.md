@@ -4,7 +4,7 @@
   - 測試先行（Infrastructure.Tests，比照 `OrderServiceConcurrencyTests`，真實 PostgreSQL、兩個獨立 `OrderService` scope）：
     - `CancelExpiredOrderAsync_TwoConcurrentCallsOnSameSeatOrder_OnlyOneSucceedsAndSeatReleasedOnce`（009）
     - `CancelExpiredOrderAsync_TwoConcurrentCallsOnSameCountingOrder_OnlyOneSucceedsAndQuantityRestoredOnce`（010）
-  - RED 說明：這兩個測試固定的是**既有行為**（`ChangeOrderStatusAsync` 已鎖後重讀），正式程式碼不需修改，故不存在「正式碼修改前失敗」的 RED；改以 `scripts/verify-test-evidence.sh mutate` 證明測試能失敗——暫時移除 `ChangeOrderStatusAsync` 內的 `_orderRepository.ReloadAsync(...)` 呼叫，兩個測試須因目標行為不符而失敗（座位／庫存被重複釋放或兩個都回成功），一次一個改動
+  - RED 說明：這兩個測試固定的是**既有行為**（`ChangeOrderStatusAsync` 已鎖後重讀），正式程式碼不需修改，故不存在「正式碼修改前失敗」的 RED；改以 `scripts/verify-test-evidence.sh mutate` 證明測試能失敗——暫時移除 `ChangeOrderStatusAsync` 內的 `_orderRepository.ReloadAsync(...)` 呼叫，兩個測試須因目標行為不符而失敗（座位／庫存被重複釋放或兩個都回成功），一次一個改動；若移除 `ReloadAsync` 後測試仍通過（FOR UPDATE 序列化已足以擋下），改以移除 `GetForUpdateAsync` 鎖定作為 mutation，確認測試真的會失敗
   - 最小實作：無正式程式碼變更
   - GREEN：`docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --filter "FullyQualifiedName~CancelExpiredOrderAsync_TwoConcurrent"` 全數通過
   - 紀錄（原文）：
@@ -17,7 +17,7 @@
 - [ ] 2.1 `ExpiredOrderCleanupService` 每輪取鎖，鎖被持有時跳過、取得時清理並釋放（對應 OCLE-001、003、004）
   - 測試先行（WebApi.Tests `BackgroundServices/ExpiredOrderCleanupServiceLeaderElectionTests.cs`，以假 `IDistributedLock`、假 `IServiceScopeFactory`／`IOrderRepository` 隔離 DB 與 Redis，不碰容器）：
     - `CleanupOnceWithLeaderElectionAsync_WhenLockAcquired_ScansAndReleasesWithOwnerToken`（001）
-    - `CleanupOnceWithLeaderElectionAsync_WhenLockHeldByOther_SkipsWithoutScanningOrReleasing`（鎖被持有時 scope factory 與 repository 完全未被呼叫）
+    - `CleanupOnceWithLeaderElectionAsync_WhenLockHeldByOther_SkipsWithoutScanningOrReleasing`（鎖被持有時 scope factory 與 repository 完全未被呼叫，並以 log 擷取斷言有 Debug 等級的跳過紀錄）
     - `CleanupOnceWithLeaderElectionAsync_AfterSkippedRound_TriesAcquireAgainNextRound`（003；連續兩輪，第一輪 `HeldByOther`、第二輪 `Acquired`）
     - `CleanupOnceWithLeaderElectionAsync_WhenScanThrows_StillReleasesLockAndPropagates`（004；以掃描階段例外驗證 `finally` 釋放）
     - 鎖 key／TTL：以假鎖記錄傳入值，斷言 key 為單一固定值、TTL = `IntervalSeconds × LockTtlMultiplier`；假鎖與假 repository 共用呼叫順序紀錄，001／004 斷言順序為 `TryAcquire → 掃描 → Release`
@@ -52,7 +52,7 @@
   - 測試先行（Infrastructure.Tests，沿用 `RedisFixture` 與既有 PostgreSQL 夾具；兩個 `ExpiredOrderCleanupService` 實例共用同一個 `RedisDistributedLock`）：
     - `CleanupOnceWithLeaderElectionAsync_TwoInstancesConcurrently_OnlyOneProcessesAndSeatReleasedOnce`（002；斷言每筆訂單取消 1 次、座位釋放 1 次、無 Conflict Warning，至少 3 筆訂單以提高並發命中率）
     - `CleanupOnceWithLeaderElectionAsync_WhenHolderCrashesWithoutRelease_OtherInstanceProceedsAfterTtl`（005；先以同 key 預先持有短 TTL 的鎖模擬當掉，TTL 到期後第二實例成功執行；等待比照 `RedisDistributedLockTests` 既有輪詢手法，不依賴 wall-clock sleep 的單次邊界）
-    - `CleanupOnceWithLeaderElectionAsync_WhenLockExpiredWhileHolderStillRunning_OverlapDoesNotDoubleRelease`（006；以可控的掃描阻塞點讓 A 的鎖過期、B 取新鎖並完成，再放行 A；並斷言 A 遲到釋放後 B 持有的鎖仍在，即釋放只由持有者完成）
+    - `CleanupOnceWithLeaderElectionAsync_WhenLockExpiredWhileHolderStillRunning_OverlapDoesNotDoubleRelease`（006；以可控的阻塞點讓 A 掃描中途停住、鎖過期，B 取得新鎖後**同樣停在掃描中不釋放**；此時放行 A 完成並釋放，斷言 B 持有的鎖仍在（釋放只由持有者完成），再放行 B。真正的重疊取消由 009／010 覆蓋，本測試只驗證鎖層行為）
   - 預期 RED：在 2.1／2.2 完成後這些測試對的是已實作的行為，故 RED 以 `mutate` 取代——暫時讓帶鎖版本略過取鎖（直接執行清理），002 須因 Warning／重複處理斷言失敗（Expected 取消次數 1，but found 2 等）；005／006 另以對應改動驗證能失敗，一次一個
   - 最小實作：無新增正式程式碼（若測試需要可控的阻塞點，優先透過既有 DI 替身，不為測試新增正式碼分支）
   - GREEN：`docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --filter "FullyQualifiedName~CleanupOnceWithLeaderElection"` 全數通過
