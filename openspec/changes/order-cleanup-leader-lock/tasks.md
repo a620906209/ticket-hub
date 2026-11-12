@@ -222,6 +222,11 @@
       $ docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --filter "FullyQualifiedName~WhenHolderCrashesWithoutRelease_OtherInstanceProceedsAfterTtl"
       Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 6 s - ProjectC.Infrastructure.Tests.dll (net10.0)
       ```
+    - 外部審查後建議 (a)：005 測試預佔鎖 TTL 由 5 秒再拉到 12 秒（輪詢等待與其他斷言不變）。只重跑該測試：
+      ```
+      $ docker compose exec -T api dotnet test tests/ProjectC.Infrastructure.Tests --filter "FullyQualifiedName~WhenHolderCrashesWithoutRelease_OtherInstanceProceedsAfterTtl"
+      Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 13 s - ProjectC.Infrastructure.Tests.dll (net10.0)
+      ```
     - 與 tasks.md 計畫的偏離：(1) 測試名稱改為 `_TwoInstancesOverlapping_OnlyOneProcessesAndQuantityRestoredOnce`（002 以計數票種的「可售數量只回補一次」觀察重複釋放，回補兩次會變成 103；座位版重複釋放由 1.1 的 OCLE-009 覆蓋）；(2) 002 以「掃描回傳後停在閘門」讓 A 持鎖處理到一半是確定狀態，而非靠執行緒排程碰巧重疊；(3) 類別以 `IClassFixture<RedisFixture>` 使用專屬 Redis 容器，避免與其他類別共用固定 key `order-cleanup:lock`；(4) 為在掃描處設閘門，以 DI 註冊包住真實 `OrderRepository` 的 Moq `IOrderRepository`，無新增正式碼。
     - 重構：N/A
 

@@ -228,7 +228,7 @@ public class ExpiredOrderCleanupLeaderElectionTests : IClassFixture<RedisFixture
         var database = await PrepareEmptyLockKeyAsync();
         var (ticketTypeId, orderIds) = await SeedExpiredCountingOrdersAsync(orderCount: 1);
         var redisLock = CreateRedisLock();
-        var crashedHolderTtl = TimeSpan.FromSeconds(5);
+        var crashedHolderTtl = TimeSpan.FromSeconds(12);
         (await redisLock.TryAcquireAsync(LockKey, crashedHolderTtl, CancellationToken.None)).LockResult
             .Should().Be(LockResult.Acquired, "前提：模擬當掉的持有者佔著鎖、不釋放");
         await using var instance = CreateInstance(redisLock);
