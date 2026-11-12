@@ -516,6 +516,7 @@ fi
 # ---- 斷言 10d：經 NodePort 偽造 X-Forwarded-For 無法繞過登入限流 ----
 # 每次請求帶不同的偽造標頭；nginx 以 $remote_addr 覆蓋後，API 看到的用戶端位址都相同，超過登入額度（預設 5 次／60 秒，每個 api 副本各自計數、共 2 個副本，故需超過 10 次）後
 # 必須出現 429。若 nginx 附加而非覆蓋標頭，每個偽造值各自一個分區，不會出現 429。
+# 此斷言依賴預設登入額度 5 與 api 2 個副本（各自在記憶體計數）；調大 LoginRateLimiting__PermitLimit 或增加副本時，須同步調高下方請求次數，否則會誤判為偽造標頭未被覆蓋。
 # 通過判準是「偽造值被覆蓋」，不要求看到特定外部 IP：Docker Desktop 經 NodePort 進入時來源可能被 NAT 成閘道位址。
 login_codes=""
 for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
