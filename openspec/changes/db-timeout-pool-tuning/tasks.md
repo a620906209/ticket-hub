@@ -31,14 +31,28 @@
   - 紀錄（原文）：
     - RED（正式程式碼修改前，標明命令、失敗測試名稱、Expected／Actual 原文）：先加空殼（`DatabaseOptions` 無 `[Range]`、已 Bind＋`ValidateDataAnnotations`、已在 `ResolveEagerlyValidatedOptions` 解析）後執行 `docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~DatabaseOptionsFailFast"`：
       ```
-      Failed ...DatabaseOptionsFailFastTests.CreatingHost_WithOutOfRangeDatabaseSetting_ThrowsOptionsValidationMentioningSettingName(settingName: "MaxPoolSize", value: 1001)
-      Failed ...(settingName: "MaxPoolSize", value: 0)
-      Failed ...(settingName: "CommandTimeoutSeconds", value: 3601)
-      Failed ...(settingName: "ConnectionTimeoutSeconds", value: 301)
-      Failed ...(settingName: "ConnectionTimeoutSeconds", value: 0)
-      Failed ...(settingName: "CommandTimeoutSeconds", value: 0)
-      Failed ...CreatingHost_WithInvalidDatabaseSetting_DoesNotLeakConnectionStringPassword
-        Error Message: Expected a <System.Exception> to be thrown, but no exception was thrown.
+      （以下為補錄的逐測試原文：暫時移除 `DatabaseOptions` 的三個 `[Range]` 後重跑同命令取得，已 `git checkout` 還原；原紀錄以 `...` 縮寫測試名稱且只貼一次 Error Message）
+      Failed ProjectC.WebApi.Tests.Startup.DatabaseOptionsFailFastTests.CreatingHost_WithOutOfRangeDatabaseSetting_ThrowsOptionsValidationMentioningSettingName(settingName: "MaxPoolSize", value: 1001) [738 ms]
+        Error Message:
+        Expected a <System.Exception> to be thrown, but no exception was thrown.
+      Failed ProjectC.WebApi.Tests.Startup.DatabaseOptionsFailFastTests.CreatingHost_WithOutOfRangeDatabaseSetting_ThrowsOptionsValidationMentioningSettingName(settingName: "MaxPoolSize", value: 0) [163 ms]
+        Error Message:
+        Expected a <System.Exception> to be thrown, but no exception was thrown.
+      Failed ProjectC.WebApi.Tests.Startup.DatabaseOptionsFailFastTests.CreatingHost_WithOutOfRangeDatabaseSetting_ThrowsOptionsValidationMentioningSettingName(settingName: "CommandTimeoutSeconds", value: 3601) [83 ms]
+        Error Message:
+        Expected a <System.Exception> to be thrown, but no exception was thrown.
+      Failed ProjectC.WebApi.Tests.Startup.DatabaseOptionsFailFastTests.CreatingHost_WithOutOfRangeDatabaseSetting_ThrowsOptionsValidationMentioningSettingName(settingName: "ConnectionTimeoutSeconds", value: 301) [49 ms]
+        Error Message:
+        Expected a <System.Exception> to be thrown, but no exception was thrown.
+      Failed ProjectC.WebApi.Tests.Startup.DatabaseOptionsFailFastTests.CreatingHost_WithOutOfRangeDatabaseSetting_ThrowsOptionsValidationMentioningSettingName(settingName: "ConnectionTimeoutSeconds", value: 0) [68 ms]
+        Error Message:
+        Expected a <System.Exception> to be thrown, but no exception was thrown.
+      Failed ProjectC.WebApi.Tests.Startup.DatabaseOptionsFailFastTests.CreatingHost_WithOutOfRangeDatabaseSetting_ThrowsOptionsValidationMentioningSettingName(settingName: "CommandTimeoutSeconds", value: 0) [117 ms]
+        Error Message:
+        Expected a <System.Exception> to be thrown, but no exception was thrown.
+      Failed ProjectC.WebApi.Tests.Startup.DatabaseOptionsFailFastTests.CreatingHost_WithInvalidDatabaseSetting_DoesNotLeakConnectionStringPassword [117 ms]
+        Error Message:
+        Expected a <System.Exception> to be thrown, but no exception was thrown.
       Failed!  - Failed:     7, Passed:     6, Skipped:     0, Total:    13, Duration: 1 s - ProjectC.WebApi.Tests.dll (net10.0)
       ```
       （6 個邊界值測試現況即通過，為既有行為固定。）
@@ -63,11 +77,11 @@
   - 紀錄（原文，含 mutation 命令與失敗輸出）：
     - RED（先抽出 `AddApplicationDbContext()`［行為未變、未套用任何設定］與 `DatabaseSettingsWebApplicationFactory` 後，命令 `docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~DatabasePersistenceConfiguration"`）：
       ```
-      Failed ...ApplicationDbContext_WithDatabaseSection_AppliesCommandTimeoutAndConnectionStringValues
+      Failed ProjectC.WebApi.Tests.Database.DatabasePersistenceConfigurationTests.ApplicationDbContext_WithDatabaseSection_AppliesCommandTimeoutAndConnectionStringValues [102 ms]
         Expected dbContext.Database.GetCommandTimeout() to be 7, but found <null>.
-      Failed ...ApplicationDbContext_WhenConnectionStringHasSameParameters_DatabaseSettingsWin
+      Failed ProjectC.WebApi.Tests.Database.DatabasePersistenceConfigurationTests.ApplicationDbContext_WhenConnectionStringHasSameParameters_DatabaseSettingsWin [93 ms]
         Expected builder.MaxPoolSize to be 20, but found 500 (difference of 480).
-      Failed ...ApplicationDbContext_WithoutDatabaseSection_UsesDefaultTimeoutsAndPoolSize
+      Failed ProjectC.WebApi.Tests.Database.DatabasePersistenceConfigurationTests.ApplicationDbContext_WithoutDatabaseSection_UsesDefaultTimeoutsAndPoolSize [43 ms]
         Expected dbContext.Database.GetCommandTimeout() to be 30, but found <null>.
       Failed!  - Failed:     3, Passed:     1, Skipped:     0, Total:     4, Duration: 619 ms - ProjectC.WebApi.Tests.dll (net10.0)
       ```
@@ -77,25 +91,25 @@
     - mutation (a)／(b)／(c)（`bash scripts/verify-test-evidence.sh mutate --file <檔> --from <原> --to <新> -- docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter FullyQualifiedName~DatabasePersistenceConfiguration`，每次還原後 `touch`）：
       - (a) 移除 `MaxPoolSize = databaseOptions.MaxPoolSize,`：
         ```
-        Failed ...ApplicationDbContext_WithDatabaseSection_AppliesCommandTimeoutAndConnectionStringValues
+        Failed ProjectC.WebApi.Tests.Database.DatabasePersistenceConfigurationTests.ApplicationDbContext_WithDatabaseSection_AppliesCommandTimeoutAndConnectionStringValues [105 ms]
           Expected builder.MaxPoolSize to be 20, but found 100 (difference of 80).
-        Failed ...ApplicationDbContext_WhenConnectionStringHasSameParameters_DatabaseSettingsWin
+        Failed ProjectC.WebApi.Tests.Database.DatabasePersistenceConfigurationTests.ApplicationDbContext_WhenConnectionStringHasSameParameters_DatabaseSettingsWin [89 ms]
           Expected builder.MaxPoolSize to be 20, but found 500 (difference of 480).
         Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 589 ms - ProjectC.WebApi.Tests.dll (net10.0)
         結果：測試如預期失敗
         ```
       - (b) `npgsqlOptions => npgsqlOptions.CommandTimeout(...)` → `_ => { }`：
         ```
-        Failed ...ApplicationDbContext_WithDatabaseSection_AppliesCommandTimeoutAndConnectionStringValues
+        Failed ProjectC.WebApi.Tests.Database.DatabasePersistenceConfigurationTests.ApplicationDbContext_WithDatabaseSection_AppliesCommandTimeoutAndConnectionStringValues [105 ms]
           Expected dbContext.Database.GetCommandTimeout() to be 7, but found <null>.
-        Failed ...ApplicationDbContext_WithoutDatabaseSection_UsesDefaultTimeoutsAndPoolSize
+        Failed ProjectC.WebApi.Tests.Database.DatabasePersistenceConfigurationTests.ApplicationDbContext_WithoutDatabaseSection_UsesDefaultTimeoutsAndPoolSize [50 ms]
           Expected dbContext.Database.GetCommandTimeout() to be 30, but found <null>.
         Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 627 ms - ProjectC.WebApi.Tests.dll (net10.0)
         結果：測試如預期失敗
         ```
       - (c) `DatabaseReadinessHealthCheck` 的 `Timeout = TimeoutSeconds,` → `Timeout = 30,`（兩行 `--from` 因行尾為 CRLF 比對 0 次，改單行）：
         ```
-        Failed ...DatabaseReadinessHealthCheck_WithLargeDatabaseSettings_StillUsesTwoSecondTimeoutWithoutPooling
+        Failed ProjectC.WebApi.Tests.Database.DatabasePersistenceConfigurationTests.DatabaseReadinessHealthCheck_WithLargeDatabaseSettings_StillUsesTwoSecondTimeoutWithoutPooling [376 ms]
           Expected builder.Timeout to be 2, but found 30 (difference of 28).
         Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 555 ms - ProjectC.WebApi.Tests.dll (net10.0)
         結果：測試如預期失敗
@@ -118,14 +132,14 @@
     - mutation／RED（2.1 最小實作已先存在，依規格以 `mutate` 暫時移除 2.1 的賦值取得 RED，還原後 `touch`；命令 `bash scripts/verify-test-evidence.sh mutate --file src/ProjectC.WebApi/Extensions/PersistenceServiceCollectionExtensions.cs --from <原> --to <新> -- docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter FullyQualifiedName~DatabaseTimeoutBehavior`）：
       - 移除 `npgsqlOptions => npgsqlOptions.CommandTimeout(databaseOptions.CommandTimeoutSeconds)`（→ `_ => { }`）：
         ```
-        Failed ...DatabaseTimeoutBehaviorTests.ExecuteSql_WhenCommandExceedsCommandTimeout_FailsWithinBoundAndPoolRemainsUsable [6 s]
+        Failed ProjectC.WebApi.Tests.Database.DatabaseTimeoutBehaviorTests.ExecuteSql_WhenCommandExceedsCommandTimeout_FailsWithinBoundAndPoolRemainsUsable [6 s]
           Expected a <System.Exception> to be thrown, but no exception was thrown.
         Failed!  - Failed:     1, Passed:     1, Skipped:     0, Total:     2, Duration: 8 s - ProjectC.WebApi.Tests.dll (net10.0)
         結果：測試如預期失敗
         ```
       - 移除 `MaxPoolSize = databaseOptions.MaxPoolSize,`：
         ```
-        Failed ...DatabaseTimeoutBehaviorTests.OpenConnection_WhenPoolExhausted_FailsWithinConnectionTimeoutAndSucceedsAfterRelease [357 ms]
+        Failed ProjectC.WebApi.Tests.Database.DatabaseTimeoutBehaviorTests.OpenConnection_WhenPoolExhausted_FailsWithinConnectionTimeoutAndSucceedsAfterRelease [357 ms]
           Expected a <System.Exception> to be thrown, but no exception was thrown.
         Failed!  - Failed:     1, Passed:     1, Skipped:     0, Total:     2, Duration: 2 s - ProjectC.WebApi.Tests.dll (net10.0)
         結果：測試如預期失敗
@@ -140,7 +154,7 @@
       ```
       結論：連線池耗盡**不是**裸 `TimeoutException`——外層為 EF Core Npgsql 丟出的 `InvalidOperationException`，內層為 `NpgsqlException` → `TimeoutException`（`TargetSite` 為 null）；命令逾時為 `NpgsqlException` → `TimeoutException`。故決策 3 條件 (b)（以 `TargetSite` 判定裸 `TimeoutException`）刪除，只留「鏈上有 `NpgsqlException` 且其內層鏈含 `TimeoutException`」；已依本 task 規定更新 design.md 決策 3、Open Questions 與本檔 4.1。
     - 背景服務結論：Testing 環境不註冊 `ExpiredOrderCleanupService`／`PurchaseQueueAdmissionService`（`BackgroundServiceCollectionExtensions.cs`：`if (!environment.IsEnvironment("Testing"))`），`MaxPoolSize = 1` 測試不需停用背景服務；host 啟動亦未於測試前自行占用連線池（test 結果穩定通過）。
-    - GREEN（還原後）：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~DatabaseTimeoutBehavior"` → `Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2`（`Test Run Successful. Total tests: 2, Passed: 2`）
+    - GREEN（還原後）：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~DatabaseTimeoutBehavior"` → `Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 4 s - ProjectC.WebApi.Tests.dll (net10.0)`（還原後重跑原文；`Test Run Successful` 行未收錄）
 
 ## 4. 503 ServiceUnavailable（TDD）
 
@@ -159,13 +173,13 @@
   - 紀錄（原文）：
     - RED（先加空殼 `DatabaseTimeoutDetector.IsDatabaseTimeout` 恆回 false，命令 `docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~GlobalExceptionHandlerTests"`）：
       ```
-      Failed ...TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable
+      Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable [24 ms]
         Expected httpContext.Response.StatusCode to be 503, but found 500 (difference of -3).
-      Failed ...TryHandleAsync_WhenTimeoutWrappedInDbUpdateException_Writes503ServiceUnavailable
+      Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenTimeoutWrappedInDbUpdateException_Writes503ServiceUnavailable [4 ms]
         Expected httpContext.Response.StatusCode to be 503, but found 500 (difference of -3).
-      Failed ...TryHandleAsync_WhenDatabaseTimeout_LogsWarningWithoutSqlOrConnectionString
+      Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenDatabaseTimeout_LogsWarningWithoutSqlOrConnectionString [5 ms]
         Expected entry.Level[0] to be LogLevel.Warning {value: 3}, but found LogLevel.Error {value: 4}.
-      Failed ...TryHandleAsync_WhenCommandTimeout_Writes503ServiceUnavailableWithTraceId
+      Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenCommandTimeout_Writes503ServiceUnavailableWithTraceId [3 ms]
         Expected httpContext.Response.StatusCode to be 503, but found 500 (difference of -3).
       Failed!  - Failed:     4, Passed:    11, Skipped:     0, Total:    15, Duration: 150 ms - ProjectC.WebApi.Tests.dll (net10.0)
       ```
@@ -174,20 +188,20 @@
     - mutation (a)／(b)（`bash scripts/verify-test-evidence.sh mutate --file src/ProjectC.WebApi/ExceptionHandling/DatabaseTimeoutDetector.cs ...`，還原後 `touch`）：
       - (a) 偵測器開頭改為 `return false;`：
         ```
-        Failed ...TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable
+        Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable [22 ms]
           Expected httpContext.Response.StatusCode to be 503, but found 500 (difference of -3).
-        Failed ...TryHandleAsync_WhenTimeoutWrappedInDbUpdateException_Writes503ServiceUnavailable
+        Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenTimeoutWrappedInDbUpdateException_Writes503ServiceUnavailable [6 ms]
           Expected httpContext.Response.StatusCode to be 503, but found 500 (difference of -3).
-        Failed ...TryHandleAsync_WhenDatabaseTimeout_LogsWarningWithoutSqlOrConnectionString
+        Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenDatabaseTimeout_LogsWarningWithoutSqlOrConnectionString [6 ms]
           Expected entry.Level[0] to be LogLevel.Warning {value: 3}, but found LogLevel.Error {value: 4}.
-        Failed ...TryHandleAsync_WhenCommandTimeout_Writes503ServiceUnavailableWithTraceId
+        Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenCommandTimeout_Writes503ServiceUnavailableWithTraceId [3 ms]
           Expected httpContext.Response.StatusCode to be 503, but found 500 (difference of -3).
         Failed!  - Failed:     4, Passed:    11, Skipped:     0, Total:    15, Duration: 119 ms - ProjectC.WebApi.Tests.dll (net10.0)
         結果：測試如預期失敗
         ```
       - (b) 條件改為 `candidate is TimeoutException`（任何 `TimeoutException` 都算）：
         ```
-        Failed ...TryHandleAsync_WhenNotDatabaseTimeout_Writes500InternalServerError(exception: System.TimeoutException: http client timeout)
+        Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenNotDatabaseTimeout_Writes500InternalServerError(exception: System.TimeoutException: http client timeout) [23 ms]
           Expected httpContext.Response.StatusCode to be 500, but found 503 (difference of 3).
         Failed!  - Failed:     1, Passed:    14, Skipped:     0, Total:    15, Duration: 96 ms - ProjectC.WebApi.Tests.dll (net10.0)
         結果：測試如預期失敗
@@ -205,21 +219,79 @@
   - 紀錄（原文）：
     - RED（4.1 已先實作，依規格以 `mutate` 暫時讓偵測器恆回 false：`bash scripts/verify-test-evidence.sh mutate --file src/ProjectC.WebApi/ExceptionHandling/DatabaseTimeoutDetector.cs --from "        ArgumentNullException.ThrowIfNull(exception);" --to "        return false;" -- docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter FullyQualifiedName~DatabaseTimeoutHttpResponse`，還原後 `touch`）：
       ```
-      Failed ...DatabaseTimeoutHttpResponseTests.GetEventById_WhenConnectionPoolExhausted_Returns503ProblemDetails [1 s]
+      Failed ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenConnectionPoolExhausted_Returns503ProblemDetails [1 s]
         Expected response.StatusCode to be HttpStatusCode.ServiceUnavailable {value: 503}, but found HttpStatusCode.InternalServerError {value: 500}.
-      Failed ...DatabaseTimeoutHttpResponseTests.GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails [1 s]
+      Failed ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails [1 s]
         Expected response.StatusCode to be HttpStatusCode.ServiceUnavailable {value: 503}, but found HttpStatusCode.InternalServerError {value: 500}.
       Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 2 s - ProjectC.WebApi.Tests.dll (net10.0)
       結果：測試如預期失敗
       ```
     - GREEN（還原後）：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~DatabaseTimeoutHttpResponse"` → `Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 2 s - ProjectC.WebApi.Tests.dll (net10.0)`
     - 端點確認：`GET /api/events/{id:guid}` 由 `GetEventByIdHandler` 處理，未經 `IQueryCache`（只有 `GetEventsHandler` 使用），且查詢目標為 `Events`，不存在的 id 同樣會被排他鎖卡住，故不需預建活動。
-    - **實作期發現（4.2 首次執行）**：兩個測試首次執行即只在 `Content-Type` 斷言失敗（狀態碼已是 503）：`GlobalExceptionHandler` 以 `WriteAsJsonAsync(problemDetails, ct)` 輸出，Content-Type 為 `application/json; charset=utf-8`，不是規格要求的 `application/problem+json`。處理：只針對 503 分支改以 `contentType: "application/problem+json"` 輸出；並於 4.1 的 `AssertServiceUnavailable` 補 `ContentType` 斷言。補強前 RED：
+    - **實作期發現（4.2 首次執行）**：兩個測試首次執行即只在 `Content-Type` 斷言失敗（狀態碼已是 503）：`GlobalExceptionHandler` 以 `WriteAsJsonAsync(problemDetails, ct)` 輸出，Content-Type 為 `application/json; charset=utf-8`，不是規格要求的 `application/problem+json`。處理：只針對 503 分支改以 `contentType: "application/problem+json"` 輸出；並於 4.1 的 `AssertServiceUnavailable` 補 `ContentType` 斷言。補強前 RED（以 `verify-test-evidence.sh mutate` 暫時還原 503 分支的 `contentType` 為 `string? contentType = null;`，即補強前行為，重跑 `docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~GlobalExceptionHandlerTests|FullyQualifiedName~DatabaseTimeoutHttpResponse"`；此為補強後重現的完整未過濾輸出，已還原且 `touch`，僅略去編譯 warning 行；原先實作期的第一次 RED 只留下單一測試的紀錄，已由本重現取代）：
       ```
-      Failed ...TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable
-        Expected httpContext.Response.ContentType to start with "application/problem+json", but "application/json; charset=utf-8" differs near "jso" (index 12).
-      （TimeoutWrappedInDbUpdateException、CommandTimeout 同訊息）
-      Failed!  - Failed:     3, Passed:    12, Skipped:     0, Total:    15, Duration: 117 ms - ProjectC.WebApi.Tests.dll (net10.0)
+      Test run for /src/tests/ProjectC.WebApi.Tests/bin/Debug/net10.0/ProjectC.WebApi.Tests.dll (.NETCoreApp,Version=v10.0)
+      A total of 1 test files matched the specified pattern.
+      [xUnit.net 00:00:00.50]     ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable [FAIL]
+      [xUnit.net 00:00:00.51]     ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenTimeoutWrappedInDbUpdateException_Writes503ServiceUnavailable [FAIL]
+        Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable [30 ms]
+        Error Message:
+         Expected httpContext.Response.ContentType to start with "application/problem+json", but "application/json; charset=utf-8" differs near "jso" (index 12).
+        Stack Trace:
+           at FluentAssertions.Primitives.StringAssertions`1.StartWith(String expected, String because, Object[] becauseArgs)
+         at ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.AssertServiceUnavailable(DefaultHttpContext httpContext) in /src/tests/ProjectC.WebApi.Tests/ExceptionHandling/GlobalExceptionHandlerTests.cs:line 174
+         at ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable() in /src/tests/ProjectC.WebApi.Tests/ExceptionHandling/GlobalExceptionHandlerTests.cs:line 116
+      --- End of stack trace from previous location ---
+        Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenTimeoutWrappedInDbUpdateException_Writes503ServiceUnavailable [6 ms]
+        Error Message:
+         Expected httpContext.Response.ContentType to start with "application/problem+json", but "application/json; charset=utf-8" differs near "jso" (index 12).
+        Stack Trace:
+           at FluentAssertions.Primitives.StringAssertions`1.StartWith(String expected, String because, Object[] becauseArgs)
+         at ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.AssertServiceUnavailable(DefaultHttpContext httpContext) in /src/tests/ProjectC.WebApi.Tests/ExceptionHandling/GlobalExceptionHandlerTests.cs:line 174
+         at ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenTimeoutWrappedInDbUpdateException_Writes503ServiceUnavailable() in /src/tests/ProjectC.WebApi.Tests/ExceptionHandling/GlobalExceptionHandlerTests.cs:line 128
+      --- End of stack trace from previous location ---
+      [xUnit.net 00:00:00.55]     ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenCommandTimeout_Writes503ServiceUnavailableWithTraceId [FAIL]
+        Failed ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenCommandTimeout_Writes503ServiceUnavailableWithTraceId [5 ms]
+        Error Message:
+         Expected httpContext.Response.ContentType to start with "application/problem+json", but "application/json; charset=utf-8" differs near "jso" (index 12).
+        Stack Trace:
+           at FluentAssertions.Primitives.StringAssertions`1.StartWith(String expected, String because, Object[] becauseArgs)
+         at ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.AssertServiceUnavailable(DefaultHttpContext httpContext) in /src/tests/ProjectC.WebApi.Tests/ExceptionHandling/GlobalExceptionHandlerTests.cs:line 174
+         at ProjectC.WebApi.Tests.ExceptionHandling.GlobalExceptionHandlerTests.TryHandleAsync_WhenCommandTimeout_Writes503ServiceUnavailableWithTraceId() in /src/tests/ProjectC.WebApi.Tests/ExceptionHandling/GlobalExceptionHandlerTests.cs:line 104
+      --- End of stack trace from previous location ---
+      [xUnit.net 00:00:06.32]     ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenConnectionPoolExhausted_Returns503ProblemDetails [FAIL]
+      [xUnit.net 00:00:07.53]     ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails [FAIL]
+        Failed ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenConnectionPoolExhausted_Returns503ProblemDetails [1 s]
+        Error Message:
+         Expected response.Content.Headers.ContentType?.MediaType to be a match with the expectation, but it differs at index 12:
+                    ↓ (actual)
+        "…plication/json"
+        "…plication/problem+json"
+                    ↑ (expected)
+        Stack Trace:
+           at FluentAssertions.Primitives.StringAssertions`1.Be(String expected, String because, Object[] becauseArgs)
+         at ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.AssertServiceUnavailableAsync(HttpResponseMessage response) in /src/tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs:line 86
+         at ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenConnectionPoolExhausted_Returns503ProblemDetails() in /src/tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs:line 75
+         at ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenConnectionPoolExhausted_Returns503ProblemDetails() in /src/tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs:line 80
+      --- End of stack trace from previous location ---
+        Failed ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails [1 s]
+        Error Message:
+         Expected response.Content.Headers.ContentType?.MediaType to be a match with the expectation, but it differs at index 12:
+                    ↓ (actual)
+        "…plication/json"
+        "…plication/problem+json"
+                    ↑ (expected)
+        Stack Trace:
+           at FluentAssertions.Primitives.StringAssertions`1.Be(String expected, String because, Object[] becauseArgs)
+         at ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.AssertServiceUnavailableAsync(HttpResponseMessage response) in /src/tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs:line 86
+         at ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails() in /src/tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs:line 49
+         at ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails() in /src/tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs:line 54
+         at ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails() in /src/tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs:line 54
+         at ProjectC.WebApi.Tests.Database.DatabaseTimeoutHttpResponseTests.GetEventById_WhenDatabaseCommandTimesOut_Returns503ProblemDetails() in /src/tests/ProjectC.WebApi.Tests/Database/DatabaseTimeoutHttpResponseTests.cs:line 54
+      --- End of stack trace from previous location ---
+
+      Failed!  - Failed:     5, Passed:    12, Skipped:     0, Total:    17, Duration: 6 s - ProjectC.WebApi.Tests.dll (net10.0)
+      結果：測試如預期失敗
       ```
       補強後 `FullyQualifiedName~GlobalExceptionHandlerTests|FullyQualifiedName~DatabaseTimeoutHttpResponse`：`Passed!  - Failed:     0, Passed:    17, Skipped:     0, Total:    17, Duration: 4 s - ProjectC.WebApi.Tests.dll (net10.0)`。
       既有 500／BadHttpRequest 分支同樣是 `application/json`（與 `docs/api-conventions.md`「所有錯誤回應為 `application/problem+json`」不符），本 change 不更動（見最終回報待決事項）。
@@ -247,8 +319,8 @@
     - 連線字串缺漏（null／空）：`ApplyDatabaseOptions` 原樣回傳、不新增自訂例外；格式錯誤：`NpgsqlConnectionStringBuilder` 原生丟例外。新增 `DatabaseConnectionStringHardeningTests`（3 個）：缺漏不在組裝階段丟例外、格式錯誤的例外訊息不含密碼 sentinel。Npgsql 的例外訊息為函式庫行為，無法以本專案改動製造 RED，故這 3 個為 GREEN-only 的特徵測試（誠實標註，非 RED 驗證）：`Passed!  - Failed:     0, Passed:     3, Skipped:     0, Total:     3, Duration: 116 ms - ProjectC.WebApi.Tests.dll (net10.0)`
     - 偵測器補強：新增 `DatabaseTimeoutDetectorTests`（4 個：null→ArgumentNullException、AggregateException 第二個內層含逾時→true、循環例外鏈→終止且 false、裸 TimeoutException→false）。GREEN：`Passed!  - Failed:     0, Passed:     4, Skipped:     0, Total:     4, Duration: 22 ms - ProjectC.WebApi.Tests.dll (net10.0)`
     - 還原驗證（`verify-test-evidence.sh mutate`，一次一個改動，每次後 `touch`）：
-      - 移除 `ArgumentNullException.ThrowIfNull(exception);` → `Failed ...DatabaseTimeoutDetectorTests.IsDatabaseTimeout_WhenExceptionIsNull_ThrowsArgumentNullException`：`Expected a <System.ArgumentNullException> to be thrown, but no exception was thrown.`；`Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 48 ms - ProjectC.WebApi.Tests.dll (net10.0)`；`結果：測試如預期失敗`
-      - AggregateException 分支加 `&& false` → `Failed ...IsDatabaseTimeout_WhenTimeoutIsInSecondInnerOfAggregate_ReturnsTrue`：`Expected DatabaseTimeoutDetector.IsDatabaseTimeout(aggregate) to be True, but found False.`；`Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 42 ms - ProjectC.WebApi.Tests.dll (net10.0)`；`結果：測試如預期失敗`
+      - 移除 `ArgumentNullException.ThrowIfNull(exception);` → `Failed ProjectC.WebApi.Tests.ExceptionHandling.DatabaseTimeoutDetectorTests.IsDatabaseTimeout_WhenExceptionIsNull_ThrowsArgumentNullException [25 ms]`：`Expected a <System.ArgumentNullException> to be thrown, but no exception was thrown.`；`Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 48 ms - ProjectC.WebApi.Tests.dll (net10.0)`；`結果：測試如預期失敗`
+      - AggregateException 分支加 `&& false` → `Failed ProjectC.WebApi.Tests.ExceptionHandling.DatabaseTimeoutDetectorTests.IsDatabaseTimeout_WhenTimeoutIsInSecondInnerOfAggregate_ReturnsTrue [21 ms]`：`Expected DatabaseTimeoutDetector.IsDatabaseTimeout(aggregate) to be True, but found False.`；`Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 42 ms - ProjectC.WebApi.Tests.dll (net10.0)`；`結果：測試如預期失敗`
       - 循環例外鏈：初版測試未做 mutate 還原驗證（移除 visited 保護會使測試行程掛住）；strict-reviewer warning 1 後已補強，見下方「strict-reviewer warning 1、2 補強」。
     - 日誌遮蔽：503 路徑的 `LogWarning` 只記 `exception.GetType().Name`、Method、RouteTemplate、TraceId，不傳例外物件（AER-DB-005 以 sentinel 驗證不含連線字串／訊息）。已符合清單、無須修改。
     - `CancellationToken`：本次變更的程式碼沒有新增 async 方法簽章；`TryHandleAsync` 沿用既有 `cancellationToken` 傳給 `WriteAsJsonAsync`。已符合清單。
@@ -260,12 +332,12 @@
   - 其餘測試專案（`ProjectC.Application.Tests`、`ProjectC.Domain.Tests`、`ProjectC.LoadTest.Seeder.Tests` 等，以 `ls tests` 為準）
   - 確認 `ServiceRegistrationSnapshot.baseline.txt` 是否需更新（`DatabaseOptions` 新增註冊）；若更新須在此記錄差異
   - 紀錄（原文）：
-    - `Passed!  - Failed:     0, Passed:   985, Skipped:     0, Total:   985, Duration: 3 m 26 s - ProjectC.WebApi.Tests.dll (net10.0)`（首次全套為 `Failed!  - Failed:     1, Passed:   984, Skipped:     0, Total:   985, Duration: 3 m 44 s`，唯一失敗為 `ServiceRegistrationSnapshotTests.ServiceRegistrations_MatchCommittedBaseline`，見下）
+    - `Passed!  - Failed:     0, Passed:   985, Skipped:     0, Total:   985, Duration: 3 m 26 s - ProjectC.WebApi.Tests.dll (net10.0)`（首次全套為 `Failed!  - Failed:     1, Passed:   984, Skipped:     0, Total:   985, Duration: 3 m 44 s - ProjectC.WebApi.Tests.dll (net10.0)`，唯一失敗為 `ServiceRegistrationSnapshotTests.ServiceRegistrations_MatchCommittedBaseline`，見下）
     - `Passed!  - Failed:     0, Passed:   308, Skipped:     0, Total:   308, Duration: 1 m 7 s - ProjectC.Infrastructure.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:   632, Skipped:     0, Total:   632, Duration: 1 s - ProjectC.Application.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:   153, Skipped:     0, Total:   153, Duration: 87 ms - ProjectC.Domain.Tests.dll (net10.0)`
     - `Passed!  - Failed:     0, Passed:    38, Skipped:     0, Total:    38, Duration: 7 s - ProjectC.LoadTest.Seeder.Tests.dll (net10.0)`
-    - 基準檔：`ServiceRegistrationSnapshot.baseline.txt` 需更新。失敗訊息：`多出的項目：Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.DatabaseOptions] | instance || Singleton | ...IOptionsChangeTokenSource`1[...DatabaseOptions] | instance || Singleton | ...IValidateOptions`1[...DatabaseOptions] | instance || Singleton | ProjectC.Application.Common.DatabaseOptions | factory`；僅此 4 項（皆為 `DatabaseOptions` 的 Options 註冊，與其他 Options 同型），已手動依序插入基準檔（+4 行、無刪除），單檔重跑 `Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 374 ms`，再跑全套得上列 985 通過。
+    - 基準檔：`ServiceRegistrationSnapshot.baseline.txt` 需更新。失敗（`Failed ProjectC.WebApi.Tests.Startup.ServiceRegistrationSnapshotTests.ServiceRegistrations_MatchCommittedBaseline [51 ms]`）訊息：`Expected (missing.Count + unexpected.Count) to be 0 because DI 圖與基準檔不一致。缺少的項目：；多出的項目：Singleton | Microsoft.Extensions.Options.IConfigureOptions`1[ProjectC.Application.Common.DatabaseOptions] | instance || Singleton | Microsoft.Extensions.Options.IOptionsChangeTokenSource`1[ProjectC.Application.Common.DatabaseOptions] | instance || Singleton | Microsoft.Extensions.Options.IValidateOptions`1[ProjectC.Application.Common.DatabaseOptions] | instance || Singleton | ProjectC.Application.Common.DatabaseOptions | factory, but found 4 (difference of 4).`；僅此 4 項（皆為 `DatabaseOptions` 的 Options 註冊，與其他 Options 同型），已手動依序插入基準檔（+4 行、無刪除），單檔重跑 `Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 374 ms - ProjectC.WebApi.Tests.dll (net10.0)`，再跑全套得上列 985 通過。
 - [x] 6.3 Task 完成後告知：spec 同步狀態（`database-connection-limits` 新增、`api-error-responses` 補 503；`docs/api-conventions.md` 已同步）、AC 涵蓋、維護性提醒（重複邏輯、命名一致性）。k6／k8s 重跑列為建議，非驗收
 
 - [x] 6.4 strict-reviewer warning 1、2 補強（TDD：測試強化，RED 以 mutate 取得；正式程式碼未改）
