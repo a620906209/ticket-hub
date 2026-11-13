@@ -20,5 +20,5 @@
 - **THEN** 回應狀態碼為 429，`Content-Type` 為 `application/problem+json`，`Retry-After` header（有提供時）、`title` 為 `TooManyRequests` 與 `traceId` 不變
 
 #### Scenario: AER-040 實際 HTTP 回應的 Content-Type
-- **WHEN** 對真實主機送出超過本文上限的請求（413），以及超過限流門檻的請求（429）
+- **WHEN** 對真實主機送出超過本文上限且經 `GlobalExceptionHandler` 處理的請求（413），以及超過限流門檻的請求（429）
 - **THEN** 兩者的 HTTP 回應 `Content-Type` 皆為 `application/problem+json`

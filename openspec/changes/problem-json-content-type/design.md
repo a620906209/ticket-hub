@@ -32,7 +32,7 @@
 ### 決策 3：驗證分單元與整合兩層
 - 單元：`GlobalExceptionHandlerTests` 對 500、400／408／413（BadHttpRequest）、503 各斷言 `Response.ContentType`；429 是 lambda、無單元入口，由整合測試覆蓋。
 - 整合：429 於既有 `SeatMapRateLimitingTests`、413 於既有 `RequestBodyLimitsKestrelTests` 補 Content-Type 斷言，確認實際 HTTP 回應（直接 `DefaultHttpContext` 看不到 Kestrel／middleware 組合）。
-- 503 已有 Content-Type 斷言（`GlobalExceptionHandlerTests` 與 `DatabaseTimeoutHttpResponseTests`，目前用 `StartWith`），實作時順手改為與決策 4 一致的字串相等；500、400／408／413、429 沒有既有斷言，不會因改動而壞。
+- 503 已有 Content-Type 斷言（`GlobalExceptionHandlerTests` 目前用 `StartWith`，`DatabaseTimeoutHttpResponseTests` 已是 `Should().Be`），實作時把前者改為與決策 4 一致的字串相等；500、400／408／413、429 沒有既有斷言，不會因改動而壞。
 
 ### 決策 4：Content-Type 不附 charset
 `WriteAsJsonAsync` 指定 `contentType` 時原樣輸出 `application/problem+json`，與 503 及 JWT 401／403 現況一致；測試以字串相等斷言（不用 `StartsWith`），避免日後悄悄附上參數而不被發現。若實測框架附加了 charset，以實測為準並同步修正 spec 與測試，不在本設計預設其行為。

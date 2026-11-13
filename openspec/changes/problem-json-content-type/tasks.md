@@ -16,7 +16,7 @@
   - 測試先行（`tests/ProjectC.WebApi.Tests/ExceptionHandling/GlobalExceptionHandlerTests.cs`）：
     - `TryHandleAsync_WhenUnexpectedException_WritesProblemJsonContentType`（500）
     - `TryHandleAsync_WhenBadHttpRequest_WritesProblemJsonContentType`（Theory：400、408、413）
-    - `TryHandleAsync_WhenDatabaseTimeout_WritesProblemJsonContentType`（503，現況應已通過，固定既有行為）
+    - `TryHandleAsync_WhenDatabaseTimeout_WritesProblemJsonContentType`（503，現況應已通過，固定既有行為；並把該檔既有 503 Content-Type 的 `StartWith` 斷言改為字串相等）
     - 斷言 `httpContext.Response.ContentType.Should().Be("application/problem+json")`
   - 預期 RED：500 與 400／408／413 測試以 `Expected ...ContentType to be "application/problem+json", but ...`（實際值以執行結果為準，預期為 `application/json`）失敗；503 測試通過；編譯失敗不算 RED
   - 最小實作：新增共用方法；`GlobalExceptionHandler` 改呼叫，刪除 `ProblemJsonContentType` 與條件式
@@ -49,7 +49,7 @@
     - GREEN：
 - [ ] 2.3 `JwtBearerProblemDetailsResponses.WriteProblemAsync` 改呼叫共用方法並刪除寫死字串；既有 JWT 401／403 測試（AER-012～016）仍全數通過
   - TDD：N/A，純重構、行為不變，既有測試已涵蓋（含 Content-Type）；不新增測試
-  - 驗證：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "..."`（測試類別名稱實作時 grep 確定）通過
+  - 驗證：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~JwtChallengeProblemDetailsTests"` 通過
   - 紀錄（原文）：
 
 ## 3. 文件與最終檢查
