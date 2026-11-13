@@ -98,3 +98,10 @@
 
 - spec-reviewer → design-hardener，PASS 後暫停等使用者交叉審查。
 - 實作經 `apply-in-pane`，審查迴圈依 CLAUDE.md；完成後歸檔並合併，不自動 commit／push。
+
+## 審查紀錄
+
+- 實作後 strict-reviewer（subagent）：PASS，無 blocking（`Passed!  - Failed:     0, Passed:    50, Skipped:     0, Total:    50 - ProjectC.WebApi.Tests.dll (net10.0)`）。
+- 外部審查第 1 輪：Claude Code（Opus 5.5），commit 10db41a，strict-reviewer，PASS，無 blocking（相關測試 `Passed:    99, Total:    99`）。
+- 外部 PASS 後最後一次 strict-reviewer：PASS，無 blocking（`Passed:    50, Total:    50`）。
+- 全新對抗式 general-purpose subagent：無 blocking；建議項（Writer 無獨立單元測試、429 僅 SeatMap 有斷言）符合 design 決策 3，不處理（`Passed:    58, Failed: 0`）。
