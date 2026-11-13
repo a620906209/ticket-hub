@@ -2,7 +2,9 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using ProjectC.WebApi.ExceptionHandling;
 using ProjectC.WebApi.Tests.TestSupport;
 
@@ -13,6 +15,8 @@ public class GlobalExceptionHandlerTests
 {
     private const string BodySentinel = "BODY-SENTINEL-7f3a9c";
     private const string ExceptionMessageSentinel = "EXCEPTION-MESSAGE-SENTINEL-2b8e41";
+    private const string SqlSentinel = "SELECT-SQL-SENTINEL-91c4d7";
+    private const string ConnectionStringSentinel = "Password=CONNSTR-SENTINEL-5e02a8";
 
     private readonly RecordingLogger<GlobalExceptionHandler> _logger = new();
 
@@ -83,6 +87,96 @@ public class GlobalExceptionHandlerTests
         var entry = _logger.Entries.Should().ContainSingle().Subject;
         entry.Level.Should().Be(LogLevel.Error);
         entry.Exception.Should().BeSameAs(exception);
+    }
+
+    // [AER-DB-001] 命令逾時（NpgsqlException 內含 TimeoutException）回 503 ServiceUnavailable，含 traceId、無 detail。
+    [Fact]
+    public async Task TryHandleAsync_WhenCommandTimeout_Writes503ServiceUnavailableWithTraceId()
+    {
+        var httpContext = CreateHttpContext();
+
+        var isHandled = await CreateHandler().TryHandleAsync(
+            httpContext,
+            new NpgsqlException("command timeout", new TimeoutException()),
+            CancellationToken.None);
+
+        isHandled.Should().BeTrue();
+        AssertServiceUnavailable(httpContext);
+    }
+
+    // [AER-DB-002] 連線池耗盡的實測型態（db-timeout-pool-tuning tasks 3.1）：InvalidOperationException → NpgsqlException → TimeoutException。
+    [Fact]
+    public async Task TryHandleAsync_WhenPoolWaitTimeout_Writes503ServiceUnavailable()
+    {
+        var httpContext = CreateHttpContext();
+        var exception = new InvalidOperationException("pool", new NpgsqlException("pool", new TimeoutException()));
+
+        await CreateHandler().TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        AssertServiceUnavailable(httpContext);
+    }
+
+    // [AER-DB-003] 逾時為內層例外、外層為 DbUpdateException 等包裝例外時仍判定為逾時。
+    [Fact]
+    public async Task TryHandleAsync_WhenTimeoutWrappedInDbUpdateException_Writes503ServiceUnavailable()
+    {
+        var httpContext = CreateHttpContext();
+        var exception = new DbUpdateException("save", new NpgsqlException("command timeout", new TimeoutException()));
+
+        await CreateHandler().TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        AssertServiceUnavailable(httpContext);
+    }
+
+    // [AER-DB-004] 非逾時的例外維持 500（AER-001 不變）；裸 TimeoutException 非資料庫來源，不得誤判。
+    [Theory]
+    [MemberData(nameof(NonDatabaseTimeoutExceptions))]
+    public async Task TryHandleAsync_WhenNotDatabaseTimeout_Writes500InternalServerError(Exception exception)
+    {
+        var httpContext = CreateHttpContext();
+
+        await CreateHandler().TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        httpContext.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        using var problemDetails = ReadResponseJson(httpContext);
+        problemDetails.RootElement.GetProperty("title").GetString().Should().Be("InternalServerError");
+    }
+
+    public static TheoryData<Exception> NonDatabaseTimeoutExceptions() => new()
+    {
+        new NpgsqlException("connection reset", new IOException("reset")),
+        new TimeoutException("http client timeout"),
+        new InvalidOperationException("boom"),
+    };
+
+    // [AER-DB-005] 日誌為 Warning、帶 TraceId，不含 SQL 與連線字串（例外物件不傳入日誌）。
+    [Fact]
+    public async Task TryHandleAsync_WhenDatabaseTimeout_LogsWarningWithoutSqlOrConnectionString()
+    {
+        var httpContext = CreateHttpContext();
+        var exception = new NpgsqlException($"{SqlSentinel} {ConnectionStringSentinel}", new TimeoutException(ConnectionStringSentinel));
+        exception.Data["sql"] = SqlSentinel;
+        exception.Data["connection"] = ConnectionStringSentinel;
+
+        await CreateHandler().TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        var entry = _logger.Entries.Should().ContainSingle().Subject;
+        entry.Level.Should().Be(LogLevel.Warning);
+        entry.Exception.Should().BeNull();
+        entry.Properties.Should().Contain(new KeyValuePair<string, object?>("TraceId", httpContext.TraceIdentifier));
+        var loggedText = entry.Message + string.Join("|", entry.Properties.Select(p => $"{p.Key}={p.Value}"));
+        loggedText.Should().NotContain(SqlSentinel).And.NotContain(ConnectionStringSentinel);
+    }
+
+    private static void AssertServiceUnavailable(DefaultHttpContext httpContext)
+    {
+        httpContext.Response.StatusCode.Should().Be(StatusCodes.Status503ServiceUnavailable);
+        httpContext.Response.ContentType.Should().StartWith("application/problem+json");
+        using var problemDetails = ReadResponseJson(httpContext);
+        problemDetails.RootElement.GetProperty("status").GetInt32().Should().Be(503);
+        problemDetails.RootElement.GetProperty("title").GetString().Should().Be("ServiceUnavailable");
+        problemDetails.RootElement.GetProperty("traceId").GetString().Should().Be(httpContext.TraceIdentifier);
+        problemDetails.RootElement.TryGetProperty("detail", out _).Should().BeFalse();
     }
 
     private GlobalExceptionHandler CreateHandler() => new(_logger);
