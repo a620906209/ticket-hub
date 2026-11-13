@@ -52,14 +52,14 @@
 - **THEN** API 回應沒有 `Strict-Transport-Security` 標頭
 
 ### Requirement: 文字類回應啟用 gzip
-系統 SHALL 對 `Accept-Encoding` 含 `gzip` 的請求，壓縮回應本文長度達 1024 位元組以上的 JavaScript、CSS、SVG、JSON 與 HTML 回應，並附 `Vary: Accept-Encoding`；其他內容類型與較小的回應 MUST NOT 被壓縮。
+系統 SHALL 對 `Accept-Encoding` 含 `gzip` 的請求，壓縮回應本文長度（依 `Content-Length` 判斷）達 1024 位元組以上的 JavaScript、CSS、SVG、JSON 與 HTML 回應，並附 `Vary: Accept-Encoding`；其他內容類型與帶有 `Content-Length` 且小於 1024 位元組的回應 MUST NOT 被壓縮。
 
 #### Scenario: ESH-010 大型文字資源被壓縮
 - **WHEN** 請求 `Accept-Encoding: gzip` 分別取得大於 1024 位元組的 JavaScript 資源與 CSS 資源
 - **THEN** 兩者回應皆帶 `Content-Encoding: gzip` 與 `Vary: Accept-Encoding`，解壓後內容與原檔相同
 
 #### Scenario: ESH-011 小型回應不壓縮
-- **WHEN** 請求 `Accept-Encoding: gzip` 取得小於 1024 位元組的文字回應
+- **WHEN** 請求 `Accept-Encoding: gzip` 取得帶有 `Content-Length` 且小於 1024 位元組的文字回應
 - **THEN** 回應沒有 `Content-Encoding`
 
 #### Scenario: ESH-012 未宣告 gzip 的請求不壓縮

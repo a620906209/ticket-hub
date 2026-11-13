@@ -12,7 +12,7 @@
 - API `AllowedHosts` 在開發預設維持 `*`；K8s ConfigMap 改注入明確主機清單，K8s 探針補 `Host` 標頭，使不合法 Host 回 400 而探針不受影響。
 - 記錄「前端與 API 同源（皆經 nginx），不加 CORS middleware」的決策。
 - `deploy/api.Dockerfile`、`deploy/web.Dockerfile` 所有 `FROM` 與 `k8s/` 第三方映像改為 `tag@sha256:digest`，文件補更新步驟。
-- `docs/deployment-prerequisites.md` 補前提：nginx 前方須有 TLS 代理並送 `X-Forwarded-Proto: https`。TLS 終結本身不在本 change。
+- `docs/todo/2026-11-02-deployment-prerequisites.md` 補前提：nginx 前方須有 TLS 代理並送 `X-Forwarded-Proto: https`。TLS 終結本身不在本 change。
 - 新增 `scripts/verify-edge-headers.sh` 與 API 整合測試作為驗證。
 
 ## Capabilities
@@ -28,7 +28,7 @@
 ## Impact
 
 - 程式：`deploy/nginx/default.conf`（新增標頭／gzip，含 location 層 `add_header` 繼承處理）、`deploy/api.Dockerfile`、`deploy/web.Dockerfile`、`k8s/10-configmap.yaml`、`k8s/40-api.yaml`（探針 Host）、`k8s/20-postgres.yaml`／`21-redis.yaml`／`22-seq.yaml`（digest）、`scripts/verify-k8s-manifests.sh`（直連 API 的斷言須帶清單內 Host）。API 程式碼不需修改（`AllowedHosts` 為框架既有設定）。
-- 文件：`docs/deployment-prerequisites.md`、`docs/api-conventions.md`（同源／無 CORS）、`docs/review/TODO.md` 狀態。
+- 文件：`docs/todo/2026-11-02-deployment-prerequisites.md`、`docs/api-conventions.md`（同源／無 CORS）、`docs/review/TODO.md` 狀態。
 - 新增：`scripts/verify-edge-headers.sh`、`tests/ProjectC.WebApi.Tests/` 下 Host 驗證整合測試。
 - 對外行為：不合法 Host 直連 API 回 400；瀏覽器收到新標頭，CSP 違規會被擋（需真實瀏覽器驗證）。
 - 排除：Ingress／cert-manager、WAF、限流調整、dev compose 映像釘版。

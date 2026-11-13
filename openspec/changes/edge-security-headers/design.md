@@ -5,7 +5,7 @@
 現況（已查證）：
 - `deploy/nginx/default.conf`：`listen 8080` 純 HTTP；`/api/` 代理到 `http://api:8080`，`Host $host`、`X-Forwarded-For $remote_addr`（覆寫）、`X-Forwarded-Proto $scheme`；`/assets/` 與 `/` 各自用 `add_header Cache-Control`。沒有任何安全標頭、壓縮。
 - API 管線（`Program.cs`）有 `UseForwardedHeaders` 與條件式 `UseHttpsRedirection`，沒有 `UseHsts`、沒有 CORS；`appsettings.json` 的 `AllowedHosts` 為 `*`。
-- K8s：web 以 NodePort 30080 對外；API 探針為 `httpGet`（無 `Host`，kubelet 預設以 Pod IP 當 Host）；`projectc-config` ConfigMap 目前沒有 `AllowedHosts`。
+- K8s：web 以 NodePort 30080 對外（`verify-k8s-manifests.sh` 驗證時覆寫為 `VERIFY_NODEPORT`＝30081，故 tasks 的本機驗證與瀏覽器檢查使用 30081）；API 探針為 `httpGet`（無 `Host`，kubelet 預設以 Pod IP 當 Host）；`projectc-config` ConfigMap 目前沒有 `AllowedHosts`。
 - VPS 的 80／443 由既有反向代理佔用，HTTPS 沿用它（`docs/todo/2026-11-02-deployment-prerequisites.md`）；本機 kind／Docker Desktop 只有 HTTP。
 - 前端無外部 CDN／字型／腳本；15 個 `.vue` 使用行內 `style`（含 Element Plus 動態樣式）。
 - repo 內沒有 production compose（只有 dev compose 與 `deploy/docker-compose.verify.yml`），「正式設定」在本 change 指 K8s ConfigMap 與部署前提文件。
@@ -49,7 +49,7 @@ HostFiltering 在 ASP.NET Core 的啟動篩選器階段執行，早於本專案�
 前端與 API 都在同一個 nginx 來源，瀏覽器不會發跨來源請求；未註冊 CORS 時框架不輸出任何 `Access-Control-*`，等於預設拒絕。加一個「空白」CORS policy 只會製造日後被誤放寬的入口。決策記錄在 `docs/api-conventions.md`，並以整合測試固定（ESH-013）。
 
 ### 決策 6：gzip 在 nginx，不在 API
-`gzip on; gzip_types text/css text/javascript application/javascript application/json image/svg+xml text/plain; gzip_min_length 1024; gzip_vary on; gzip_proxied any;`（`text/html` 為預設類型；`.js` 的 Content-Type 依映像內 `mime.types` 可能是 `text/javascript` 或 `application/javascript`，兩者都列，並以 `nginx -T` 核對）。API 不開 `UseResponseCompression`，避免雙重壓縮。BREACH：此攻擊需要「回應反射攻擊者可控內容，且同一回應含祕密」；本專案 JSON 回應不反射請求內容，登入回應的 token 位於獨立回應，風險低，接受；日後新增反射輸入的端點時須重新評估。
+`gzip on; gzip_types text/css text/javascript application/javascript application/json image/svg+xml text/plain; gzip_min_length 1024; gzip_vary on; gzip_proxied any;`（`text/html` 為預設類型；`.js` 的 Content-Type 依映像內 `mime.types` 可能是 `text/javascript` 或 `application/javascript`，兩者都列，並以 `nginx -T` 核對）。`gzip_min_length` 只依回應的 `Content-Length` 判斷；上游無 `Content-Length` 的 chunked 回應不受此下限限制而會被壓縮，因此 ESH-011 的小型回應下限只對具 `Content-Length` 的回應保證，`/api/` 小型 JSON 若走 chunked 被壓縮屬可接受（內容類型白名單仍生效）。API 不開 `UseResponseCompression`，避免雙重壓縮。BREACH：此攻擊需要「回應反射攻擊者可控內容，且同一回應含祕密」；本專案 JSON 回應不反射請求內容，登入回應的 token 位於獨立回應，風險低，接受；日後新增反射輸入的端點時須重新評估。
 
 ### 決策 7：digest 釘版範圍與寫法
 範圍：兩份 Dockerfile 的所有外部 `FROM`、`k8s/` 的 postgres／redis／seq。寫成 `name:tag@sha256:...`，tag 保留供閱讀與 Renovate／Dependabot 日後解析；Docker 依 digest 取內容、忽略 tag。digest 取多架構索引的 digest（`docker buildx imagetools inspect <name:tag>` 輸出的 `Digest:`），否則在不同架構（Apple Silicon、CI）拉不到。dev compose 映像不動。
