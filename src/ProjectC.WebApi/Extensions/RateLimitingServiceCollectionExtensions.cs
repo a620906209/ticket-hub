@@ -90,7 +90,7 @@ public static class RateLimitingServiceCollectionExtensions
                 };
 
                 context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-                await context.HttpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
+                await ProblemDetailsResponseWriter.WriteAsync(context.HttpContext, problemDetails, cancellationToken);
             };
 
             static RateLimitPartition<string> CreateMemberPartition(HttpContext httpContext)

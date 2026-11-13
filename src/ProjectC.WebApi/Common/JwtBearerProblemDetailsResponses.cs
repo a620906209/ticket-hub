@@ -92,7 +92,6 @@ public static class JwtBearerProblemDetailsResponses
             Extensions = { ["traceId"] = httpContext.TraceIdentifier },
         };
 
-        return httpContext.Response.WriteAsJsonAsync(
-            problemDetails, options: null, contentType: "application/problem+json", httpContext.RequestAborted);
+        return ProblemDetailsResponseWriter.WriteAsync(httpContext, problemDetails, httpContext.RequestAborted);
     }
 }

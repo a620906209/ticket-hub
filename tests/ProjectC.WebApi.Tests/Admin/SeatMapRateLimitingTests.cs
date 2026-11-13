@@ -51,6 +51,7 @@ public class SeatMapRateLimitingTests : IClassFixture<SeatMapRateLimitedWebAppli
 
         rejected.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
         rejected.Headers.Contains("Retry-After").Should().BeTrue();
+        rejected.Content.Headers.ContentType!.ToString().Should().Be("application/problem+json");
         using (var problem = JsonDocument.Parse(await rejected.Content.ReadAsStringAsync()))
         {
             problem.RootElement.GetProperty("status").GetInt32().Should().Be(429);

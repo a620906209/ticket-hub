@@ -1,13 +1,12 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
+using ProjectC.WebApi.Common;
 
 namespace ProjectC.WebApi.ExceptionHandling;
 
 public class GlobalExceptionHandler : IExceptionHandler
 {
-    private const string ProblemJsonContentType = "application/problem+json";
-
     private readonly ILogger<GlobalExceptionHandler> _logger;
 
     public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger)
@@ -30,10 +29,7 @@ public class GlobalExceptionHandler : IExceptionHandler
         };
 
         httpContext.Response.StatusCode = problemDetails.Status!.Value;
-
-        // 資料庫逾時依 api-error-responses 規格為 application/problem+json；其餘分支維持既有的預設 content type。
-        var contentType = problemDetails.Status == StatusCodes.Status503ServiceUnavailable ? ProblemJsonContentType : null;
-        await httpContext.Response.WriteAsJsonAsync(problemDetails, options: null, contentType, cancellationToken);
+        await ProblemDetailsResponseWriter.WriteAsync(httpContext, problemDetails, cancellationToken);
 
         return true;
     }
