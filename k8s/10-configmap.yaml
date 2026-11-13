@@ -15,6 +15,8 @@ data:
   Jwt__AccessTokenExpirationMinutes: "30"
   Auth__RefreshTokenExpirationDays: "14"
   Auth__PasswordResetTokenExpirationMinutes: "15"
+  # 連線池上限：(API 副本數 2 + 滾動更新 surge 1) × 25 + 3 個 superuser 保留連線 = 78 ≤ PostgreSQL max_connections 100。調整副本數時須重算（docs/todo/2026-11-02-deployment-prerequisites.md「資料庫連線池容量」）；25 為估算值，未經 k6 實測。
+  Database__MaxPoolSize: "25"
   Seq__ServerUrl: "http://seq:5341"
   ConnectionStrings__Redis: "redis:6379"
   AdminBootstrap__Email: "admin@local.dev"

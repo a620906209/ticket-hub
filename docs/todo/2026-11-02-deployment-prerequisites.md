@@ -48,6 +48,15 @@
 - 若 web nginx 前還有外層代理（例如 VPS 的 NPM），nginx 的 `$remote_addr` 是外層代理位址，`X-Forwarded-For` 被覆寫成該位址後，全站共用一個限流分區，登入與 `public-read` 限流等同失效（一人超額全站被擋）。
 - 須在 nginx 以 `real_ip` 模組（`set_real_ip_from` 限定外層代理位址、`real_ip_header`）還原真實用戶端位址，屬後續 change ②；在此之前不得把含外層代理的環境視為限流已生效。
 
+### 5. 資料庫連線池容量（db-timeout-pool-tuning）
+
+- 每個 API 實例最多 `Database:MaxPoolSize` 條連線（預設 100）。上限公式：`(副本數 + 滾動更新 surge) × MaxPoolSize + superuser_reserved_connections（預設 3） ≤ PostgreSQL max_connections`（預設 100）。
+- k8s：`(2 + 1) × 25 + 3 = 78 ≤ 100`，`k8s/10-configmap.yaml` 設 `Database__MaxPoolSize: "25"`；25 為估算值，未經 k6 實測。調整副本數或 surge 時須重算。
+- compose：單一副本，`100 = 100`，維持預設不調整。
+- `/health/ready` 的探針連線不走 EF 連線池，但仍佔用 PostgreSQL `max_connections`，估算餘量時要計入。
+- `Database:CommandTimeoutSeconds`、`ConnectionTimeoutSeconds`、`MaxPoolSize` 會覆寫連線字串內的同名參數（`Timeout`、`MaxPoolSize`）；調整請改 `Database` 設定，不要改連線字串。
+- 命令逾時與池耗盡等待逾時回 503 `ServiceUnavailable`（見 `docs/api-conventions.md`）；重試（execution strategy）不在此 change，另案 `db-retry-execution-strategy`。
+
 ## VPS 部署的已知限制（2026-10-17 記錄，開提案時須重新確認）
 
 - 主機與其他專案共用，可用記憶體約 858MB，跑不動 K8s 控制平面，因此以 compose 部署。

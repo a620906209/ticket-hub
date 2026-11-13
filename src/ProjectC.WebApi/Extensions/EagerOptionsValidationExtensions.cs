@@ -63,6 +63,9 @@ public static class EagerOptionsValidationExtensions
         // PublicReadRateLimitingOptions 同樣沒有 ValidateOnStart()，理由與上面相同（reverse-proxy-forwarded-headers design.md 決策 6）。
         app.Services.GetRequiredService<PublicReadRateLimitingOptions>();
 
+        // DatabaseOptions 同樣沒有 ValidateOnStart()，理由與上面相同（db-timeout-pool-tuning design.md 決策 1）。
+        app.Services.GetRequiredService<DatabaseOptions>();
+
         // 信任網段設定錯誤（非法 CIDR、空陣列）須在啟動時失敗，不延遲到第一個請求
         // （reverse-proxy-forwarded-headers design.md 決策 1）。
         app.Services.ResolveForwardedHeadersOptions();

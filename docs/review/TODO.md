@@ -39,7 +39,7 @@
 | | | ⑤ `email-delivery`：真實 Email 實作（SMTP／SendGrid），密碼重設改為 Handler 內寄送 | H-2、H-1 | ④ | M |
 | | | ⑥ `payment-gateway-integration`：真實金流（授權→扣款→webhook 驗簽→冪等→對帳），含 Declined／逾時／重複 webhook 情境 | **C-1(a)** | ④、⑤（付款結果通知） | L |
 | **3. 資料安全與一致性** | 不丟資料、不重複處理 | ⑦ `order-cleanup-leader-lock`（已實作，待歸檔）：清理服務取 `IDistributedLock`（Redis 不可用 fail-open）、並發取消測試、多副本整合測試；FOR UPDATE／xmin 部分原本已由現有鎖處理，不需改動 | H-6 | 無（建議在⑥之前完成，金流接上後重複取消代價更高） | S–M |
-| | | ⑧ `db-resilience`：`EnableRetryOnFailure`（execution strategy 包交易）、`CommandTimeout`、連線池調校＋k6 複測 | M-1 | ⑦（兩者都碰 OrderService 交易邊界） | M |
+| | | ⑧ `db-timeout-pool-tuning`（已實作，待歸檔）：`CommandTimeout`、連線逾時、`MaxPoolSize`＋逾時回 503；重試（`EnableRetryOnFailure`＋execution strategy 包交易）與 k6 複測拆至 `db-retry-execution-strategy` | M-1 | ⑦（兩者都碰 OrderService 交易邊界） | M |
 | | | ⑨ `postgres-backup-restore`：pg_dump CronJob＋外部儲存、RPO/RTO 文件、一次還原演練 | H-5 | 無 | M |
 | **4. 可觀測性與交付管線** | 上線後看得見、改得動 | ⑩ `metrics-and-alerts`：OpenTelemetry Metrics＋`/metrics`、4 條告警、Grafana dashboard JSON 進版控 | H-7 | 無 | M |
 | | | ⑪ `ci-quality-gates`：ReportGenerator 合併覆蓋率＋門檻、trivy image scan、gitleaks、映像建置與 push | M-4 | 無 | M |
@@ -172,7 +172,7 @@
 
 ## 🟡 Medium
 
-### M-1 DB 連線無 retry／timeout／池調校
+### M-1 DB 連線無 retry／timeout／池調校（timeout／池上限部分已實作，待歸檔：change `db-timeout-pool-tuning`；retry 拆至 `db-retry-execution-strategy`）
 - **位置**：`src/ProjectC.WebApi/Extensions/PersistenceServiceCollectionExtensions.cs:18-19`
 - **修法**：`EnableRetryOnFailure`（注意與 `FOR UPDATE` 交易的相容性，需使用 execution strategy 包交易）、`CommandTimeout`、`MaxPoolSize` 依 k6 結果調整。
 - **驗收**：整合測試模擬瞬斷後成功；k6 冷啟動 P95 複測。
