@@ -142,9 +142,8 @@ else
   fail "ESH-001" "deploy/web.Dockerfile 沒有複製 security-headers.conf 至 /$SNIPPET_TARGET"
 fi
 for location in "/api/" "/assets/" "/"; do
-  block="$(awk -v loc="    location $location {" '$0 == loc {p=1} p {print} p && /^    }/ {exit}' "$NGINX_DIR/default.conf" | tr -d '')"
-  if printf '%s
-' "$block" | grep -qF "include /$SNIPPET_TARGET;"; then
+  block="$(awk -v loc="    location $location {" '$0 == loc {p=1} p {print} p && /^    }/ {exit}' "$NGINX_DIR/default.conf" | tr -d '\r')"
+  if printf '%s\n' "$block" | grep -qF "include /$SNIPPET_TARGET;"; then
     pass "ESH-001" "default.conf 的 location $location 有 include security-headers.conf"
   else
     fail "ESH-001" "default.conf 的 location $location 沒有 include security-headers.conf"
