@@ -20,7 +20,7 @@
 
 ## 2. 錯誤格式
 
-所有錯誤回應為 RFC 7807 `ProblemDetails`（`application/problem+json`）。
+所有錯誤回應為 RFC 7807 `ProblemDetails`（`application/problem+json`）。框架層錯誤（500／400／408／413／429／503）的 Content-Type 一律為 `application/problem+json`（不附 charset），詳見 `api-error-responses` 主 spec；寫出統一走 `ProblemDetailsResponseWriter`。
 
 ### 業務錯誤（Handler 回傳 `Result`）
 

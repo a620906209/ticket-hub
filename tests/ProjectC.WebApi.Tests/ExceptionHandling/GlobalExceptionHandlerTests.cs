@@ -71,6 +71,44 @@ public class GlobalExceptionHandlerTests
         loggedText.Should().NotContain(BodySentinel).And.NotContain(ExceptionMessageSentinel);
     }
 
+    // [AER-036] 未預期例外的 500 回應 Content-Type 為 application/problem+json。
+    [Fact]
+    public async Task TryHandleAsync_WhenUnexpectedException_WritesProblemJsonContentType()
+    {
+        var httpContext = CreateHttpContext();
+
+        await CreateHandler().TryHandleAsync(httpContext, new InvalidOperationException("boom"), CancellationToken.None);
+
+        httpContext.Response.ContentType.Should().Be("application/problem+json");
+    }
+
+    // [AER-037] BadHttpRequestException 的 400／408／413 回應 Content-Type 為 application/problem+json。
+    [Theory]
+    [InlineData(StatusCodes.Status400BadRequest)]
+    [InlineData(StatusCodes.Status408RequestTimeout)]
+    [InlineData(StatusCodes.Status413PayloadTooLarge)]
+    public async Task TryHandleAsync_WhenBadHttpRequest_WritesProblemJsonContentType(int statusCode)
+    {
+        var httpContext = CreateHttpContext();
+
+        await CreateHandler().TryHandleAsync(
+            httpContext, new BadHttpRequestException(ExceptionMessageSentinel, statusCode), CancellationToken.None);
+
+        httpContext.Response.ContentType.Should().Be("application/problem+json");
+    }
+
+    // [AER-038] 資料庫逾時的 503 回應 Content-Type 為 application/problem+json（固定既有行為）。
+    [Fact]
+    public async Task TryHandleAsync_WhenDatabaseTimeout_WritesProblemJsonContentType()
+    {
+        var httpContext = CreateHttpContext();
+
+        await CreateHandler().TryHandleAsync(
+            httpContext, new NpgsqlException("command timeout", new TimeoutException()), CancellationToken.None);
+
+        httpContext.Response.ContentType.Should().Be("application/problem+json");
+    }
+
     // [RBL-013] 非本文讀取錯誤的例外不得被新分支吞掉，維持 500 + Error。
     [Fact]
     public async Task TryHandleAsync_WhenOtherException_Returns500AndLogsError()
@@ -171,7 +209,7 @@ public class GlobalExceptionHandlerTests
     private static void AssertServiceUnavailable(DefaultHttpContext httpContext)
     {
         httpContext.Response.StatusCode.Should().Be(StatusCodes.Status503ServiceUnavailable);
-        httpContext.Response.ContentType.Should().StartWith("application/problem+json");
+        httpContext.Response.ContentType.Should().Be("application/problem+json");
         using var problemDetails = ReadResponseJson(httpContext);
         problemDetails.RootElement.GetProperty("status").GetInt32().Should().Be(503);
         problemDetails.RootElement.GetProperty("title").GetString().Should().Be("ServiceUnavailable");

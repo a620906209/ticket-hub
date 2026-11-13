@@ -138,6 +138,7 @@ public class RequestBodyLimitsKestrelTests : IClassFixture<KestrelWebApplication
         using var response = await buyerClient.PostAsync(OrdersPath, CreateJsonContent(body));
 
         response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        response.Content.Headers.ContentType!.ToString().Should().Be("application/problem+json");
         var problem = ParseProblemDetails(await response.Content.ReadAsStringAsync());
         problem.Status.Should().Be(413);
         problem.Title.Should().Be("PayloadTooLarge");
