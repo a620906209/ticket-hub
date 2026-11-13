@@ -29,7 +29,7 @@
 `Content-Security-Policy` 的值 SHALL 為：`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`。`script-src` MUST NOT 含 `'unsafe-inline'`、`'unsafe-eval'` 或任何外部來源；`style-src` 允許 `'unsafe-inline'` 的理由與限制見 design.md。
 
 #### Scenario: ESH-005 CSP 值逐字相符
-- **WHEN** 請求任一路徑
+- **WHEN** 請求任一 location 內的路徑（`/`、`/assets/...`、`/api/...`）
 - **THEN** `Content-Security-Policy` 標頭值與本 Requirement 所列字串逐字相同
 
 #### Scenario: ESH-006 買家、後台與核銷頁在 CSP 下正常運作

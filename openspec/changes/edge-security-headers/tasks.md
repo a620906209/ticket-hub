@@ -68,7 +68,7 @@
   - 測試先行（`tests/ProjectC.WebApi.Tests/Startup/EdgeBoundaryNoCorsNoHstsTests.cs`）：
     - `GetHealthLive_WhenCrossOriginRequest_HasNoAccessControlAllowHeaders`
     - `Options_WhenPreflightFromForeignOrigin_HasNoAccessControlAllowHeaders`
-    - `GetApiEvents_WhenForwardedProtoHttpsFromTrustedProxy_HasNoStrictTransportSecurity`（須用非 loopback 的 Host，如 `app.example`，並讓 `X-Forwarded-Proto: https` 經 `UseForwardedHeaders` 還原為 https；`HstsMiddleware` 預設排除 loopback 且只在 `IsHttps` 時送標頭，否則 `UseHsts` mutate 後也不會失敗）
+    - `GetApiEvents_WhenForwardedProtoHttpsFromTrustedProxy_HasNoStrictTransportSecurity`（須用非 loopback 的 Host，如 `app.example`，並讓 `X-Forwarded-Proto: https` 經 `UseForwardedHeaders` 還原為 https；`HstsMiddleware` 預設排除 loopback 且只在 `IsHttps` 時送標頭，否則 `UseHsts` mutate 後也不會失敗；TestServer 的 `RemoteIpAddress` 預設為 null，可能不在受信任網段而不還原 `X-Forwarded-Proto`，測試須明確設定來源位址或以 `ForwardedHeaders:TrustedNetworks` 涵蓋，並先確認未 mutate 時請求確實被還原為 https）
   - TDD：特性測試（程式碼不需變更，無法有 RED）；**還原驗證**：`mutate` 暫時加入 `AddCors`／`UseCors`（允許任意來源）與 `UseHsts`，確認對應測試失敗後還原，一次一個改動。
   - GREEN：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~EdgeBoundaryNoCorsNoHstsTests"` 全數通過
   - 紀錄（原文）：
@@ -92,8 +92,8 @@
 ## 5. 文件
 
 - [ ] 5.1 文件同步（TDD N/A：純文件，由審查核對；`bash scripts/check-doc-paths.sh` 須通過）
-  - `docs/todo/2026-11-02-deployment-prerequisites.md`（部署前提現行位置）：nginx 前方須有 TLS 代理並送 `X-Forwarded-Proto: https`；`AllowedHosts` 上線前必改為實際網域；與現有「80／443 由既有反向代理佔用」一節對照；本機或維運以 port-forward／NodePort 存取須用清單內主機名稱（如 `localhost`），以 `127.0.0.1` 或節點 IP 經 nginx 呼叫 `/api/` 會得 400。
-  - `docs/api-conventions.md`：「框架層錯誤」補 HostFiltering 400（無 `ProblemDetails` 本文）；新增同源／無 CORS 決策一行。
+  - `docs/todo/2026-11-02-deployment-prerequisites.md`（部署前提現行位置）：nginx 前方須有 TLS 代理並送 `X-Forwarded-Proto: https`（須覆寫為單一值 `https`，若附加成 `https, http` 則 HSTS 不送，屬 fail-safe）；`AllowedHosts` 上線前必改為實際網域；與現有「80／443 由既有反向代理佔用」一節對照；本機或維運以 port-forward／NodePort 存取須用清單內主機名稱（如 `localhost`），以 `127.0.0.1` 或節點 IP 經 nginx 呼叫 `/api/` 會得 400。
+  - `docs/api-conventions.md`：「框架層錯誤」補 HostFiltering 400（無 `ProblemDetails` 本文），並修正第 23 行「框架層錯誤 Content-Type 一律為 problem+json」使 HostFiltering 400 明列為例外；新增同源／無 CORS 決策一行。
   - 新增 `docs/2026-11-13-image-pinning.md`：取得 digest 指令、tag 與 digest 同步更新、更新後驗證指令（CIP-005）。
   - `docs/review/TODO.md`：H-3、L-5、L-8 與 ② 狀態更新；順手修正 ⑧ `db-timeout-pool-tuning` 等已歸檔項目的過期狀態。
   - 紀錄：
