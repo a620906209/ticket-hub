@@ -8,6 +8,9 @@ data:
   # Production：不啟用 OpenAPI／SwaggerUI、不執行展示用 seeder；首位 Admin 由 AdminBootstrap 建立（Password 在 Secret）。
   ASPNETCORE_ENVIRONMENT: "Production"
   ASPNETCORE_URLS: "http://+:8080"
+  # 只放行這些 Host（HostFiltering，其餘回 400）。localhost 供本機驗證／NodePort，api 供叢集內探針與 web 代理；
+  # 上線前須加入實際網域，否則經前方代理轉入的請求（Host 為網域）會被擋。
+  AllowedHosts: "localhost;api"
   # 付款與 Email 目前仍是 Mock；Production 預設拒絕以 Mock 啟動，這個旗標明示放行。僅限本機驗證／展示，不得用於收費環境。
   Mocks__AllowInProduction: "true"
   Jwt__Issuer: "ProjectC.WebApi"

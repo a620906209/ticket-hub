@@ -33,13 +33,13 @@
 |---|---|---|---|---|---|
 | **0. 立即（無 spec 小改）** | 清掉零成本項目 | 無 change；依「無對應 spec」條款直接改 | H-11 文件化時鐘依賴（寫進 runbook 草稿）、M-16 決策（Logout 維持匿名並記錄理由，或改）、M-17 `ShutdownTimeout`＋`terminationGracePeriodSeconds`、M-9 dummy hash（純 Handler 內改，TDD 單元測試） | 無 | 半天 |
 | **1. 代理層與認證邊界** | 任何對外曝露前必須完成 | ① `reverse-proxy-forwarded-headers`：nginx 轉送標頭、`UseForwardedHeaders`＋信任代理、限流 key 改用轉送後 IP、`captcha` 同步、公開讀取端點加 IP 限流 | **C-2**、M-3 | 無 | M |
-| | | ② `edge-security-headers`：TLS 終結（Ingress／cert-manager 或 nginx）、HSTS、CSP／X-Frame／nosniff、`AllowedHosts`、CORS 決策、gzip、digest 釘版 | H-3、L-5、L-8 | ① 完成（HSTS 需 Proto 正確） | M |
+| | | ② ✅ `edge-security-headers`（已實作，待歸檔；TLS 終結改為沿用前方代理，不在此 change）：TLS 終結（Ingress／cert-manager 或 nginx）、HSTS、CSP／X-Frame／nosniff、`AllowedHosts`、CORS 決策、gzip、digest 釘版 | H-3、L-5、L-8 | ① 完成（HSTS 需 Proto 正確） | M |
 | | | ③ `secrets-and-observability-hardening`：Seq 認證＋API key＋PVC、Redis `requirepass`＋AOF＋PVC、Admin email 移 Secret、migrator 改環境變數、Sealed／External Secrets | H-4、H-8、M-7 | 無（可與②並行，但建議序跑以免審查互擾） | M |
-| **2. 金流與通知鏈** | 從「展示」變「能收錢」 | ④ ✅ `production-guard-for-mocks`：Production 下 Mock 付款／Email 綁定即啟動失敗（啟動時強制解析驗證，`ResolveEagerlyValidatedOptions`）；README 同步（已實作，待歸檔） | **C-1(b)**、H-2 前置 | 無 | S |
+| **2. 金流與通知鏈** | 從「展示」變「能收錢」 | ④ ✅ `production-guard-for-mocks`：Production 下 Mock 付款／Email 綁定即啟動失敗（啟動時強制解析驗證，`ResolveEagerlyValidatedOptions`）；README 同步（已歸檔 2026-11-13） | **C-1(b)**、H-2 前置 | 無 | S |
 | | | ⑤ `email-delivery`：真實 Email 實作（SMTP／SendGrid），密碼重設改為 Handler 內寄送 | H-2、H-1 | ④ | M |
 | | | ⑥ `payment-gateway-integration`：真實金流（授權→扣款→webhook 驗簽→冪等→對帳），含 Declined／逾時／重複 webhook 情境 | **C-1(a)** | ④、⑤（付款結果通知） | L |
-| **3. 資料安全與一致性** | 不丟資料、不重複處理 | ⑦ `order-cleanup-leader-lock`（已實作，待歸檔）：清理服務取 `IDistributedLock`（Redis 不可用 fail-open）、並發取消測試、多副本整合測試；FOR UPDATE／xmin 部分原本已由現有鎖處理，不需改動 | H-6 | 無（建議在⑥之前完成，金流接上後重複取消代價更高） | S–M |
-| | | ⑧ `db-timeout-pool-tuning`（已實作，待歸檔）：`CommandTimeout`、連線逾時、`MaxPoolSize`＋逾時回 503；重試（`EnableRetryOnFailure`＋execution strategy 包交易）與 k6 複測拆至 `db-retry-execution-strategy` | M-1 | ⑦（兩者都碰 OrderService 交易邊界） | M |
+| **3. 資料安全與一致性** | 不丟資料、不重複處理 | ⑦ ✅ `order-cleanup-leader-lock`（已歸檔 2026-11-13）：清理服務取 `IDistributedLock`（Redis 不可用 fail-open）、並發取消測試、多副本整合測試；FOR UPDATE／xmin 部分原本已由現有鎖處理，不需改動 | H-6 | 無（建議在⑥之前完成，金流接上後重複取消代價更高） | S–M |
+| | | ⑧ ✅ `db-timeout-pool-tuning`（已歸檔 2026-11-13）：`CommandTimeout`、連線逾時、`MaxPoolSize`＋逾時回 503；重試（`EnableRetryOnFailure`＋execution strategy 包交易）與 k6 複測拆至 `db-retry-execution-strategy` | M-1 | ⑦（兩者都碰 OrderService 交易邊界） | M |
 | | | ⑨ `postgres-backup-restore`：pg_dump CronJob＋外部儲存、RPO/RTO 文件、一次還原演練 | H-5 | 無 | M |
 | **4. 可觀測性與交付管線** | 上線後看得見、改得動 | ⑩ `metrics-and-alerts`：OpenTelemetry Metrics＋`/metrics`、4 條告警、Grafana dashboard JSON 進版控 | H-7 | 無 | M |
 | | | ⑪ `ci-quality-gates`：ReportGenerator 合併覆蓋率＋門檻、trivy image scan、gitleaks、映像建置與 push | M-4 | 無 | M |
@@ -97,7 +97,7 @@
 - **驗收**：Production 無 Email 設定時啟動失敗；有設定時 ConfirmOrder 流程觸發一次寄送（以 fake transport 斷言）。
 - **工時**：M
 
-### H-3 無 TLS／HSTS／安全標頭／CORS 政策，`AllowedHosts: "*"`
+### H-3 無 TLS／HSTS／安全標頭／CORS 政策，`AllowedHosts: "*"`（安全標頭、條件式 HSTS、`AllowedHosts`、同源／無 CORS 決策已實作，待歸檔：change `edge-security-headers`；TLS 終結不在該 change，沿用前方代理，前提見 `docs/todo/2026-11-02-deployment-prerequisites.md` 第 6 項；HSTS 由 nginx 送、API 不加 `UseHsts`）
 - **維度**：資安 A02／A05
 - **位置**：`deploy/nginx/default.conf:2`、`k8s/50-web.yaml`、`src/ProjectC.WebApi/appsettings.json:18`、`Program.cs`
 - **問題**：全程明文；無 CSP／X-Frame-Options／X-Content-Type-Options／Referrer-Policy；Host header 不受限。
@@ -172,7 +172,7 @@
 
 ## 🟡 Medium
 
-### M-1 DB 連線無 retry／timeout／池調校（timeout／池上限部分已實作，待歸檔：change `db-timeout-pool-tuning`；retry 拆至 `db-retry-execution-strategy`）
+### M-1 DB 連線無 retry／timeout／池調校（timeout／池上限部分已歸檔 2026-11-13：change `db-timeout-pool-tuning`；retry 拆至 `db-retry-execution-strategy`）
 - **位置**：`src/ProjectC.WebApi/Extensions/PersistenceServiceCollectionExtensions.cs:18-19`
 - **修法**：`EnableRetryOnFailure`（注意與 `FOR UPDATE` 交易的相容性，需使用 execution strategy 包交易）、`CommandTimeout`、`MaxPoolSize` 依 k6 結果調整。
 - **驗收**：整合測試模擬瞬斷後成功；k6 冷啟動 P95 複測。
@@ -270,7 +270,7 @@
 ### L-4 LICENSE／SECURITY.md 缺失 `[文件]`
 - 工時 S。
 
-### L-5 映像未釘 digest
+### L-5 映像未釘 digest（✅ 已實作，待歸檔：change `edge-security-headers`；更新步驟見 `docs/2026-11-13-image-pinning.md`）
 - **位置**：`deploy/api.Dockerfile:5`、`deploy/web.Dockerfile:4`
 - 工時 S。
 
@@ -279,7 +279,7 @@
 ### L-7 API 版本化策略 `[文件]`
 - 記錄「單版本、破壞性變更即新路徑」決策即可。工時 S。
 
-### L-8 nginx 無 gzip
+### L-8 nginx 無 gzip（✅ 已實作，待歸檔：change `edge-security-headers`）
 - 工時 S。
 
 ### L-9 `.agents/`、`.claude/agents/`、`.devin/rules/` 三處並存
