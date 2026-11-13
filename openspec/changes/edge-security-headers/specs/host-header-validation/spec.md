@@ -11,7 +11,7 @@
 
 #### Scenario: HHV-001 不在清單內的 Host 被拒
 - **WHEN** `AllowedHosts` 為 `app.example`，請求帶 `Host: evil.example`，路徑為 `/health/live` 或任一 `/api/...`
-- **THEN** 回應狀態碼為 400，請求不進入端點處理
+- **THEN** 回應狀態碼為 400（HostFiltering 於應用程式管線之前拒絕，本 change 的測試只斷言狀態碼）
 
 #### Scenario: HHV-002 清單內的 Host 正常處理
 - **WHEN** `AllowedHosts` 為 `app.example`，請求帶 `Host: app.example`（或 `app.example:8443`）請求 `/health/live`
@@ -29,7 +29,7 @@ K8s 部署設定（`k8s/10-configmap.yaml`）MUST 以環境變數提供明確的
 - **THEN** 存在 `AllowedHosts` 設定，值為非空且不含 `*` 的主機清單，含 `api`
 
 #### Scenario: HHV-005 已部署的 API 拒絕偽造 Host
-- **WHEN** 以 `docs/review/TODO.md` H-3 的驗收方式，對已部署的 API 以 `Host: evil` 請求 `/health/live`
+- **WHEN** 對已部署的 API 以 `Host: evil` 請求 `/health/live`（等同 `curl -H "Host: evil" <API 位址>/health/live`）
 - **THEN** 回應狀態碼為 400
 
 ### Requirement: 探針與經 nginx 轉發的請求在限制 Host 下維持可用

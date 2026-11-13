@@ -24,7 +24,7 @@
 ## Decisions
 
 ### 決策 1：標頭集中在 nginx，以 snippet include 到每個 location
-`add_header` 只要某個 location 自己有 `add_header`，就不會繼承上層（server／http）的 `add_header`。現有 `/assets/`、`/` 都有 `add_header Cache-Control`，若把安全標頭寫在 server 層，這兩處會靜默遺漏。作法：新增 `deploy/nginx/security-headers.conf`（內含全部 `add_header ... always`），在每個 location 以 `include` 引入（含 `/api/`、`/assets/`、`/`），Dockerfile 一併 COPY。`always` 使 4xx／5xx 也帶標頭。保證範圍為落在 location 內的回應；nginx 在 server 層直接產生的錯誤（畸形請求 400、414 等）不經 location，不帶標頭，這類回應沒有可被瀏覽器渲染的內容，接受。
+`add_header` 只要某個 location 自己有 `add_header`，就不會繼承上層（server／http）的 `add_header`。現有 `/assets/`、`/` 都有 `add_header Cache-Control`，若把安全標頭寫在 server 層，這兩處會靜默遺漏。作法：新增 `deploy/nginx/security-headers.conf`（內含全部 `add_header ... always`），在每個 location 以 `include` 引入（含 `/api/`、`/assets/`、`/`），Dockerfile 一併 COPY 到 `/etc/nginx/snippets/security-headers.conf`（不可放 `/etc/nginx/conf.d/`，否則會被 `include conf.d/*.conf` 當 http 層設定載入而報錯）。`always` 使 4xx／5xx 也帶標頭。保證範圍為落在 location 內的回應；nginx 在 server 層直接產生的錯誤（畸形請求 400、414 等）不經 location，不帶標頭，這類回應沒有可被瀏覽器渲染的內容，接受。
 替代方案：server 層一處定義＋各 location 重複 Cache-Control——不採用，因為任一 location 日後新增 `add_header` 就會再次遺漏；include 方式遺漏時是「少 include 一行」，且由驗證腳本逐路徑斷言。
 API 不自行送這些標頭，避免與 nginx 重複（ESH-003「只出現一次」）。
 
@@ -40,7 +40,7 @@ nginx 本身只聽 HTTP，`$scheme` 恆為 `http`，不能用來判斷。用 `ma
 API 不加 `UseHsts`：與 nginx 重複，且 `UseHsts` 在 API 看到的協定恆為 `http` 時永遠不會輸出，沒有意義。此為與 TODO 建議（API `UseHsts`）的偏離，理由同上。
 
 ### 決策 4：`AllowedHosts` 由部署設定注入；nginx 保留原始 Host
-框架的 HostFiltering 讀 `AllowedHosts`，不需要改程式碼（`appsettings.json` 維持 `*` 作為開發預設，HHV-003）。nginx 以 `proxy_set_header Host $host` 轉發，所以 API 看到的是使用者的對外網域，清單必須包含它（HHV-007／008）；本機驗證用 `localhost`。ConfigMap 加 `AllowedHosts: "localhost;api"`（以分號分隔），並在註解與部署前提文件說明上線前改為實際網域。
+框架的 HostFiltering 讀 `AllowedHosts`，不需要改程式碼（`appsettings.json` 維持 `*` 作為開發預設，HHV-003）。nginx 以 `proxy_set_header Host $host` 轉發，所以 API 看到的是使用者的對外網域，清單必須包含它（HHV-007／008）；本機驗證用 `localhost`；以 `127.0.0.1` 或節點 IP 經 nginx 存取時 `/api/` 會得 400（靜態頁正常）。取捨：不把 `127.0.0.1` 加入清單，維持清單最小，文件與驗證一律用 `localhost`。ConfigMap 加 `AllowedHosts: "localhost;api"`（以分號分隔），並在註解與部署前提文件說明上線前改為實際網域。
 探針：kubelet 的 `httpGet` 預設以 Pod IP 當 Host，會被 HostFiltering 擋成 400，導致 Pod 永遠 NotReady。三個探針都加 `httpHeaders: [{name: Host, value: api}]`。`api` 在清單內，作為叢集內服務名稱。
 HostFiltering 在 ASP.NET Core 的啟動篩選器階段執行，早於本專案管線，因此探針路徑也受限制（HHV-001）。
 替代方案：把 `/health/*` 排除在 Host 驗證外——不採用，需要自訂 middleware，且為了探針放寬驗證等於留下旁路。

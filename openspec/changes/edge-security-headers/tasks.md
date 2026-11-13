@@ -35,7 +35,8 @@
 
 - [ ] 1.1 API 整合測試固定 Host 驗證行為（對應 HHV-001、002、003）
   - 測試先行（`tests/ProjectC.WebApi.Tests/Startup/HostFilteringTests.cs`，`WithWebHostBuilder` 覆寫 `AllowedHosts`）：
-    - `GetHealthLive_WhenHostNotAllowed_Returns400`（Host `evil.example`；另含任一 `/api/...` 路徑）
+    - `GetHealthLive_WhenHostNotAllowed_Returns400`（Host `evil.example`）
+    - `GetApiPath_WhenHostNotAllowed_Returns400`（Host `evil.example`，任一 `/api/...` 路徑）
     - `GetHealthLive_WhenHostAllowed_Returns200`（含帶連接埠）
     - `GetHealthLive_WhenAllowedHostsIsDefault_Returns200ForAnyHost`
   - TDD：框架既有行為的特性測試，程式碼不需變更，因此沒有「因行為不符而失敗」的 RED；以**還原驗證**取代：`bash scripts/verify-test-evidence.sh mutate` 暫時把工廠覆寫的 `AllowedHosts` 改成 `*`，確認前兩個斷言失敗，再還原。
@@ -67,7 +68,7 @@
   - 測試先行（`tests/ProjectC.WebApi.Tests/Startup/EdgeBoundaryNoCorsNoHstsTests.cs`）：
     - `GetHealthLive_WhenCrossOriginRequest_HasNoAccessControlAllowHeaders`
     - `Options_WhenPreflightFromForeignOrigin_HasNoAccessControlAllowHeaders`
-    - `GetApiEvents_WhenForwardedProtoHttpsFromTrustedProxy_HasNoStrictTransportSecurity`
+    - `GetApiEvents_WhenForwardedProtoHttpsFromTrustedProxy_HasNoStrictTransportSecurity`（須用非 loopback 的 Host，如 `app.example`，並讓 `X-Forwarded-Proto: https` 經 `UseForwardedHeaders` 還原為 https；`HstsMiddleware` 預設排除 loopback 且只在 `IsHttps` 時送標頭，否則 `UseHsts` mutate 後也不會失敗）
   - TDD：特性測試（程式碼不需變更，無法有 RED）；**還原驗證**：`mutate` 暫時加入 `AddCors`／`UseCors`（允許任意來源）與 `UseHsts`，確認對應測試失敗後還原，一次一個改動。
   - GREEN：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~EdgeBoundaryNoCorsNoHstsTests"` 全數通過
   - 紀錄（原文）：
@@ -84,14 +85,14 @@
 
 - [ ] 4.2 取得 digest 並釘版（對應 CIP-001～004）
   - 以 `docker buildx imagetools inspect <name:tag>` 取多架構索引 digest，寫成 `name:tag@sha256:...`：`deploy/api.Dockerfile`（sdk、aspnet、runtime-deps）、`deploy/web.Dockerfile`（node、nginx-unprivileged）、`k8s/20-postgres.yaml`、`21-redis.yaml`、`22-seq.yaml`；更新兩份 Dockerfile 開頭註解中「未釘 digest」的敘述。
-  - GREEN：`bash scripts/verify-image-pinning.sh` PASS；依 Dockerfile 開頭指令建置 `projectc/api`、`projectc/api-migrator`、`projectc/web` 皆成功；`bash scripts/verify-k8s-manifests.sh` 全 PASS（同 1.2 的環境條件）。
+  - GREEN：`bash scripts/verify-image-pinning.sh` PASS；依 Dockerfile 開頭指令建置 `projectc/api`、`projectc/api-migrator`、`projectc/web` 皆成功（各建置命令與輸出摘要原文記入紀錄）；`bash scripts/verify-k8s-manifests.sh` 全 PASS（同 1.2 的環境條件）。
   - 紀錄（原文）：
     - 
 
 ## 5. 文件
 
 - [ ] 5.1 文件同步（TDD N/A：純文件，由審查核對；`bash scripts/check-doc-paths.sh` 須通過）
-  - `docs/todo/2026-11-02-deployment-prerequisites.md`（部署前提現行位置）：nginx 前方須有 TLS 代理並送 `X-Forwarded-Proto: https`；`AllowedHosts` 上線前必改為實際網域；與現有「80／443 由既有反向代理佔用」一節對照。
+  - `docs/todo/2026-11-02-deployment-prerequisites.md`（部署前提現行位置）：nginx 前方須有 TLS 代理並送 `X-Forwarded-Proto: https`；`AllowedHosts` 上線前必改為實際網域；與現有「80／443 由既有反向代理佔用」一節對照；本機或維運以 port-forward／NodePort 存取須用清單內主機名稱（如 `localhost`），以 `127.0.0.1` 或節點 IP 經 nginx 呼叫 `/api/` 會得 400。
   - `docs/api-conventions.md`：「框架層錯誤」補 HostFiltering 400（無 `ProblemDetails` 本文）；新增同源／無 CORS 決策一行。
   - 新增 `docs/2026-11-13-image-pinning.md`：取得 digest 指令、tag 與 digest 同步更新、更新後驗證指令（CIP-005）。
   - `docs/review/TODO.md`：H-3、L-5、L-8 與 ② 狀態更新；順手修正 ⑧ `db-timeout-pool-tuning` 等已歸檔項目的過期狀態。
@@ -100,7 +101,7 @@
 ## 6. 真實瀏覽器驗證
 
 - [ ] 6.1 CSP 與頁面功能（對應 ESH-006；替代驗證，例外已核准）
-  - 有效觀測要求見 design.md「核准例外」(a)–(d)；以 claude-in-chrome 經邊界 nginx（`KEEP_UP=1 bash scripts/verify-k8s-manifests.sh` 後的 NodePort 30081，或等效部署）載入買家端、後台、核銷頁，完成登入與各頁主要操作；以 console 訊息核對沒有 CSP 違規，核銷頁相機可啟用（相機以 stub 或實機）。發現違規時依 design.md 決策 2 調整 CSP 並同步 ESH-005、2.1 腳本。
+  - 有效觀測要求見 design.md「核准例外」(a)–(d)；以 claude-in-chrome 經邊界 nginx（`KEEP_UP=1 bash scripts/verify-k8s-manifests.sh` 後的 `http://localhost:30081`，必須用 `localhost`，不可用 127.0.0.1，否則 `/api/` 得 400；或等效部署）載入買家端、後台、核銷頁，完成登入與各頁主要操作；以 console 訊息核對沒有 CSP 違規，核銷頁相機可啟用（相機以 stub 或實機）。發現違規時依 design.md 決策 2 調整 CSP 並同步 ESH-005、2.1 腳本。
   - 紀錄（頁面文字／console 原文，不只依截圖）：
     - 
 
