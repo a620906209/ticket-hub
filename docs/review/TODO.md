@@ -33,7 +33,7 @@
 |---|---|---|---|---|---|
 | **0. 立即（無 spec 小改）** | 清掉零成本項目 | 無 change；依「無對應 spec」條款直接改 | H-11 文件化時鐘依賴（寫進 runbook 草稿）、M-16 決策（Logout 維持匿名並記錄理由，或改）、M-17 `ShutdownTimeout`＋`terminationGracePeriodSeconds`、M-9 dummy hash（純 Handler 內改，TDD 單元測試） | 無 | 半天 |
 | **1. 代理層與認證邊界** | 任何對外曝露前必須完成 | ① `reverse-proxy-forwarded-headers`：nginx 轉送標頭、`UseForwardedHeaders`＋信任代理、限流 key 改用轉送後 IP、`captcha` 同步、公開讀取端點加 IP 限流 | **C-2**、M-3 | 無 | M |
-| | | ② ✅ `edge-security-headers`（已實作，待歸檔；TLS 終結改為沿用前方代理，不在此 change）：TLS 終結（Ingress／cert-manager 或 nginx）、HSTS、CSP／X-Frame／nosniff、`AllowedHosts`、CORS 決策、gzip、digest 釘版 | H-3、L-5、L-8 | ① 完成（HSTS 需 Proto 正確） | M |
+| | | ② ✅ `edge-security-headers`（已實作、叢集與瀏覽器補驗通過，待歸檔；TLS 終結改為沿用前方代理，不在此 change）：TLS 終結（Ingress／cert-manager 或 nginx）、HSTS、CSP／X-Frame／nosniff、`AllowedHosts`、CORS 決策、gzip、digest 釘版 | H-3、L-5、L-8 | ① 完成（HSTS 需 Proto 正確） | M |
 | | | ③ `secrets-and-observability-hardening`：Seq 認證＋API key＋PVC、Redis `requirepass`＋AOF＋PVC、Admin email 移 Secret、migrator 改環境變數、Sealed／External Secrets | H-4、H-8、M-7 | 無（可與②並行，但建議序跑以免審查互擾） | M |
 | **2. 金流與通知鏈** | 從「展示」變「能收錢」 | ④ ✅ `production-guard-for-mocks`：Production 下 Mock 付款／Email 綁定即啟動失敗（啟動時強制解析驗證，`ResolveEagerlyValidatedOptions`）；README 同步（已歸檔 2026-11-13） | **C-1(b)**、H-2 前置 | 無 | S |
 | | | ⑤ `email-delivery`：真實 Email 實作（SMTP／SendGrid），密碼重設改為 Handler 內寄送 | H-2、H-1 | ④ | M |
@@ -97,7 +97,7 @@
 - **驗收**：Production 無 Email 設定時啟動失敗；有設定時 ConfirmOrder 流程觸發一次寄送（以 fake transport 斷言）。
 - **工時**：M
 
-### H-3 無 TLS／HSTS／安全標頭／CORS 政策，`AllowedHosts: "*"`（安全標頭、條件式 HSTS、`AllowedHosts`、同源／無 CORS 決策已實作，待歸檔：change `edge-security-headers`；TLS 終結不在該 change，沿用前方代理，前提見 `docs/todo/2026-11-02-deployment-prerequisites.md` 第 6 項；HSTS 由 nginx 送、API 不加 `UseHsts`）
+### H-3 無 TLS／HSTS／安全標頭／CORS 政策，`AllowedHosts: "*"`（安全標頭、條件式 HSTS、`AllowedHosts`、同源／無 CORS 決策已實作、叢集與瀏覽器補驗通過，待歸檔：change `edge-security-headers`；TLS 終結不在該 change，沿用前方代理，前提見 `docs/todo/2026-11-02-deployment-prerequisites.md` 第 6 項；HSTS 由 nginx 送、API 不加 `UseHsts`）
 - **維度**：資安 A02／A05
 - **位置**：`deploy/nginx/default.conf:2`、`k8s/50-web.yaml`、`src/ProjectC.WebApi/appsettings.json:18`、`Program.cs`
 - **問題**：全程明文；無 CSP／X-Frame-Options／X-Content-Type-Options／Referrer-Policy；Host header 不受限。
@@ -270,7 +270,7 @@
 ### L-4 LICENSE／SECURITY.md 缺失 `[文件]`
 - 工時 S。
 
-### L-5 映像未釘 digest（✅ 已實作，待歸檔：change `edge-security-headers`；更新步驟見 `docs/2026-11-13-image-pinning.md`）
+### L-5 映像未釘 digest（✅ 已實作、叢集補驗通過，待歸檔：change `edge-security-headers`；更新步驟見 `docs/2026-11-13-image-pinning.md`）
 - **位置**：`deploy/api.Dockerfile:5`、`deploy/web.Dockerfile:4`
 - 工時 S。
 
@@ -279,7 +279,7 @@
 ### L-7 API 版本化策略 `[文件]`
 - 記錄「單版本、破壞性變更即新路徑」決策即可。工時 S。
 
-### L-8 nginx 無 gzip（✅ 已實作，待歸檔：change `edge-security-headers`）
+### L-8 nginx 無 gzip（✅ 已實作、補驗通過，待歸檔：change `edge-security-headers`）
 - 工時 S。
 
 ### L-9 `.agents/`、`.claude/agents/`、`.devin/rules/` 三處並存

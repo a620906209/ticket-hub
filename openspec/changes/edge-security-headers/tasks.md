@@ -422,7 +422,7 @@
 
 - [x] 7.1 hardener 最終檢查：N/A——本 change 沒有 Handler／Repository／I/O 程式碼變更（只有 nginx、K8s、Dockerfile、文件、腳本與特性測試），不在 hardener 適用範圍；於此記錄理由。
   - 紀錄：N/A（理由同上；本 change 無 Handler／Repository／I/O 程式碼變更，hardener 清單不適用）。
-- [ ] 7.2 審查迴圈紀錄（`strict-reviewer`、對抗式 subagent、`cross-review` 每輪工具／模型與 commit，以及 blocking 處理結果）
+- [x] 7.2 審查迴圈紀錄（`strict-reviewer`、對抗式 subagent、`cross-review` 每輪工具／模型與 commit，以及 blocking 處理結果）
   - 紀錄：
     - 實作階段 strict-reviewer 第 1 輪（subagent，未 commit 的工作樹）：PASS，無 blocking。測試：`docker compose exec -T api dotnet test tests/ProjectC.WebApi.Tests --filter "FullyQualifiedName~HostFilteringTests|FullyQualifiedName~EdgeBoundaryNoCorsNoHstsTests"` 第一次 `Failed: 2, Passed: 7, Total: 9`（`GetHealthLive_WhenCrossOriginRequest_HasNoAccessControlAllowHeaders`、`Options_WhenPreflightFromForeignOrigin_HasNoAccessControlAllowHeaders`：`Expected HasAccessControlAllowHeader(response) to be False, but found True.`），原因為容器 bin/obj 殘留 mutate 的增量建置產物（src 無 AddCors／UseCors，git status src 乾淨）；`dotnet build src/ProjectC.WebApi --no-incremental` 後重跑 `Passed: 9, Failed: 0, Total: 9`。`verify-image-pinning.sh` → `PASS 檢查 8 個外部映像參照皆已釘 digest，釘版文件關鍵字齊全`。建議事項：BREACH（gzip JSON）風險評估、CSP 相容性（6.1 補驗）、最終全套測試前須 `--no-incremental` 重建。
     - commit 795e249。外部審查第 1 輪（Claude Code Opus，審查對象 strict-reviewer 實作階段）：PASS，無 blocking；測試 `Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration: 695 ms - ProjectC.WebApi.Tests.dll (net10.0)`（`--no-incremental` 建置後）。建議：CSP 相容性（6.1 補驗）、gzip JSON BREACH 評估、7.2 補記、最終測試前 `--no-incremental`、image-pinning 文件日期前綴為 spec 預先指定。
@@ -450,3 +450,4 @@
     - commit c5c1308（採納 ESH-010 守衛與 `*.conf` eol=lf）。外部審查第 3 輪（Claude Code Opus，沿用 reviewer pane，審查 c5c1308 相對 486b2a8 的 diff）：PASS，無 blocking，無新增建議；本輪未跑容器測試（diff 無 .NET／web 變更）。
     - 第 3 輪外部 PASS 後最後一次 strict-reviewer（HEAD c5c1308）：PASS，無 blocking；`Build succeeded. 0 Warning(s) 0 Error(s)`（`--no-incremental`）、`Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration: 27 s - ProjectC.WebApi.Tests.dll (net10.0)`。
     - 第 3 次全新對抗式 general-purpose subagent（靜態審查，未跑容器）：無 blocking；建議（皆不處理）：gzip_types 不含 application/problem+json（已列延後）、AllowedHosts 不含 127.0.0.1（文件已警告）、直連 nginx 者可自帶 X-Forwarded-Proto 觸發 HSTS（在 TLS 代理前提下可接受）。
+    - 補驗後（commit 8aaecdc）：1.2／4.2／6.1 已補驗通過並勾選（見各 task 紀錄）。外部審查迴圈（第 1～3 輪外部 PASS）、最後一次 strict-reviewer 與全新對抗式審查皆已完成且無 blocking；補驗只新增 tasks.md 證據、待辦文件歸檔與 `docs/review/TODO.md` 狀態，未改程式碼。待辦文件已由 `scripts/archive-todo.sh` 搬至 `docs/archive/2026-11-14-edge-security-headers-k8s-verification-todo.md`，`bash scripts/check-doc-paths.sh` → `OK: 所有 docs 路徑引用都存在`。故 7.2 勾選。
