@@ -412,3 +412,6 @@
         ```
         （verify-test-evidence.sh 僅以 dotnet test 的 `Failed!` 判定，不適用 bash 腳本，故改用暫時注入並還原。）
       - 還原後（正式腳本）`bash scripts/verify-edge-headers.sh` exit=0：`PASS [ESH-010] nginx -T 的 gzip_types 含 RedemptionScannerPage-DuDr3aDd.js 的 Content-Type（application/javascript）`、`PASS [ESH-010] nginx -T 的 gzip_types 含 index-B9ObGmIc.css 的 Content-Type（text/css）`、`結果：PASS 24、FAIL 0`；`bash scripts/check-doc-paths.sh` → `OK: 所有 docs 路徑引用都存在`。腳本 CR 數 0、`bash -n` 通過。
+    - commit c5c1308（採納 ESH-010 守衛與 `*.conf` eol=lf）。外部審查第 3 輪（Claude Code Opus，沿用 reviewer pane，審查 c5c1308 相對 486b2a8 的 diff）：PASS，無 blocking，無新增建議；本輪未跑容器測試（diff 無 .NET／web 變更）。
+    - 第 3 輪外部 PASS 後最後一次 strict-reviewer（HEAD c5c1308）：PASS，無 blocking；`Build succeeded. 0 Warning(s) 0 Error(s)`（`--no-incremental`）、`Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration: 27 s - ProjectC.WebApi.Tests.dll (net10.0)`。
+    - 第 3 次全新對抗式 general-purpose subagent（靜態審查，未跑容器）：無 blocking；建議（皆不處理）：gzip_types 不含 application/problem+json（已列延後）、AllowedHosts 不含 127.0.0.1（文件已警告）、直連 nginx 者可自帶 X-Forwarded-Proto 觸發 HSTS（在 TLS 代理前提下可接受）。
