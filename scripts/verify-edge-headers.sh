@@ -233,7 +233,9 @@ fi
 effective_config="$(docker exec "$WEB" nginx -T 2>/dev/null)"
 for asset in "$js_asset" "$css_asset"; do
   content_type="$(header_value "$(fetch_headers "$base/assets/$asset")" Content-Type | sed 's/;.*//')"
-  if printf '%s\n' "$effective_config" | grep -E '^\s*gzip_types' | grep -qF "$content_type"; then
+  if [ -z "$content_type" ]; then
+    fail "ESH-010" "抓不到 $asset 的 Content-Type（回應沒有 Content-Type 標頭），無法比對 gzip_types"
+  elif printf '%s\n' "$effective_config" | grep -E '^\s*gzip_types' | grep -qF "$content_type"; then
     pass "ESH-010" "nginx -T 的 gzip_types 含 $asset 的 Content-Type（$content_type）"
   else
     fail "ESH-010" "nginx -T 的 gzip_types 不含 $asset 的 Content-Type（$content_type）"

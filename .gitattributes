@@ -1,3 +1,5 @@
 # Shell 腳本與 SQL 在容器（Linux）內執行，CRLF 會讓 bash／psql 解析失敗；不受 Windows core.autocrlf 影響。
 *.sh text eol=lf
 *.sql text eol=lf
+# nginx 設定在容器（Linux）內執行，CRLF 可能夾進引號內的標頭值（add_header 值尾端多出 \r）；不受 Windows core.autocrlf 影響。
+*.conf text eol=lf

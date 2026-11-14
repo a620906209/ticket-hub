@@ -394,4 +394,21 @@
     - 外部 PASS 後最後一次 strict-reviewer：PASS，無 blocking；`Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration: 743 ms - ProjectC.WebApi.Tests.dll (net10.0)`。
     - 對抗式 general-purpose subagent（全新）：1 項 blocking——`docs/2026-11-12-k8s-guide.md:91` 的維運指令 `curl http://127.0.0.1:18080/health/live` 在 `AllowedHosts=localhost;api` 下會得 400。自行驗證成立（design 的 §2 與 11c：非清單 Host → 400）；修正為 `http://localhost:18080/health/live` 並註明須用 localhost。附帶修正 `scripts/verify-edge-headers.sh` 第 145–146 行的字面 CR 與引號內換行（改為 `tr -d ''`、`printf '%s
 '`），重跑 `bash scripts/verify-edge-headers.sh` → `結果：PASS 24、FAIL 0`；`check-doc-paths.sh` → `OK: 所有 docs 路徑引用都存在`。未採納（建議）：gzip_types 加 application/problem+json、.gitattributes 補 `*.conf text eol=lf`（default.conf 為 CRLF、snippet 為 LF，不影響功能）。
-    - 上述修正尚未 commit、尚未重送外部審查，待使用者指示。
+    - 上述修正已於 486b2a8 commit。外部審查第 2 輪（Claude Code Opus，審查 486b2a8 完整 diff）：PASS，無 blocking，回歸核對兩處修正確認；`Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration: 769 ms - ProjectC.WebApi.Tests.dll (net10.0)`；`verify-edge-headers.sh` → `結果：PASS 24、FAIL 0`。建議：BREACH 與 CSP 相容性續於補驗 todo 追蹤、11d 補驗前維持 UNVERIFIED。
+    - 第 2 輪外部 PASS 後最後一次 strict-reviewer（HEAD 486b2a8）：PASS，無 blocking；`Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration: 905 ms - ProjectC.WebApi.Tests.dll (net10.0)`。
+    - 第 2 次全新對抗式 general-purpose subagent：無 blocking；`Passed!  - Failed:     0, Passed:     9, Skipped:     0, Total:     9, Duration: 783 ms - ProjectC.WebApi.Tests.dll (net10.0)`、`verify-image-pinning.sh` → `PASS 檢查 8 個外部映像參照皆已釘 digest，釘版文件關鍵字齊全`、`verify-edge-headers.sh` → `結果：PASS 24、FAIL 0`。建議（未採納／延後）：`docs/review/TODO.md` 狀態註記補驗 todo 連結、ESH-010 `content_type` 空字串守衛、gzip_types 加 problem+json、`.gitattributes` 補 `*.conf`。
+    - 採納外部審查建議（未 commit）：(1) ESH-010 `content_type` 為空時直接 fail；(2) `.gitattributes` 補 `*.conf text eol=lf`，`deploy/nginx/default.conf` 工作樹原為 CRLF（`tr -cd '\r' | wc -c` = 46；`git ls-files --eol`：`i/lf w/crlf`）已轉 LF（轉後 CR=0、`i/lf w/lf`），`security-headers.conf` 本來即 LF（CR=0）。
+      - 修正前（暫時在迴圈內加 `content_type=""`，副本 `scripts/.mut-before.sh`，已刪除）`bash scripts/.mut-before.sh` exit=0，假通過：
+        ```
+        PASS [ESH-010] nginx -T 的 gzip_types 含 RedemptionScannerPage-DuDr3aDd.js 的 Content-Type（application/javascript）
+        PASS [ESH-010] nginx -T 的 gzip_types 含 index-B9ObGmIc.css 的 Content-Type（text/css）
+        結果：PASS 24、FAIL 0
+        ```
+      - 修正後（同樣暫時強制 `content_type=""`，副本 `scripts/.mut-after.sh`，已刪除）exit=1，正確 FAIL：
+        ```
+        FAIL [ESH-010] 抓不到 RedemptionScannerPage-DuDr3aDd.js 的 Content-Type（回應沒有 Content-Type 標頭），無法比對 gzip_types
+        FAIL [ESH-010] 抓不到 index-B9ObGmIc.css 的 Content-Type（回應沒有 Content-Type 標頭），無法比對 gzip_types
+        結果：PASS 22、FAIL 2
+        ```
+        （verify-test-evidence.sh 僅以 dotnet test 的 `Failed!` 判定，不適用 bash 腳本，故改用暫時注入並還原。）
+      - 還原後（正式腳本）`bash scripts/verify-edge-headers.sh` exit=0：`PASS [ESH-010] nginx -T 的 gzip_types 含 RedemptionScannerPage-DuDr3aDd.js 的 Content-Type（application/javascript）`、`PASS [ESH-010] nginx -T 的 gzip_types 含 index-B9ObGmIc.css 的 Content-Type（text/css）`、`結果：PASS 24、FAIL 0`；`bash scripts/check-doc-paths.sh` → `OK: 所有 docs 路徑引用都存在`。腳本 CR 數 0、`bash -n` 通過。
