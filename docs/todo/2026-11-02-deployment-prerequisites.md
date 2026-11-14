@@ -57,6 +57,14 @@
 - `Database:CommandTimeoutSeconds`、`ConnectionTimeoutSeconds`、`MaxPoolSize` 會覆寫連線字串內的同名參數（`Timeout`、`MaxPoolSize`）；調整請改 `Database` 設定，不要改連線字串。
 - 命令逾時與池耗盡等待逾時回 503 `ServiceUnavailable`（見 `docs/api-conventions.md`）；重試（execution strategy）不在此 change，另案 `db-retry-execution-strategy`。
 
+### 6. TLS 代理與 `AllowedHosts`（edge-security-headers）
+
+- web nginx 只聽 HTTP，不終結 TLS；對外 HTTPS 由前方代理負責（VPS 的 80／443 由既有反向代理佔用，沿用它，見下方「VPS 部署的已知限制」）。該代理**必須把 `X-Forwarded-Proto` 覆寫為單一值 `https`**（用 `proxy_set_header` 覆寫，不是附加）：nginx 只在該標頭恰為 `https` 時送 `Strict-Transport-Security: max-age=15552000`；若被附加成 `https, http` 之類的多值，HSTS 不送（fail-safe，不會誤送，但也等於沒有 HSTS）。
+- `AllowedHosts`（K8s 在 `k8s/10-configmap.yaml`）上線前**必須改為實際對外網域**（以分號分隔，須保留 `api` 供探針的 `Host: api`）；預設值 `localhost;api` 只適用本機驗證，忘了改會讓以真實網域送來的 `/api/` 請求全部得 400（fail-closed）。nginx 以原始 `Host` 轉發給 API，所以使用者實際使用的網域必須在清單內。
+- 本機或維運以 port-forward／NodePort 存取須用清單內的主機名稱（如 `localhost`）：以 `127.0.0.1` 或節點 IP 經 nginx 呼叫 `/api/` 會得 400（靜態頁不受影響）；直連 API 的 port-forward 要帶 `-H 'Host: localhost'`。
+- 部署順序：先更新 ConfigMap 的 `AllowedHosts` 與探針 `Host`，再部署新映像；順序顛倒時舊探針（無 `Host`）會被擋成 400，Pod 永遠 NotReady。
+- 基底映像以 digest 釘版，安全更新須人工更新，步驟見 `docs/2026-11-13-image-pinning.md`。
+
 ## VPS 部署的已知限制（2026-10-17 記錄，開提案時須重新確認）
 
 - 主機與其他專案共用，可用記憶體約 858MB，跑不動 K8s 控制平面，因此以 compose 部署。

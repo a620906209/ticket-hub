@@ -20,7 +20,7 @@
 
 ## 2. 錯誤格式
 
-所有錯誤回應為 RFC 7807 `ProblemDetails`（`application/problem+json`）。框架層錯誤（500／400／408／413／429／503）的 Content-Type 一律為 `application/problem+json`（不附 charset），詳見 `api-error-responses` 主 spec；寫出統一走 `ProblemDetailsResponseWriter`。
+所有錯誤回應為 RFC 7807 `ProblemDetails`（`application/problem+json`）。框架層錯誤（500／400／408／413／429／503）的 Content-Type 一律為 `application/problem+json`（不附 charset），唯一例外是 `HostFiltering` 的 400（見「框架層錯誤」，本文為框架預設、無 `ProblemDetails`），詳見 `api-error-responses` 主 spec；寫出統一走 `ProblemDetailsResponseWriter`。
 
 ### 業務錯誤（Handler 回傳 `Result`）
 
@@ -44,6 +44,8 @@
 
 ### 框架層錯誤
 
+- Host 驗證：`AllowedHosts` 設為明確清單時（K8s ConfigMap；`appsettings.json` 預設 `*` 不限制），`Host` 不在清單內的請求由框架 `HostFiltering` 在進入應用程式管線前回 400，**回應為框架預設，無 `ProblemDetails` 本文、無 `traceId`**（有意偏離，理由見 edge-security-headers design.md「跨模組慣例對照」）；不論路徑，含 `/health/*`。探針須帶清單內的 `Host`（`k8s/40-api.yaml` 為 `Host: api`），維運以 port-forward 直連須用 `-H 'Host: localhost'`。
+- 同源、無 CORS：前端與 API 皆由同一個 nginx 來源提供，API 不註冊 CORS（沒有任何 `Access-Control-Allow-*` 標頭，預檢請求也不處理）；日後若前端與 API 分屬不同來源，須另開 change 決定 CORS 政策，不可只加一個寬鬆 policy。以 `EdgeBoundaryNoCorsNoHstsTests` 固定。
 - `GlobalExceptionHandler`：未預期例外 → 500，`Title = "InternalServerError"`；`BadHttpRequestException` → 其原本狀態碼，`Title` 為機器代碼：413 `PayloadTooLarge`、408 `RequestTimeout`、400 `BadRequest`，其他狀態碼為 reason phrase 僅保留英數字元（框架無 reason phrase，或移除非英數字元後為空字串時 `BadRequest`）。皆帶 `traceId` extension，不含 `Detail`。
 - 資料庫逾時：命令逾時（`Database:CommandTimeoutSeconds`）或連線池耗盡等待逾時（`Database:ConnectionTimeoutSeconds`）→ 503，`application/problem+json`，`Title = "ServiceUnavailable"`，帶 `traceId` extension，不含 `Detail`；Log 為 Warning 且不記錄例外物件。判定在 `DatabaseTimeoutDetector`：例外鏈中有內含 `TimeoutException` 的 `NpgsqlException`。其他資料庫例外仍為 500。
 - 認證挑戰／授權拒絕：JWT 認證 scheme 產生的 401（未帶、無效或過期 token）與 403（角色或 Policy 不足、控制器 `Forbid()`）為 `application/problem+json`，含 `status`、`Title`（`Unauthorized`／`Forbidden`）與 `traceId`（`HttpContext.TraceIdentifier`），不含 `Detail`；401 的狀態碼與 `WWW-Authenticate` header 與框架預設逐字相同。業務失敗轉換的 401／403 不屬此類，仍帶原 `Detail`。實作在 `JwtBearerProblemDetailsResponses`。

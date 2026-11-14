@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: seq
-          image: datalust/seq:2026.1.17114
+          image: datalust/seq:2026.1.17114@sha256:fa405502a3c57884c88477b78b55ca76c5a3fb1a4d20c6a185c24e750db34056
           imagePullPolicy: IfNotPresent
           env:
             - name: ACCEPT_EULA

@@ -448,8 +448,50 @@ for _ in $(seq 1 20); do
   sleep 1
 done
 pf_body=""
-[ -n "$pf_port" ] && pf_body="$(curl -s -m 15 "http://127.0.0.1:${pf_port}/health/live")"
+[ -n "$pf_port" ] && pf_body="$(curl -s -m 15 -H 'Host: localhost' "http://127.0.0.1:${pf_port}/health/live")"
 if [ "$pf_body" = "Healthy" ]; then pass 8b "kubectl port-forward 到 api 可取得 /health/live（維運來源可達）"; else fail 8b "port-forward 取得 /health/live 失敗：'$pf_body'" "$(cat "$pf_log")"; fi
+
+# ---- 斷言 11：Host 驗證（edge-security-headers HHV-004～008）----
+# 直連 api 的請求必須帶清單內的 Host：以 127.0.0.1 為 Host 會被 HostFiltering 擋成 400（維運 port-forward 須用 -H 'Host: localhost'）。
+allowed_hosts_line="$(grep -E '^[[:space:]]+AllowedHosts:' "$K8S_DIR/10-configmap.yaml" | head -n 1)"
+allowed_hosts_value="$(sed -E 's/^[[:space:]]+AllowedHosts:[[:space:]]*"?([^"]*)"?.*$/\1/' <<<"$allowed_hosts_line")"
+if [ -n "$allowed_hosts_value" ] && [[ "$allowed_hosts_value" != *'*'* ]] && [[ ";$allowed_hosts_value;" == *';api;'* ]]; then
+  pass 11a "HHV-004 k8s/10-configmap.yaml 的 AllowedHosts=$allowed_hosts_value（非空、不含 *、含 api）"
+else
+  fail 11a "HHV-004 AllowedHosts 不符（預期非空、不含 *、含 api）：'$allowed_hosts_line'"
+fi
+
+host_probe_problems=""
+for probe in startupProbe livenessProbe readinessProbe; do
+  probe_host="$(jq -r --arg p "$probe" '.spec.template.spec.containers[0][$p].httpGet.httpHeaders // [] | map(select(.name == "Host")) | .[0].value // "none"' <<<"$probe_json")"
+  [ "$probe_host" = "api" ] || host_probe_problems+="$probe 的 Host 標頭=$probe_host; "
+done
+api_ready="$(kn get deployment api -o jsonpath='{.status.readyReplicas}/{.spec.replicas}')"
+if [ -z "$host_probe_problems" ] && [ "${api_ready%/*}" = "${api_ready#*/}" ]; then
+  pass 11b "HHV-006 三個探針皆帶 Host: api，api 就緒副本 $api_ready"
+else
+  fail 11b "HHV-006 探針 Host 或就緒副本不符：$host_probe_problems（readyReplicas/replicas=$api_ready）"
+fi
+
+forged_code=""
+allowed_code=""
+if [ -n "$pf_port" ]; then
+  forged_code="$(http_code -H 'Host: evil' "http://127.0.0.1:${pf_port}/health/live")"
+  allowed_code="$(http_code -H 'Host: api' "http://127.0.0.1:${pf_port}/health/live")"
+fi
+if [ "$forged_code" = "400" ] && [ "$allowed_code" = "200" ]; then
+  pass 11c "HHV-005 直連 api：Host: evil → $forged_code，Host: api → $allowed_code"
+else
+  fail 11c "HHV-005 直連 api 預期 Host: evil → 400、Host: api → 200，實際 evil=$forged_code api=$allowed_code"
+fi
+
+via_web_allowed="$(http_code "$BASE/api/events?page=1&pageSize=1")"
+via_web_forged="$(http_code -H 'Host: evil.example' "$BASE/api/events?page=1&pageSize=1")"
+if [[ "$via_web_allowed" =~ ^2[0-9][0-9]$ ]] && [ "$via_web_forged" = "400" ]; then
+  pass 11d "HHV-007/008 經 web：Host: localhost → $via_web_allowed，Host: evil.example → $via_web_forged"
+else
+  fail 11d "HHV-007/008 經 web 預期 localhost → 2xx、evil.example → 400，實際 localhost=$via_web_allowed evil.example=$via_web_forged"
+fi
 
 # 不可信 workload 不可達：先做對照實驗，判斷本機 CNI 是否執行 NetworkPolicy。
 tcp_reachable() { # tcp_reachable <namespace> <pod> <host> <port>

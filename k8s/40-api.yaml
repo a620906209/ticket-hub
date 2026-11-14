@@ -35,18 +35,25 @@ spec:
                 name: projectc-config
             - secretRef:
                 name: projectc-secrets
+          # 探針自帶 Host: api，才能通過 AllowedHosts（kubelet 預設以 Pod IP 當 Host，會被 HostFiltering 擋成 400）。
           # 探針路徑須與 /health/live、/health/ready 完全相同，結尾不加斜線。
           # seeder 在監聽前同步執行，雙副本首次啟動還可能重啟一次，startupProbe 給足 150 秒。
           startupProbe:
             httpGet:
               path: /health/live
               port: http
+              httpHeaders:
+                - name: Host
+                  value: api
             periodSeconds: 5
             failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /health/live
               port: http
+              httpHeaders:
+                - name: Host
+                  value: api
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
@@ -55,6 +62,9 @@ spec:
             httpGet:
               path: /health/ready
               port: http
+              httpHeaders:
+                - name: Host
+                  value: api
             periodSeconds: 10
             timeoutSeconds: 15
             failureThreshold: 3
