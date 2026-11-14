@@ -83,7 +83,7 @@
     （mutate 結束後檔案已還原：ConfiguredAllowedHosts = "app.example"，git status 僅剩新檔 HostFilteringTests.cs）
     ```
 
-- [ ] 1.2 K8s：ConfigMap 加 `AllowedHosts`、三個探針加 `Host` 標頭（對應 HHV-004～008）
+- [x] 1.2 K8s：ConfigMap 加 `AllowedHosts`、三個探針加 `Host` 標頭（對應 HHV-004～008）
   - 測試先行：先在 `scripts/verify-k8s-manifests.sh` 新增斷言——ConfigMap 有 `AllowedHosts` 且不含 `*` 且含 `api`；`Host: evil` 請求 `/health/live` 回 400；`Host: localhost` 經 web 請求 `/api/...` 不為 400；`Host: evil` 經 web 請求 `/api/...` 回 400；API Pod Ready。既有的直連 API 斷言（8b，`http://127.0.0.1:<port>/health/live`）須改帶 `Host: localhost`，否則會被新設定擋成 400；同時確認 `deploy/docker-compose.verify.yml` 與 k6 腳本直連 API 的呼叫端（走預設 `*` 者不受影響）。維運以 port-forward 存取 API 也須用清單內主機名稱，寫入 5.1 文件。
   - 預期 RED：尚未改 manifest 時，ConfigMap 斷言 FAIL 且 `Host: evil` 得 200（`Expected 400, got 200` 一類原文）。
   - 最小實作：`k8s/10-configmap.yaml` 加 `AllowedHosts: "localhost;api"`（註解說明上線前改實際網域）；`k8s/40-api.yaml` 三個探針加 `httpHeaders: [{name: Host, value: api}]`。
@@ -124,6 +124,32 @@
       FAIL [10d] 12 次登入請求各帶不同偽造 X-Forwarded-For，沒有出現 429（偽造標頭未被覆蓋？）：000 000 000 000 000 000 000 000 000 000 000 000
       ```
     - 判讀：11a、11b、11c 由 FAIL 轉 PASS（目標行為）。3a／3b／4／5／8a／10d／11d 失敗皆為 HTTP 000（主機連不到 localhost:30081），RED 與 GREEN 相同、與本 change 無關。**11d（HHV-007／008）UNVERIFIED**：經 web 的 Host 行為尚未在叢集內驗證。**UNVERIFIED 項目與原因（使用者 2026-11-14 決定接受、之後補驗、不轉發 30081）**：`verify-k8s-manifests.sh` 的 3a、3b、4、5、8a、10d、11d——原因皆為 docker-desktop 為 kind 模式，NodePort 30081 主機連不到（HTTP 000）。其中 11d（HHV-007／008）為本 change 的行為斷言，其餘為既有斷言。本 task 維持未勾選，補驗清單與回填位置見 `docs/todo/2026-11-14-edge-security-headers-k8s-verification-todo.md`。
+    - **補驗（2026-11-14，取代上方 UNVERIFIED）**：以 `kubectl port-forward service/web 30081:8080`（綁 localhost，未用 socat）取代 NodePort 後，`KEEP_UP=1 bash scripts/verify-k8s-manifests.sh` 全數 PASS（PASS／FAIL 行原文；[7] 前後的 api 啟動例外堆疊為該斷言刻意缺 Jwt__SigningKey 所致）：
+      ```
+      PASS [10] nginx 以 $remote_addr 覆蓋 X-Forwarded-For 並傳遞 X-Forwarded-Proto；web Service externalTrafficPolicy: Local
+      PASS [0] manifest 覆寫為 Namespace projectc-verify、NodePort 30081
+      PASS [1] db／redis／seq／api／web 就緒（套用 NetworkPolicy 後仍就緒），migrator Complete，migration 筆數 16（預期 16），api 最大 restartCount=0
+      PASS [2a] 探針路徑：liveness=/health/live readiness=/health/ready startup=/health/live
+      PASS [2b] db 停止後 api Service endpoints 在 90 秒內清空（readiness 轉為 NotReady）
+      PASS [2c] db 恢復後 api endpoints 在 150 秒內回到 Ready
+      PASS [3a] GET http://localhost:30081/ → 200
+      PASS [3b] GET /api/events → 200（2xx，非 3xx）
+      PASS [4] 刪除 Pod api-6b8b8ccfd8-gthps 期間 21 次請求全為 2xx，Deployment 回到 2 個 Ready
+      PASS [5] rollout restart 期間 43 次請求全為 2xx
+      PASS [6] 5 個隨機機敏值未出現在 logs、describe、k8s/、版控；Secret 鍵名不在 ConfigMap
+      PASS [7] 缺 Jwt__SigningKey 時 api 進入 CrashLoopBackOff，上次結束碼=139
+      PASS [8a] 經 web 取不到 /health/live、/health/ready、/api/health/*（回應不是 Healthy）
+      PASS [8b] kubectl port-forward 到 api 可取得 /health/live（維運來源可達）
+      PASS [11a] HHV-004 k8s/10-configmap.yaml 的 AllowedHosts=localhost;api（非空、不含 *、含 api）
+      PASS [11b] HHV-006 三個探針皆帶 Host: api，api 就緒副本 2/2
+      PASS [11c] HHV-005 直連 api：Host: evil → 400，Host: api → 200
+      PASS [11d] HHV-007/008 經 web：Host: localhost → 200，Host: evil.example → 400
+      PASS [8c] CNI 有執行 NetworkPolicy：不可信 Pod 連不到 api／redis／db，app=web 可連 api
+      PASS [9] api 為 ClusterIP、僅 web 為 NodePort（30081）、api／web／migrator 皆 runAsNonRoot、OpenAPI／SwaggerUI 不可經 web 取得
+      PASS [10d] 12 次登入請求各帶不同偽造 X-Forwarded-For，仍被限流（狀態碼：400 400 400 400 400 400 400 400 429 429 400 400）
+      SUMMARY: 21 passed, 0 failed, 0 unverified
+      ```
+    - 限制：port-forward 繞過 NodePort 的 externalTrafficPolicy: Local 與來源位址（[10d] 以偽造 X-Forwarded-For 仍被 nginx 覆蓋並限流 PASS，不受影響）；本次未經 NodePort 路徑，NodePort 主機可達性本身仍不在驗證範圍。
     - 
 
 ## 2. nginx 安全標頭、HSTS、gzip
@@ -320,7 +346,7 @@
       ```
     - 
 
-- [ ] 4.2 取得 digest 並釘版（對應 CIP-001～004）
+- [x] 4.2 取得 digest 並釘版（對應 CIP-001～004）
   - 以 `docker buildx imagetools inspect <name:tag>` 取多架構索引 digest，寫成 `name:tag@sha256:...`：`deploy/api.Dockerfile`（sdk、aspnet、runtime-deps）、`deploy/web.Dockerfile`（node、nginx-unprivileged）、`k8s/20-postgres.yaml`、`21-redis.yaml`、`22-seq.yaml`；更新兩份 Dockerfile 開頭註解中「未釘 digest」的敘述。
   - GREEN：`bash scripts/verify-image-pinning.sh` PASS；依 Dockerfile 開頭指令建置 `projectc/api`、`projectc/api-migrator`、`projectc/web` 皆成功（各建置命令與輸出摘要原文記入紀錄）；`bash scripts/verify-k8s-manifests.sh` 全 PASS（同 1.2 的環境條件）。
   - 紀錄（原文）：
@@ -363,6 +389,7 @@
       ```
     - `bash scripts/verify-image-pinning.sh`：PASS 檢查 8 個外部映像參照皆已釘 digest，釘版文件關鍵字齊全
     - `verify-k8s-manifests.sh` 全 PASS 條件**未達成**（同 1.2 的 NodePort 環境限制，見 1.2 紀錄）；映像釘版後三個 :local 映像可建置、叢集內 db／redis／seq 以釘版 digest 映像啟動並就緒（斷言 1 PASS）。**UNVERIFIED 項目與原因（使用者 2026-11-14 決定接受、之後補驗）**：(1) 釘版後 `verify-k8s-manifests.sh` 叢集全 PASS（CIP-004）——因 kind 模式 NodePort 30081 主機連不到，3a／3b／4／5／8a／10d／11d 失敗；(2) 釘版後 web 映像（nginx 設定與釘版 base）經 NodePort 的行為。本 task 維持未勾選，見 `docs/todo/2026-11-14-edge-security-headers-k8s-verification-todo.md`。
+    - **補驗（2026-11-14）**：釘版後（三個 :local 映像由釘 digest 的 Dockerfile 建置並匯入節點、db／redis／seq 以釘版 digest 啟動）叢集全 PASS（CIP-004），輸出同 1.2 補驗紀錄：`SUMMARY: 21 passed, 0 failed, 0 unverified`。
     - 
 
 ## 5. 文件
@@ -378,10 +405,18 @@
 
 ## 6. 真實瀏覽器驗證
 
-- [ ] 6.1 CSP 與頁面功能（對應 ESH-006；替代驗證，例外已核准）
+- [x] 6.1 CSP 與頁面功能（對應 ESH-006；替代驗證，例外已核准）
   - 有效觀測要求見 design.md「核准例外」(a)–(d)；以 claude-in-chrome 經邊界 nginx（`KEEP_UP=1 bash scripts/verify-k8s-manifests.sh` 後的 `http://localhost:30081`，必須用 `localhost`，不可用 127.0.0.1，否則 `/api/` 得 400；或等效部署）載入買家端、後台、核銷頁，完成登入與各頁主要操作；以 console 訊息核對沒有 CSP 違規，核銷頁相機可啟用（相機以 stub 或實機）。發現違規時依 design.md 決策 2 調整 CSP 並同步 ESH-005、2.1 腳本。
   - 紀錄（頁面文字／console 原文，不只依截圖）：
     - **UNVERIFIED**：docker-desktop 為 kind 模式節點，主機連不到 `localhost:30081`（NodePort 未對主機開放；以 socat 容器轉發的嘗試被 auto mode 分類器拒絕，未繞過），無法經邊界 nginx 於真實瀏覽器驗證 CSP 與頁面功能。原因：kind 模式 NodePort 主機連不到。使用者 2026-11-14 決定標 UNVERIFIED、之後補驗、不轉發 30081；有效觀測要求 (a)–(d) 全部未做。本 task 維持未勾選，補驗見 `docs/todo/2026-11-14-edge-security-headers-k8s-verification-todo.md`。
+    - **補驗（2026-11-14，取代上方 UNVERIFIED）**：環境為 `KEEP_UP=1` 保留的 projectc-verify，經 `kubectl port-forward` 於 `http://localhost:30081`（localhost，非 127.0.0.1），claude-in-chrome 操作；測試資料（主辦方、場館、座位圖、活動 `CSP Verify Event`、票種）由 API 建立，admin 登入的驗證碼以 Redis 預寫已知答案雜湊（K8s 的 `Captcha__VerificationMode=AcceptAny` 被 Production 防護拒絕，已還原、未繞過）。
+      - (a) console 擷取有效：`read_console_messages` 讀回 `CSPCHECK known-message`、`CSPCHECK admin-known`、`CSPCHECK gUM called {"video":{"facingMode":"environment"}}`（時間 下午12:49:45／12:50:38／12:50:51）。
+      - (b) 買家端 `/`：頁面文字含 `售票平台 活動 登入 註冊 活動列表 CSP Verify Event 2026/12/14 下午12:48:08 販售中`；回應標頭 `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`。DB 為 startAtUtc 2026-12-14T04:48:08Z，頁面顯示 12:48:08（UTC+8）一致。
+      - (b) 後台：UI 登入 admin@local.dev 後切換主辦方 CspVerifyOrg；`/admin/venues` 文字含 `CspVerifyVenue`；`/admin/events` 文字含 `CSP Verify Event … CspVerifyVenue Administrator 2026/11/14 下午12:48:09`，fetch 該頁 `content-security-policy` 標頭存在。
+      - (c) 核銷頁 `/admin/redeem`：頁面文字 `票券核銷 已驗證簽章 改用手動輸入`、存在 `<video>`，stub 的 `navigator.mediaDevices.getUserMedia` 被呼叫 1 次（`window.__gumCalls=1`，參數 `{"video":{"facingMode":"environment"}}`）。
+      - (d) `read_console_messages` pattern `Content Security Policy|Refused to`（含買家端載入、登入、後台三頁、核銷頁整個流程，緩衝區連續保留）：0 筆違規，僅上列 3 筆 CSPCHECK 自訂訊息。CSP 無需調整，ESH-005／2.1 腳本不變。
+      - 限制：相機以 stub 驗證流程觸發，非真實相機；核銷簽章驗證未實際掃碼。
+      - 清除：port-forward 與迴圈已停止、namespace projectc-verify 已刪除、`/tmp/ev/.adminpw` 已刪除。
 
 ## 7. hardener 與審查
 
